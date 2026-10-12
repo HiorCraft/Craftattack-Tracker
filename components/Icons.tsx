@@ -67,6 +67,12 @@ export const Icon = {
       <circle cx="8" cy="8" r="1.5" fill="currentColor" />
     </svg>
   ),
+  gift: (p: P) => (
+    <svg {...base} {...p}>
+      <path d="M3 10h18v11H3zM2 6h20v4H2zM12 6v15" />
+      <path d="M12 6H8.5a2.5 2.5 0 1 1 2.5-2.5V6zm0 0h3.5a2.5 2.5 0 1 0-2.5-2.5V6z" />
+    </svg>
+  ),
   server: (p: P) => (
     <svg {...base} {...p}>
       <rect x="3" y="4" width="18" height="6" />
@@ -142,6 +148,8 @@ export const EVENT_ICON: Record<EventType, keyof typeof Icon> = {
   stream_start: "twitch",
   stream_end: "twitch",
   stream_title: "tag",
+  subscription: "gift",
+  subscription_gift: "gift",
   server_online: "server",
   server_offline: "server",
   tracker_start: "bolt",

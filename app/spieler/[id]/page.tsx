@@ -8,7 +8,7 @@ import { EventFeed } from "@/components/EventFeed";
 import { BOARD_ICON, Icon } from "@/components/Icons";
 import { FigValue } from "@/components/FigValue";
 import { StatSpark } from "@/components/StatSpark";
-import { getAllSessions, getPlayerHistory } from "@/lib/store";
+import { getAllSessions, getPlayerHistory, getTwitchSubscriptionBoard, getTwitchSubscriptionProfile } from "@/lib/store";
 import { companionsOf, overlapsFor } from "@/lib/overlap";
 import { TwitchEmbed } from "@/components/TwitchEmbed";
 import { PlayerInsights } from "@/components/PlayerInsights";
@@ -115,7 +115,15 @@ async function Player({ params }: { params: PageProps<"/spieler/[id]">["params"]
   const { state, events, now } = await loadTracker();
   const p = state.players[id];
   if (!p) notFound();
-  const [history, allSessions, rates, rankHistory, afkSpans] = await Promise.all([getPlayerHistory(id), getAllSessions(), getPlayerRates(), getRankHistory(), getPlayerAfkSpans(id)]);
+  const [history, allSessions, rates, rankHistory, afkSpans, subscriptions, subscriptionBoard] = await Promise.all([
+    getPlayerHistory(id),
+    getAllSessions(),
+    getPlayerRates(),
+    getRankHistory(),
+    getPlayerAfkSpans(id),
+    getTwitchSubscriptionProfile(id, p.live ? p.liveSince ?? p.live.startedAt ?? null : null),
+    getTwitchSubscriptionBoard(),
+  ]);
   const overlaps = overlapsFor(id, allSessions, now);
   const nameOf = (pid: string) => state.players[pid]?.name ?? pid;
 
@@ -151,6 +159,8 @@ async function Player({ params }: { params: PageProps<"/spieler/[id]">["params"]
       return [k, pos > 0 ? { rank: pos, of: null } : null];
     }),
   ) as Record<BoardKey, { rank: number; of: number | null } | null>;
+  const subscriptionRankIndex = subscriptionBoard.findIndex((entry) => entry.id === id);
+  const profileStatKeys = [...BOARD_KEYS, "twitchSubs"] as const;
 
   return (
     <>
@@ -215,8 +225,58 @@ async function Player({ params }: { params: PageProps<"/spieler/[id]">["params"]
       <section className="block block--tight" data-tone="ink">
         <div className="wrap">
           <h2 className="sr-only">Statistiken</h2>
-          <dl className="grid st-figs st-figs--6">
-            {BOARD_KEYS.map((k) => {
+          <dl className="grid st-figs">
+            {profileStatKeys.map((k) => {
+              if (k === "twitchSubs") {
+                return (
+                  <div key={k} className="box st-fig st-fig--spark" data-tone="amethyst">
+                    <dt className="pstat">
+                      <Link className="pstat__label pstat__link" href={graphHref(k)} title={`Twitch-Subs von ${p.name} im Graphen der Statistik öffnen`}>
+                        <Icon.gift width={18} height={18} aria-hidden="true" />
+                        <span>Twitch Subs</span>
+                        <span className="pstat__go" aria-hidden="true">↗</span>
+                      </Link>
+                      {subscriptionRankIndex >= 0 && (
+                        <span className="pstat__meta">
+                          <span
+                            className="tag"
+                            data-tone="ink"
+                            title={`Platz ${subscriptionRankIndex + 1} von ${subscriptionBoard.length} in der Twitch-Subs-Bestenliste`}
+                          >
+                            Platz {subscriptionRankIndex + 1}
+                            <span className="muted"> / {subscriptionBoard.length}</span>
+                          </span>
+                        </span>
+                      )}
+                    </dt>
+                    <Link className="pstat__val" href={graphHref(k)} tabIndex={-1} aria-hidden="true">
+                      <FigValue>{num(subscriptions.total)}</FigValue>
+                    </Link>
+                    <StatSpark
+                      points={subscriptions.history.map((point) => ({
+                        at: point.at,
+                        online: false,
+                        viewers: null,
+                        playtimeSeconds: null,
+                        deaths: null,
+                        diamonds: null,
+                        blocksBroken: null,
+                        mobsKilled: null,
+                        distance: null,
+                        twitchSubs: point.value,
+                      }))}
+                      k="twitchSubs"
+                      label="Twitch Subs"
+                      href={graphHref(k)}
+                    />
+                    {p.live && (
+                      <p className="muted" style={{ fontSize: ".75rem", marginTop: 4 }}>
+                        Dieser Stream: {num(subscriptions.currentStream)}
+                      </p>
+                    )}
+                  </div>
+                );
+              }
               const IconCmp = Icon[BOARD_ICON[k]];
               // Spielzeit gibt es von der API nur für die Top 10 – sonst geschätzt bzw. die vom Tracker gemessene Online-Zeit
               const isPlaytime = k === "playtimeSeconds";
@@ -261,7 +321,7 @@ async function Player({ params }: { params: PageProps<"/spieler/[id]">["params"]
           <p className="muted" style={{ marginTop: 16, fontSize: ".9375rem" }}>
             Tode, Diamanten, Blöcke, Mobs und Strecke kommen aus der Einzelstatistik der API (inklusive Rang unter allen
             Teilnehmenden). Die Spielzeit liefert die API nur für die Top 10. Steht „Tracker“ dabei, ist es die seit Tracker-Start gemessene Online-Zeit.
-            Die Kurven zeigen den Verlauf seit Tracker-Start ({num(history.length)} Messpunkte). Mit der Maus über die Kurve fahren zeigt Zeitpunkt und Wert. Ein Klick auf Beschriftung oder Wert öffnet den großen Graphen auf der Statistik-Seite.
+            Twitch-Subs werden nur gezählt, wenn der Streamer während des Sub-Events auf dem Spielserver online war (auch AFK). Die Kurven zeigen den Verlauf seit Tracker-Start ({num(history.length)} Messpunkte). Mit der Maus über die Kurve fahren zeigt Zeitpunkt und Wert. Ein Klick auf Beschriftung oder Wert öffnet den großen Graphen auf der Statistik-Seite.
           </p>
         </div>
       </section>

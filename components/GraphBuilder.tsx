@@ -280,7 +280,7 @@ export function GraphBuilder({ players, initial }: { players: PlayerOption[]; in
               id: `${res.metric}:${s.id}`,
               name: single ? s.name : res.series.length > 1 || q.spieler.length ? `${meta.label} · ${s.name}` : meta.label,
               metric: res.metric,
-              color: COLORS[out.length % COLORS.length],
+              color: res.metric === "twitchSubs" && res.series.length === 1 ? "var(--amethyst)" : COLORS[out.length % COLORS.length],
               format: meta.format,
             });
           }

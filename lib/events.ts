@@ -148,6 +148,18 @@ export const EVENT_META: Record<EventType, EventMeta> = {
     text: () => "hat den Streamtitel geändert",
     sub: (e) => (e.meta?.title ? String(e.meta.title) : null),
   },
+  subscription: {
+    label: "Abo",
+    tone: "pink",
+    text: (e) => e.player ? "hat in dieser Minute Subs erhalten" : `${e.meta?.channel ?? "Ein Streamer"} hat in dieser Minute Subs erhalten`,
+    sub: () => "Minutensumme",
+  },
+  subscription_gift: {
+    label: "Geschenk-Subs",
+    tone: "amethyst",
+    text: (e) => `hat ${num(e.delta ?? 0)} Subs von ${e.meta?.giftGiverName ?? "einem anderen Streamer"} geschenkt bekommen`,
+    sub: (e) => e.meta?.channel ? `im Stream von ${e.meta.channel}` : null,
+  },
   server_online: { label: "Server", tone: "grass", text: () => "Der Server ist wieder online" },
   server_offline: { label: "Server", tone: "redstone", text: () => "Der Server ist offline gegangen" },
   first_join: {
@@ -207,7 +219,7 @@ export const EVENT_GROUPS: { key: string; label: string; tone: string; types: Ev
   { key: "server", label: "Server", tone: "grass", types: ["join", "leave", "afk_start", "afk_mobs_start", "afk_mobs_end", "afk_blocks_start", "afk_blocks_end", "afk_end", "server_online", "server_offline", "tracker_start"] },
   { key: "death", label: "Tode", tone: "redstone", types: ["death"] },
   { key: "loot", label: "Loot & Arbeit", tone: "gold", types: ["diamonds", "blocksBroken", "mobsKilled", "distance"] },
-  { key: "twitch", label: "Twitch", tone: "twitch", types: ["stream_start", "stream_end", "stream_title"] },
+  { key: "twitch", label: "Twitch", tone: "twitch", types: ["stream_start", "stream_end", "stream_title", "subscription", "subscription_gift"] },
   { key: "highlights", label: "Highlights", tone: "amethyst", types: ["first_join", "rank", "milestone", "record"] },
 ];
 
@@ -234,6 +246,10 @@ export function eventBadge(e: TrackerEvent): string | null {
     case "stream_start":
     case "stream_title":
       return e.value !== undefined ? `${num(e.value)} Zuschauer` : null;
+    case "subscription":
+      return `${num(e.value ?? 0)} Subs`;
+    case "subscription_gift":
+      return `${num(e.delta ?? 0)} Subs`;
     case "stream_end": {
       const s = Number(e.meta?.streamSeconds ?? 0);
       return s > 0 ? duration(s) : null;
@@ -280,6 +296,7 @@ export const EVENT_TYPES: EventType[] = [
   "stream_start",
   "stream_end",
   "stream_title",
+  "subscription",
   "rank",
   "milestone",
   "record",
