@@ -70,6 +70,9 @@ export function EventTile({ e, showPlayer = true }: { e: TrackerEvent; showPlaye
   const liveUrl = typeof e.meta?.liveUrl === "string" ? e.meta.liveUrl : null;
   const link = liveUrl ? { href: liveUrl, title: "Läuft gerade – Stream auf Twitch ansehen", live: true } : vod ? { href: vod, title: e.type === "death" ? "Diesen Moment im VOD ansehen" : "Aufzeichnung auf Twitch ansehen", live: false } : null;
   const withHead = Boolean(e.player) && !SERVER_TYPES.has(e.type);
+  const raidTargetId = typeof e.meta?.targetPlayerId === "string" ? e.meta.targetPlayerId : null;
+  const raidTargetName = typeof e.meta?.targetPlayerName === "string" ? e.meta.targetPlayerName : raidTargetId;
+  const raidTargetUuid = typeof e.meta?.targetUuid === "string" ? e.meta.targetUuid : undefined;
   const offServer = e.type === "stream_start" && e.meta?.onServer === false;
   // Rang / Meilenstein: statt des Listennamens nur das Icon der Liste (Name steht im Tooltip)
   const board = (e.type === "rank" || e.type === "milestone") && BOARD_KEYS.includes(e.meta?.board as BoardKey) ? (e.meta!.board as BoardKey) : null;
@@ -77,7 +80,7 @@ export function EventTile({ e, showPlayer = true }: { e: TrackerEvent; showPlaye
 
   return (
     <li className="tile" data-tone={meta.tone} data-type={e.type} title={`${time(e.at)} · ${sentence}`}>
-      {withHead && showPlayer ? (
+      {withHead && (showPlayer || e.type === "raid") ? (
         <Link className="tile__head" href={`/spieler/${encodeURIComponent(e.player!)}`} aria-label={e.playerName ?? e.player}>
           <img src={headUrl(e.uuid, 32, e.player)} alt="" width={32} height={32} loading="lazy" decoding="async" />
         </Link>
@@ -85,6 +88,11 @@ export function EventTile({ e, showPlayer = true }: { e: TrackerEvent; showPlaye
       <Link className="tile__icon" data-tone={meta.tone} href={`/ereignisse?t=${e.type}`} aria-label={meta.label} title={`Nur „${meta.label}“ zeigen`}>
         <IconCmp aria-hidden="true" />
       </Link>
+      {e.type === "raid" && raidTargetId ? (
+        <Link className="tile__head" href={`/spieler/${encodeURIComponent(raidTargetId)}`} aria-label={raidTargetName ?? raidTargetId}>
+          <img src={headUrl(raidTargetUuid, 32, raidTargetId)} alt="" width={32} height={32} loading="lazy" decoding="async" />
+        </Link>
+      ) : null}
       {badge && <span className="tile__val num">{badge}</span>}
       {info && <span className="tile__info">{info}</span>}
       {BoardIcon && (

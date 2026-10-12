@@ -45,6 +45,7 @@ Alle Seiten werden komplett serverseitig gerendert (SSR, `instant = false`), kei
 | Tod, Diamanten, Blöcke, Mobs, Strecke | Anstieg in `/api/ext/<id>` bzw. den Top-10-Boards | Server |
 | Tode, die keinem bekannten Spieler zuzuordnen sind | `totals.deaths` | Server (ohne Spieler) |
 | Stream an / aus / Titel geändert, Peak-Zuschauer | `live[]` | Twitch |
+| Raid zwischen erfassten Spielern | Twitch-Chat (IRC) | Twitch |
 | Server online / offline | `serverOnline` | Server |
 | Erster Auftritt eines Spielers (seit Tracker-Start) | `online[]` | Server |
 | Rang-Aufstieg in die Top 3 einer Bestenliste | Boards | Server |
@@ -70,4 +71,5 @@ Koordinaten liefert die API nicht. „Wo“ bedeutet daher: auf dem Server oder 
 - `CA_EXT_URL` Basis-Adresse der Einzelstatistik (Standard `https://craftattack.one/api/ext`)
 - `CA_EXT_CONCURRENCY` gleichzeitige ext-Anfragen pro Poll (Standard 8)
 - `CA_POLL_INTERVAL_MS` Abfrageintervall (Standard 30000)
+- Twitch-IRC-Raids werden anonym und nur lesend in den Chats aktuell live streamender Spieler erkannt; Zugangsdaten sind nicht nötig.
 - `NEXT_PUBLIC_TWITCH_URL`, `NEXT_PUBLIC_DISCORD_URL`, `NEXT_PUBLIC_GITHUB_URL` optionale Footer-Links (werden beim Build eingebettet)

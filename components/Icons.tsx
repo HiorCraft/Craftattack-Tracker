@@ -61,6 +61,14 @@ export const Icon = {
       <path d="M4 2 2 6v14h5v3h3l3-3h4l5-5V2H4zm16 12-3 3h-5l-3 3v-3H6V4h14v10zM14 7h2v5h-2V7zm-5 0h2v5H9V7z" />
     </svg>
   ),
+  raid: (p: P) => (
+    <svg {...base} {...p}>
+      <circle cx="5" cy="6" r="2" />
+      <path d="M1 18v-1a4 4 0 0 1 8 0v1" />
+      <circle cx="19" cy="6" r="2" />
+      <path d="M15 18v-1a4 4 0 0 1 8 0v1M8 11h8m-3-3 3 3-3 3" />
+    </svg>
+  ),
   tag: (p: P) => (
     <svg {...base} {...p}>
       <path d="M3 3h9l9 9-9 9-9-9z" />
@@ -142,6 +150,7 @@ export const EVENT_ICON: Record<EventType, keyof typeof Icon> = {
   stream_start: "twitch",
   stream_end: "twitch",
   stream_title: "tag",
+  raid: "raid",
   server_online: "server",
   server_offline: "server",
   tracker_start: "bolt",

@@ -132,7 +132,7 @@ async function Player({ params }: { params: PageProps<"/spieler/[id]">["params"]
   const activeSeconds = Math.max(0, onlineSeconds - afkSeconds);
   /** Link auf den Graphen der Statistik-Seite für diese Kennzahl und diesen Spieler */
   const graphHref = (metric: string) => `/statistik?metric=${metric}&spieler=${encodeURIComponent(id)}&zeit=alle#graph`;
-  const mine = events.filter((e) => e.player === id);
+  const mine = events.filter((e) => e.player === id || e.meta?.targetPlayerId === id);
   const sess = sessions(mine, p.online, p.sessionStart, now);
   const strm = streams(mine, Boolean(p.live), p.liveSince, now);
   // Sessions und Streams gemeinsam, neueste zuerst; die Überschneidung mit der anderen Art steht dabei

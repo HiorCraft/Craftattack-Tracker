@@ -1,5 +1,6 @@
 import "server-only";
 import { appendEvents, getState, recordPlayerPoints, saveState } from "./store";
+import { syncTwitchChat } from "./twitchChat";
 import { fetchLiveStreams, TWITCH_ENABLED, type TwitchStream } from "./twitch";
 import { trackedSecondsOf } from "./playtime";
 import {
@@ -733,6 +734,7 @@ export async function pollOnce(): Promise<{ ok: boolean; events: number; error?:
       state.lastError = null;
       await appendEvents(events);
       await saveState(state);
+      syncTwitchChat(state.players);
       await recordPlayerPoints(Object.values(state.players), now.toISOString(), freshStats);
       return { ok: true, events: events.length };
     } catch (err) {

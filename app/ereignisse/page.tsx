@@ -50,7 +50,7 @@ async function Events({ searchParams }: { searchParams: PageProps<"/ereignisse">
   let base = [...events].reverse();
   if (since) base = base.filter((e) => Date.parse(e.at) >= since);
   if (where) base = base.filter((e) => e.where === where);
-  if (player) base = base.filter((e) => e.player === player);
+  if (player) base = base.filter((e) => e.player === player || e.meta?.targetPlayerId === player);
 
   const types = t ? [t] : typesForGroup(g);
   const list = types ? base.filter((e) => types.includes(e.type)) : base;

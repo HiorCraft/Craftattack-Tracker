@@ -142,6 +142,11 @@ export const EVENT_META: Record<EventType, EventMeta> = {
       return parts.length ? parts.join(" · ") : null;
     },
   },
+  raid: {
+    label: "Raid",
+    tone: "twitch",
+    text: (e) => `hat ${String(e.meta?.targetPlayerName ?? e.meta?.targetLogin ?? "einen anderen Spieler")} geraidet`,
+  },
   stream_title: {
     label: "Titel",
     tone: "amethyst",
@@ -207,7 +212,7 @@ export const EVENT_GROUPS: { key: string; label: string; tone: string; types: Ev
   { key: "server", label: "Server", tone: "grass", types: ["join", "leave", "afk_start", "afk_mobs_start", "afk_mobs_end", "afk_blocks_start", "afk_blocks_end", "afk_end", "server_online", "server_offline", "tracker_start"] },
   { key: "death", label: "Tode", tone: "redstone", types: ["death"] },
   { key: "loot", label: "Loot & Arbeit", tone: "gold", types: ["diamonds", "blocksBroken", "mobsKilled", "distance"] },
-  { key: "twitch", label: "Twitch", tone: "twitch", types: ["stream_start", "stream_end", "stream_title"] },
+  { key: "twitch", label: "Twitch", tone: "twitch", types: ["stream_start", "stream_end", "stream_title", "raid"] },
   { key: "highlights", label: "Highlights", tone: "amethyst", types: ["first_join", "rank", "milestone", "record"] },
 ];
 
@@ -233,6 +238,8 @@ export function eventBadge(e: TrackerEvent): string | null {
     }
     case "stream_start":
     case "stream_title":
+      return e.value !== undefined ? `${num(e.value)} Zuschauer` : null;
+    case "raid":
       return e.value !== undefined ? `${num(e.value)} Zuschauer` : null;
     case "stream_end": {
       const s = Number(e.meta?.streamSeconds ?? 0);
@@ -280,6 +287,7 @@ export const EVENT_TYPES: EventType[] = [
   "stream_start",
   "stream_end",
   "stream_title",
+  "raid",
   "rank",
   "milestone",
   "record",
