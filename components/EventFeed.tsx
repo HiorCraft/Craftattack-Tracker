@@ -82,6 +82,40 @@ export function EventTile({ e, showPlayer = true }: { e: TrackerEvent; showPlaye
           <img src={headUrl(e.uuid, 32, e.player)} alt="" width={32} height={32} loading="lazy" decoding="async" />
         </Link>
       ) : null}
+      {e.type === "subscription_gift" && showPlayer && typeof e.meta?.giftGiverPlayerId === "string" && (
+        <Link
+          className="tile__head tile__head--gift"
+          href={`/spieler/${encodeURIComponent(e.meta.giftGiverPlayerId)}`}
+          aria-label={`Geschenk von ${String(e.meta.giftGiverName ?? e.meta.giftGiverPlayerId)}`}
+          title={`Geschenk von ${String(e.meta.giftGiverName ?? e.meta.giftGiverPlayerId)}`}
+        >
+          <img
+            src={headUrl(typeof e.meta.giftGiverUuid === "string" ? e.meta.giftGiverUuid : undefined, 32, e.meta.giftGiverPlayerId)}
+            alt=""
+            width={32}
+            height={32}
+            loading="lazy"
+            decoding="async"
+          />
+        </Link>
+      )}
+      {e.type === "raid" && showPlayer && typeof e.meta?.raidTargetPlayerId === "string" && (
+        <Link
+          className="tile__head tile__head--raid-target"
+          href={`/spieler/${encodeURIComponent(e.meta.raidTargetPlayerId)}`}
+          aria-label={`Raid-Ziel: ${String(e.meta.raidTargetName ?? e.meta.raidTargetPlayerId)}`}
+          title={`Raid-Ziel: ${String(e.meta.raidTargetName ?? e.meta.raidTargetPlayerId)}`}
+        >
+          <img
+            src={headUrl(typeof e.meta.raidTargetUuid === "string" ? e.meta.raidTargetUuid : undefined, 32, e.meta.raidTargetPlayerId)}
+            alt=""
+            width={32}
+            height={32}
+            loading="lazy"
+            decoding="async"
+          />
+        </Link>
+      )}
       <Link className="tile__icon" data-tone={meta.tone} href={`/ereignisse?t=${e.type}`} aria-label={meta.label} title={`Nur „${meta.label}“ zeigen`}>
         <IconCmp aria-hidden="true" />
       </Link>

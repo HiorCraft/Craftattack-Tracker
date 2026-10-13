@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { loadTracker } from "@/lib/data";
-import { getBiggestEvents, getBoardTotalsOverTime, getHistoryAll } from "@/lib/store";
+import { getBiggestEvents, getBoardTotalsOverTime, getHistoryAll, getSeries, getTwitchSubscriptionBoard, getTwitchSubscriptionMinuteRecord } from "@/lib/store";
 import { boardValue, dateTime, duration, headUrl, num } from "@/lib/format";
 import { Sparkline, type SparkPoint } from "@/components/Sparkline";
 import { GraphBuilder } from "@/components/GraphBuilder";
@@ -106,7 +106,7 @@ function Record({
 export default async function Page(props: PageProps<"/statistik">) {
   const sp = await props.searchParams;
   const { state, now } = await loadTracker();
-  const [extras, hist, totals, bigDiamonds, bigDistance, bigBlocks, bigMobs] = await Promise.all([
+  const [extras, hist, totals, bigDiamonds, bigDistance, bigBlocks, bigMobs, subscriptionBoard, subscriptionSeries, subscriptionMinuteRecord] = await Promise.all([
     getStatsExtras(),
     getHistoryAll(),
     getBoardTotalsOverTime(),
@@ -114,6 +114,9 @@ export default async function Page(props: PageProps<"/statistik">) {
     getBiggestEvents("distance"),
     getBiggestEvents("blocksBroken"),
     getBiggestEvents("mobsKilled"),
+    getTwitchSubscriptionBoard(),
+    getSeries({ metric: "twitchSubs", players: [], from: null, to: now, bucketMinutes: null, mode: "wert" }),
+    getTwitchSubscriptionMinuteRecord(),
   ]);
 
   const players = Object.values(state.players);
@@ -125,6 +128,7 @@ export default async function Page(props: PageProps<"/statistik">) {
   const mostSessions = top(players, (p) => p.sessions);
   const topViewers = top(players.filter((p) => p.peakViewers > 0), (p) => p.peakViewers);
   const mostDeaths = top(players.filter((p) => p.stats.deaths !== undefined), (p) => p.stats.deaths ?? 0);
+  const mostSubscriptions = subscriptionBoard[0] ?? null;
   const busiestDay = top(extras.days, (d) => d.playerHours);
   const mostAfk = extras.afk.perPlayer[0] ?? null;
   const peakDay = top(hist.points, (h) => h.onlineCount);
@@ -200,6 +204,21 @@ export default async function Page(props: PageProps<"/statistik">) {
             <Record label="Meiste AFK-Zeit" tone="gold" value={mostAfk ? duration(mostAfk.seconds) : "–"} who={mostAfk ? { id: mostAfk.id, name: mostAfk.name } : null} uuid={mostAfk?.uuid} />
             <Record label="Längste AFK-Phase" tone="gold" value={extras.afk.longest ? duration(extras.afk.longest.seconds) : "–"} who={extras.afk.longest ? { id: extras.afk.longest.id, name: extras.afk.longest.name } : null} uuid={extras.afk.longest?.uuid} when={extras.afk.longest?.from} />
             <Record label="Meiste Tode" tone="redstone" value={mostDeaths ? num(mostDeaths.stats.deaths ?? 0) : "–"} who={who(mostDeaths)} uuid={mostDeaths?.uuid} />
+            <Record
+              label="Meiste Twitch Subs"
+              tone="amethyst"
+              value={mostSubscriptions ? num(mostSubscriptions.value) : "–"}
+              who={mostSubscriptions ? { id: mostSubscriptions.id, name: mostSubscriptions.name } : null}
+              uuid={mostSubscriptions?.uuid}
+            />
+            <Record
+              label="Meiste Subs in einer Minute"
+              tone="amethyst"
+              value={subscriptionMinuteRecord ? num(subscriptionMinuteRecord.value) : "–"}
+              who={subscriptionMinuteRecord ? { id: subscriptionMinuteRecord.id, name: subscriptionMinuteRecord.name } : null}
+              uuid={subscriptionMinuteRecord?.uuid}
+              when={subscriptionMinuteRecord?.at}
+            />
             <Record label="Vollster Moment" tone="grass" value={peakDay ? `${num(peakDay.onlineCount)} online` : "–"} when={peakDay?.at} />
             <Record label="Größter Diamanten-Fund" tone="diamond" value={bigDiamonds[0]?.delta ? num(bigDiamonds[0].delta) : "–"} who={bigDiamonds[0]?.player ? { id: bigDiamonds[0].player, name: bigDiamonds[0].playerName ?? bigDiamonds[0].player } : null} uuid={bigDiamonds[0]?.uuid} when={bigDiamonds[0]?.at} />
             <Record label="Weitester Marsch am Stück" tone="pink" value={bigDistance[0]?.delta ? boardValue("distance", bigDistance[0].delta) : "–"} who={bigDistance[0]?.player ? { id: bigDistance[0].player, name: bigDistance[0].playerName ?? bigDistance[0].player } : null} uuid={bigDistance[0]?.uuid} when={bigDistance[0]?.at} />
@@ -246,6 +265,7 @@ export default async function Page(props: PageProps<"/statistik">) {
             <Chart label="Abgebaute Blöcke" tone="gold" points={tseries("blocksBroken")} step />
             <Chart label="Erledigte Mobs" tone="grass" points={tseries("mobsKilled")} step />
             <Chart label="Gelaufene Strecke" tone="pink" points={tseries("distance")} kind="distance" step />
+            <Chart label="Twitch Subs" tone="amethyst" points={subscriptionSeries.series[0]?.points ?? []} step sub="während Spieler online waren" />
           </div>
           <p className="muted" style={{ marginTop: 16, fontSize: ".9375rem" }}>
             Summe über alle Spieler, die der Tracker kennt. Jeder Spieler zählt mit seinem jeweils letzten bekannten Stand, deshalb kann die Kurve

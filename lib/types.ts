@@ -83,6 +83,9 @@ export type EventType =
   | "stream_start"
   | "stream_end"
   | "stream_title"
+  | "subscription"
+  | "subscription_gift"
+  | "raid"
   | "server_online"
   | "server_offline"
   | "tracker_start"
@@ -206,6 +209,8 @@ export interface PlayerPoint {
   blocksBroken: number | null;
   mobsKilled: number | null;
   distance: number | null;
+  /** Vom Tracker gezählte Twitch-Abos; separate Ereignis-Zeitreihe kann dieses Feld ergänzen */
+  twitchSubs?: number | null;
 }
 
 export interface TotalsPoint {

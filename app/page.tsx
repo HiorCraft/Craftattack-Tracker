@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { loadTracker } from "@/lib/data";
-import { getHistoryAll } from "@/lib/store";
+import { getHistoryAll, getTwitchSubscriptionBoard } from "@/lib/store";
 import { BOARD_KEYS, type BoardKey } from "@/lib/types";
 import { boardValue, headUrl, num, duration, dateTime } from "@/lib/format";
 import { StatusLine } from "@/components/StatusLine";
@@ -32,7 +32,12 @@ export default function Home() {
 
 async function Dashboard() {
   const { state, events, now } = await loadTracker();
-  const [histAll, trend, ranksBefore] = await Promise.all([getHistoryAll(), getHistoryRange(72), getBoardRanksBefore(24)]);
+  const [histAll, trend, ranksBefore, subscriptionBoard] = await Promise.all([
+    getHistoryAll(),
+    getHistoryRange(72),
+    getBoardRanksBefore(24),
+    getTwitchSubscriptionBoard(),
+  ]);
   const s = state.latest;
   const liveList = s ? [...(s.live ?? [])].sort((a, b) => b.viewers - a.viewers) : [];
   // Globale Zuschauer: nur Streams von Spielern, die gerade auf dem Server sind
@@ -319,6 +324,36 @@ async function Dashboard() {
                 </section>
               );
             })}
+            <section className="box st-board" data-tone="amethyst" aria-labelledby="b-twitch-subs">
+              <header className="st-board__head">
+                <span className="st-board__icon">
+                  <Icon.gift aria-hidden="true" />
+                </span>
+                <div>
+                  <h3 className="t-3" id="b-twitch-subs">
+                    Sub-Stars
+                  </h3>
+                  <p className="st-board__sub">Twitch-Abos, während die Spieler auf dem Server online waren</p>
+                </div>
+              </header>
+              <ol className="st-board__list">
+                {subscriptionBoard.length === 0 ? (
+                  <li className="st-board__note">Noch keine Subs erfasst.</li>
+                ) : (
+                  subscriptionBoard.slice(0, 10).map((entry, index) => (
+                    <li key={entry.id}>
+                      <Link className="st-board__row" href={`/spieler/${encodeURIComponent(entry.id)}`}>
+                        <span className="st-board__rank num">{index + 1}</span>
+                        <img className="head" src={headUrl(entry.uuid, 28, entry.id)} alt="" width={28} height={28} loading="lazy" />
+                        <span className="st-board__name">{entry.name}</span>
+                        <span className="st-board__val num">{num(entry.value)}</span>
+                        <span className="st-board__mv" aria-hidden="true" />
+                      </Link>
+                    </li>
+                  ))
+                )}
+              </ol>
+            </section>
             <section className="box st-board" data-tone="lava" aria-labelledby="b-tracked">
               <header className="st-board__head">
                 <span className="st-board__icon">
