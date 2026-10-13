@@ -232,6 +232,7 @@ export interface TrackerState {
   /** Tode laut Gesamtzähler, die noch keinem Spieler zugeordnet werden konnten (werden erst nach Wartezeit gemeldet) */
   pendingDeaths: number;
   pendingSince: string | null;
-  /** Spieler, die für die offenen Tode in Frage kommen (online, ohne Einzelstatistik); genau einer → Zuordnung */
-  pendingCandidates: string[];
+  /** Spieler, die für die offenen Tode in Frage kommen (online, ohne Einzelstatistik); genau einer → Zuordnung.
+   *  `null` = noch nicht ermittelt, weil seit dem Auftauchen des Todes keine ext-Abfrage lief */
+  pendingCandidates: string[] | null;
 }

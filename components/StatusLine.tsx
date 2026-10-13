@@ -8,7 +8,7 @@ export function StatusLine({ state }: { state: TrackerState }) {
   if (s) {
     if (state.lastError) {
       dot = "dot--warn";
-      text = `Verbindung hakt gerade, Stand ${ago(state.lastOk)}`;
+      text = `Verbindung hakt gerade (${state.lastError}), Stand ${ago(state.lastOk)}`;
     } else if (s.serverOnline) {
       dot = "";
       text = `Server online · aktualisiert ${ago(s.updatedAt)}`;

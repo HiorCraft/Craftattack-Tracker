@@ -188,7 +188,7 @@ async function loadFromDb() {
     if (meta.records) state.records = { ...state.records, ...meta.records };
     state.pendingDeaths = meta.pending_deaths ?? 0;
     state.pendingSince = iso(meta.pending_since);
-    state.pendingCandidates = Array.isArray(meta.pending_candidates) ? meta.pending_candidates : [];
+    state.pendingCandidates = meta.pending_candidates === null ? null : Array.isArray(meta.pending_candidates) ? meta.pending_candidates : [];
   }
 
   const players = (await db.query<PlayerRow>(`SELECT * FROM players`)).rows;
@@ -276,7 +276,7 @@ export async function saveState(state: TrackerState) {
       JSON.stringify(state.records),
       state.pendingDeaths ?? 0,
       toDate(state.pendingSince ?? null),
-      JSON.stringify(state.pendingCandidates ?? []),
+      JSON.stringify(state.pendingCandidates),
     ],
   );
 

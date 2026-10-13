@@ -68,6 +68,7 @@ Koordinaten liefert die API nicht. „Wo“ bedeutet daher: auf dem Server oder 
 - `DATABASE_URL` PostgreSQL-Verbindung, z. B. `postgres://user:pass@localhost:5432/actracker`
 - `CA_STATS_URL` andere API-Adresse
 - `CA_EXT_URL` Basis-Adresse der Einzelstatistik (Standard `https://craftattack.one/api/ext`)
-- `CA_EXT_CONCURRENCY` gleichzeitige ext-Anfragen pro Poll (Standard 8)
+- `CA_EXT_CONCURRENCY` gleichzeitige ext-Anfragen pro Poll (Standard 4)
+- `CA_EXT_INTERVAL_MS` wie oft die Einzelstatistik der Online-Spieler geholt wird (Standard 60000); `CA_EXT_FULL_INTERVAL_MS` wie oft alle bekannten Spieler (Standard 600000). Cloudflare vor craftattack.one sperrt die IP bei zu vielen Anfragen (HTTP 403).
 - `CA_POLL_INTERVAL_MS` Abfrageintervall (Standard 30000)
 - `NEXT_PUBLIC_TWITCH_URL`, `NEXT_PUBLIC_DISCORD_URL`, `NEXT_PUBLIC_GITHUB_URL` optionale Footer-Links (werden beim Build eingebettet)

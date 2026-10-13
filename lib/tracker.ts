@@ -23,7 +23,14 @@ export const STATS_URL = process.env.CA_STATS_URL ?? "https://craftattack.one/ap
 export const EXT_URL = process.env.CA_EXT_URL ?? "https://craftattack.one/api/ext";
 export const POLL_INTERVAL_MS = Number(process.env.CA_POLL_INTERVAL_MS ?? 30_000);
 /** Wie viele ext-Anfragen gleichzeitig laufen */
-const EXT_CONCURRENCY = Number(process.env.CA_EXT_CONCURRENCY ?? 8);
+const EXT_CONCURRENCY = Number(process.env.CA_EXT_CONCURRENCY ?? 4);
+/**
+ * Wie oft die Einzelstatistiken der Online-Spieler geholt werden. craftattack.one liegt hinter Cloudflare,
+ * das bei ~100 Anfragen alle 30 s die IP des Trackers sperrt (HTTP 403, 2026-10-13) – daher seltener als der Poll.
+ */
+export const EXT_INTERVAL_MS = Number(process.env.CA_EXT_INTERVAL_MS ?? 60_000);
+/** Wie oft alle bekannten Spieler (auch offline) nachgeladen werden, damit Ränge und Zähler nicht veralten */
+export const EXT_FULL_INTERVAL_MS = Number(process.env.CA_EXT_FULL_INTERVAL_MS ?? 10 * 60_000);
 
 /** Board-Keys, deren Anstieg als Ereignis protokolliert wird */
 const COUNTER_EVENTS: Partial<Record<BoardKey, EventType>> = {
@@ -176,6 +183,27 @@ export async function fetchExtAll(
   return { players, loginOf, missing, failed };
 }
 
+let extAt = 0;
+let extFullAt = 0;
+/**
+ * Welche Spieler in dieser Abfrage per /api/ext geholt werden: alle EXT_INTERVAL_MS die Online-Spieler (plus die,
+ * die seit der letzten Abfrage gegangen sind, damit ihre letzten Zähler ankommen), alle EXT_FULL_INTERVAL_MS und
+ * beim ersten Poll alle bekannten Spieler. `null` = diesmal keine ext-Abfrage. Offline-Spieler ändern ihre Zähler
+ * nicht, die Abfrage wäre verschenkt.
+ */
+export function extTargets(state: TrackerState, stats: ApiStats, nowMs: number): Set<string> | null {
+  if (state.latest === null || nowMs - extFullAt >= EXT_FULL_INTERVAL_MS) {
+    extAt = extFullAt = nowMs;
+    return knownPlayerIds(state, stats);
+  }
+  if (nowMs - extAt < EXT_INTERVAL_MS) return null;
+  extAt = nowMs;
+  const ids = new Set<string>();
+  for (const p of stats.online) ids.add(p.id);
+  for (const ps of Object.values(state.players)) if (ps.online) ids.add(ps.id);
+  return ids;
+}
+
 /** Alle Spieler-IDs, die der Tracker kennt oder die im aktuellen Snapshot vorkommen. */
 export function knownPlayerIds(state: TrackerState, stats: ApiStats): Set<string> {
   const ids = new Set(Object.keys(state.players));
@@ -281,6 +309,8 @@ export function diffSnapshot(
   extLoginOf: Map<string, string> = new Map(),
   /** Logins, die /api/ext nicht kennt (für die Zuordnung per Ausschluss, siehe `deathCandidates`) */
   extMissing: Set<string> = new Set(),
+  /** Ob /api/ext in dieser Abfrage überhaupt gefragt wurde (sonst sagen leere `ext`/`extMissing` nichts aus) */
+  extFetched = true,
 ): TrackerEvent[] {
   const now = nowDate.toISOString();
   const events: TrackerEvent[] = [];
@@ -627,36 +657,41 @@ export function diffSnapshot(
     if (state.pendingDeaths === 0) {
       state.pendingSince = null;
       state.pendingCandidates = [];
-    } else if (!state.pendingSince) {
-      state.pendingSince = now;
-      // Wer kommt in Frage? Wird beim Auftauchen des Todes festgehalten, nicht erst nach der Wartezeit.
-      state.pendingCandidates = deathCandidates(state, stats, ext, extMissing);
-    } else if (nowDate.getTime() - Date.parse(state.pendingSince) >= UNKNOWN_DEATH_GRACE_MS) {
-      const candidates = state.pendingCandidates ?? [];
-      const only = candidates.length === 1 ? state.players[candidates[0]] : undefined;
-      if (only) {
-        // Genau ein Spieler ohne Einzelstatistik war online: ihm werden die Tode per Ausschluss zugeordnet
-        push({
-          type: "death",
-          player: only.id,
-          playerName: only.name,
-          uuid: only.uuid,
-          where: "server",
-          delta: state.pendingDeaths,
-          meta: { inferred: true, ...(only.live ? { live: true, twitchLogin: only.live.login, streamStartedAt: only.liveSince } : {}) },
-        });
-      } else {
-        push({
-          type: "death",
-          where: "server",
-          delta: state.pendingDeaths,
-          value: stats.totals.deaths,
-          meta: { unknown: true, candidates: candidates.length },
-        });
+    } else {
+      if (!state.pendingSince) {
+        state.pendingSince = now;
+        state.pendingCandidates = null;
       }
-      state.pendingDeaths = 0;
-      state.pendingSince = null;
-      state.pendingCandidates = [];
+      // Wer kommt in Frage? Wird beim Auftauchen des Todes festgehalten, nicht erst nach der Wartezeit – bzw. bei
+      // der nächsten Abfrage, die /api/ext tatsächlich fragt (ext läuft seltener als der Poll).
+      if (state.pendingCandidates === null && extFetched) state.pendingCandidates = deathCandidates(state, stats, ext, extMissing);
+      if (nowDate.getTime() - Date.parse(state.pendingSince) >= UNKNOWN_DEATH_GRACE_MS) {
+        const candidates = state.pendingCandidates ?? [];
+        const only = candidates.length === 1 ? state.players[candidates[0]] : undefined;
+        if (only) {
+          // Genau ein Spieler ohne Einzelstatistik war online: ihm werden die Tode per Ausschluss zugeordnet
+          push({
+            type: "death",
+            player: only.id,
+            playerName: only.name,
+            uuid: only.uuid,
+            where: "server",
+            delta: state.pendingDeaths,
+            meta: { inferred: true, ...(only.live ? { live: true, twitchLogin: only.live.login, streamStartedAt: only.liveSince } : {}) },
+          });
+        } else {
+          push({
+            type: "death",
+            where: "server",
+            delta: state.pendingDeaths,
+            value: stats.totals.deaths,
+            meta: { unknown: true, candidates: candidates.length },
+          });
+        }
+        state.pendingDeaths = 0;
+        state.pendingSince = null;
+        state.pendingCandidates = [];
+      }
     }
   }
 
@@ -705,11 +740,13 @@ export async function pollOnce(): Promise<{ ok: boolean; events: number; error?:
     state.polls += 1;
     try {
       const stats = await fetchStats();
-      // Einzelstatistiken für alle bekannten Spieler – Fehler hier sind nicht fatal, dann gibt es eben nur die Top 10
+      // Einzelstatistiken (gedrosselt, siehe `extTargets`) – Fehler hier sind nicht fatal, dann gibt es eben nur die Top 10
       const logins = extLogins(state, stats, knownPlayerIds(state, stats));
+      const extIds = extTargets(state, stats, now.getTime());
+      const extLoginList = extIds ? [...extIds].map((id) => logins.get(id) ?? id) : [];
       // Live-Status direkt bei Twitch für alle bekannten Logins; schlägt das fehl, zählt die Haupt-API
       const [ext, twitch] = await Promise.all([
-        fetchExtAll(logins.values()),
+        extIds ? fetchExtAll(extLoginList) : Promise.resolve({ players: new Map<string, ExtPlayer>(), loginOf: new Map<string, string>(), missing: new Set<string>(), failed: 0 }),
         TWITCH_ENABLED
           ? fetchLiveStreams(logins.values()).catch((err: unknown) => {
               console.warn("[tracker] Twitch-Live-Abfrage fehlgeschlagen:", err instanceof Error ? err.message : err);
@@ -719,7 +756,7 @@ export async function pollOnce(): Promise<{ ok: boolean; events: number; error?:
       ]);
       if (ext.failed > 0) console.warn(`[tracker] ${ext.failed} ext-Anfragen fehlgeschlagen`);
       const first = state.latest === null;
-      const events = diffSnapshot(state, stats, now, ext.players, twitch, ext.loginOf, ext.missing);
+      const events = diffSnapshot(state, stats, now, ext.players, twitch, ext.loginOf, ext.missing, extIds !== null);
       if (first) {
         events.unshift({
           id: eventId(now.toISOString()),
