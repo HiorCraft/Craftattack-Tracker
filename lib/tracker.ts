@@ -1,6 +1,6 @@
 import "server-only";
 import { appendEvents, getState, recordPlayerPoints, saveState } from "./store";
-import { fetchLiveStreams, TWITCH_ENABLED, type TwitchStream } from "./twitch";
+import { fetchFollowerCounts, fetchLiveStreams, TWITCH_ENABLED, type TwitchFollowerChannel, type TwitchStream } from "./twitch";
 import { trackedSecondsOf } from "./playtime";
 import {
   BOARD_KEYS,
@@ -22,6 +22,7 @@ export const STATS_URL = process.env.CA_STATS_URL ?? "https://craftattack.one/ap
  */
 export const EXT_URL = process.env.CA_EXT_URL ?? "https://craftattack.one/api/ext";
 export const POLL_INTERVAL_MS = Number(process.env.CA_POLL_INTERVAL_MS ?? 30_000);
+export const FOLLOWER_POLL_INTERVAL_MS = 60_000;
 /** Wie viele ext-Anfragen gleichzeitig laufen */
 const EXT_CONCURRENCY = Number(process.env.CA_EXT_CONCURRENCY ?? 8);
 
@@ -259,6 +260,13 @@ function ensurePlayer(
       afkCheck: null,
       ranks: {},
       twitchLogin: null,
+      followers: null,
+      followersAt: null,
+      followersOnlineAtSample: false,
+      followersOnServer: 0,
+      followersOnLiveStream: 0,
+      followersLiveAtSample: null,
+      livePeakViewers: 0,
     };
     state.players[p.id] = ps;
     newPlayers.add(p.id);
@@ -281,12 +289,14 @@ export function diffSnapshot(
   extLoginOf: Map<string, string> = new Map(),
   /** Logins, die /api/ext nicht kennt (für die Zuordnung per Ausschluss, siehe `deathCandidates`) */
   extMissing: Set<string> = new Set(),
+  followerCounts: Map<string, number> = new Map(),
 ): TrackerEvent[] {
   const now = nowDate.toISOString();
   const events: TrackerEvent[] = [];
   const push = (e: Omit<TrackerEvent, "id" | "at">) => events.push({ id: eventId(now), at: now, ...e });
 
   const first = state.latest === null;
+  const onlineBeforePoll = new Map(Object.values(state.players).map((player) => [player.id, player.online]));
 
   // --- Server-Status
   if (state.serverOnline !== null && state.serverOnline !== stats.serverOnline) {
@@ -388,6 +398,8 @@ export function diffSnapshot(
     const prev = ps.live;
     const onServer = onlineNow.has(l.id);
     ps.peakViewers = Math.max(ps.peakViewers, l.viewers);
+    const newStream = !prev || Boolean(l.startedAt && prev.startedAt && l.startedAt !== prev.startedAt);
+    ps.livePeakViewers = newStream ? l.viewers : Math.max(ps.livePeakViewers ?? 0, l.viewers);
     if (onServer) ps.peakViewersOnServer = Math.max(ps.peakViewersOnServer ?? 0, l.viewers);
     if (prev) {
       if (onServer) ps.streamOnServerSeconds = (ps.streamOnServerSeconds ?? 0) + sinceLast;
@@ -433,13 +445,14 @@ export function diffSnapshot(
         meta: {
           login: ps.live.login,
           streamSeconds,
-          peakViewers: ps.peakViewers,
+          peakViewers: ps.livePeakViewers ?? ps.peakViewers,
           peakViewersOnServer: ps.peakViewersOnServer ?? 0,
           startedAt: ps.liveSince,
         },
       });
       ps.live = null;
       ps.liveSince = null;
+      ps.livePeakViewers = 0;
     }
   }
   // Zusammengeführten Live-Stand in den Snapshot schreiben, damit alle Seiten dieselbe Quelle sehen
@@ -456,6 +469,38 @@ export function diffSnapshot(
     // /api/ext wird per Twitch-Login abgefragt: eine erfolgreiche Antwort bestätigt den Login des Spielers
     const login = extLoginOf.get(id);
     if (login && !ps.twitchLogin) ps.twitchLogin = login;
+  }
+
+  // --- Twitch-Follower: nur Zuwächse zwischen zwei Messungen auf dem Server zählen
+  for (const [id, value] of followerCounts) {
+    const ps = state.players[id];
+    if (!ps) continue;
+    const previous = ps.followers;
+    const elapsed = ps.followersAt ? nowDate.getTime() - Date.parse(ps.followersAt) : null;
+    const isOnlineNow = onlineNow.has(id);
+    const delta = previous === null ? 0 : value - previous;
+    const gainedOnServer = delta > 0 && ps.followersOnlineAtSample && onlineBeforePoll.get(id) === true && isOnlineNow ? delta : 0;
+    const currentStream = ps.live ? ps.liveSince : null;
+    if (ps.followersLiveAtSample !== currentStream) ps.followersOnLiveStream = 0;
+    if (currentStream && ps.followersLiveAtSample === currentStream) ps.followersOnLiveStream += gainedOnServer;
+    ps.followersLiveAtSample = currentStream;
+    ps.followersOnServer = (ps.followersOnServer ?? 0) + gainedOnServer;
+    ps.followers = value;
+    ps.followersAt = now;
+    ps.followersOnlineAtSample = isOnlineNow;
+    if (first || gainedOnServer === 0 || elapsed === null || elapsed <= 0) continue;
+    if (gainedOnServer * 60_000 > 20 * elapsed) {
+      push({
+        type: "follower_burst",
+        player: id,
+        playerName: ps.name,
+        uuid: ps.uuid,
+        where: "twitch",
+        delta: gainedOnServer,
+        value: ps.followersOnServer,
+        meta: { windowSeconds: Math.round(elapsed / 1000), followerGainOnServer: ps.followersOnServer },
+      });
+    }
   }
 
   // --- Boards: Zähler-Deltas
@@ -708,7 +753,7 @@ export async function pollOnce(): Promise<{ ok: boolean; events: number; error?:
       // Einzelstatistiken für alle bekannten Spieler – Fehler hier sind nicht fatal, dann gibt es eben nur die Top 10
       const logins = extLogins(state, stats, knownPlayerIds(state, stats));
       // Live-Status direkt bei Twitch für alle bekannten Logins; schlägt das fehl, zählt die Haupt-API
-      const [ext, twitch] = await Promise.all([
+      const [ext, twitch, followers] = await Promise.all([
         fetchExtAll(logins.values()),
         TWITCH_ENABLED
           ? fetchLiveStreams(logins.values()).catch((err: unknown) => {
@@ -716,10 +761,18 @@ export async function pollOnce(): Promise<{ ok: boolean; events: number; error?:
               return null;
             })
           : Promise.resolve(null),
+        fetchFollowerCounts(
+          [...logins]
+            .filter(([id]) => {
+              const sampledAt = state.players[id]?.followersAt;
+              return !sampledAt || now.getTime() - Date.parse(sampledAt) >= FOLLOWER_POLL_INTERVAL_MS;
+            })
+            .map(([id, login]): TwitchFollowerChannel => ({ id, login })),
+        ),
       ]);
       if (ext.failed > 0) console.warn(`[tracker] ${ext.failed} ext-Anfragen fehlgeschlagen`);
       const first = state.latest === null;
-      const events = diffSnapshot(state, stats, now, ext.players, twitch, ext.loginOf, ext.missing);
+      const events = diffSnapshot(state, stats, now, ext.players, twitch, ext.loginOf, ext.missing, followers);
       if (first) {
         events.unshift({
           id: eventId(now.toISOString()),

@@ -10,6 +10,8 @@ import { updateEventMeta } from "./store";
 
 const CLIENT_ID = process.env.TWITCH_CLIENT_ID ?? "";
 const CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET ?? "";
+const TWITCH_GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
+const TWITCH_GQL_URL = "https://gql.twitch.tv/gql";
 export const TWITCH_ENABLED = Boolean(CLIENT_ID && CLIENT_SECRET);
 
 /** Vorlauf in Sekunden: der Tod wird erst beim nächsten Poll erkannt, also im VOD etwas früher einsteigen. */
@@ -147,6 +149,78 @@ export async function fetchLiveStreams(logins: Iterable<string>): Promise<Map<st
       out.set(s.user_login.toLowerCase(), { login: s.user_login, title: s.title, viewers: s.viewer_count, startedAt: s.started_at });
     }
   }
+  return out;
+}
+
+export interface TwitchFollowerChannel {
+  id: string;
+  login: string;
+}
+
+const followerWarnings = new Map<string, number>();
+let followerGqlWarningAt = 0;
+
+/**
+ * Liest öffentliche Follower-Gesamtzahlen mit Twitchs GQL-Web-API. Kanäle werden gebündelt, damit
+ * ein minutenweiser Poll nicht für jeden Streamer eine eigene HTTP-Anfrage benötigt.
+ */
+export async function fetchFollowerCounts(channels: Iterable<TwitchFollowerChannel>): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const all = [...new Map(
+    [...channels]
+      .map((channel) => [channel.id, { ...channel, login: channel.login.toLowerCase() }] as const)
+      .filter(([, channel]) => /^[a-z0-9_]{1,25}$/.test(channel.login)),
+  ).values()];
+  const batches: TwitchFollowerChannel[][] = [];
+  // Twitch GQL allows at most 15 root-field aliases per operation.
+  for (let i = 0; i < all.length; i += 15) batches.push(all.slice(i, i + 15));
+
+  let next = 0;
+  const worker = async () => {
+    for (let batch = batches[next++]; batch !== undefined; batch = batches[next++]) {
+      const variables = Object.fromEntries(batch.map((channel, index) => [`login${index}`, channel.login]));
+      const declarations = batch.map((_, index) => `$login${index}: String!`).join(", ");
+      const fields = batch.map((_, index) => `channel${index}: user(login: $login${index}) { followers { totalCount } }`).join(" ");
+      try {
+        const res = await fetch(TWITCH_GQL_URL, {
+          method: "POST",
+          headers: { "Client-ID": TWITCH_GQL_CLIENT_ID, "Content-Type": "application/json" },
+          body: JSON.stringify({ query: `query(${declarations}) { ${fields} }`, variables }),
+          cache: "no-store",
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) {
+          const detail = (await res.text()).slice(0, 500);
+          throw new Error(`HTTP ${res.status}${detail ? `: ${detail}` : ""}`);
+        }
+        const result = (await res.json()) as {
+          data?: Record<string, { followers?: { totalCount?: number } | null } | null>;
+          errors?: { message: string }[];
+        };
+        if (!result.data) throw new Error("Twitch-GQL-Antwort enthält keine Daten");
+        batch.forEach((channel, index) => {
+          const value = result.data?.[`channel${index}`]?.followers?.totalCount;
+          if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+            out.set(channel.id, value);
+            followerWarnings.delete(channel.login);
+          } else {
+            const lastWarning = followerWarnings.get(channel.login) ?? 0;
+            if (Date.now() - lastWarning >= 5 * 60_000) {
+              console.warn(`[tracker] Twitch-GQL lieferte keine Followerzahl für ${channel.login}.`);
+              followerWarnings.set(channel.login, Date.now());
+            }
+          }
+        });
+        if (result.errors?.length) throw new Error(result.errors.map((error) => error.message).join("; "));
+      } catch (err) {
+        if (Date.now() - followerGqlWarningAt >= 60_000) {
+          console.warn("[tracker] Twitch-GQL-Followerabfrage fehlgeschlagen:", err instanceof Error ? err.message : err);
+          followerGqlWarningAt = Date.now();
+        }
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, batches.length) }, worker));
   return out;
 }
 

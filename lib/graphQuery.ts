@@ -2,7 +2,7 @@ import { boardValue, num } from "./format";
 
 /* ---------- Konfiguration ---------- */
 
-export type Metric = "onlineCount" | "liveCount" | "viewers" | "playtimeSeconds" | "afkSeconds" | "afkMobsSeconds" | "afkBlocksSeconds" | "deaths" | "diamonds" | "blocksBroken" | "mobsKilled" | "distance" | "online";
+export type Metric = "onlineCount" | "liveCount" | "viewers" | "playtimeSeconds" | "afkSeconds" | "afkMobsSeconds" | "afkBlocksSeconds" | "deaths" | "diamonds" | "blocksBroken" | "mobsKilled" | "distance" | "followers" | "twitchSubs" | "online";
 
 interface MetricMeta {
   label: string;
@@ -31,6 +31,8 @@ export const METRICS: Record<Metric, MetricMeta> = {
   blocksBroken: { label: "Blöcke", perPlayer: true, counter: true, format: num, tone: "gold", icon: "pickaxe" },
   mobsKilled: { label: "Mobs", perPlayer: true, counter: true, format: num, tone: "grass", icon: "sword" },
   distance: { label: "Strecke", perPlayer: true, counter: true, format: (v) => boardValue("distance", v), tone: "pink", icon: "boots" },
+  followers: { label: "Follower-Zuwachs auf dem Server", perPlayer: true, counter: true, format: num, hint: "Kumulierte neue Twitch-Follower während aufeinanderfolgender Messungen auf dem Server", tone: "twitch", icon: "users" },
+  twitchSubs: { label: "Twitch Subs", perPlayer: true, counter: true, format: num, hint: "Abos, die eingegangen sind, während der Streamer auf dem Server online war", tone: "amethyst", icon: "gift" },
   online: { label: "Online (ja/nein)", perPlayer: true, counter: false, format: (v) => (v >= 1 ? "online" : "offline"), hint: "Ohne Spieler: Anzahl online", tone: "white", icon: "login" },
 };
 export const METRIC_KEYS = Object.keys(METRICS) as Metric[];
@@ -101,4 +103,3 @@ export function toSearch(q: GraphQuery) {
   if (q.modus !== "wert") p.set("modus", q.modus);
   return p;
 }
-

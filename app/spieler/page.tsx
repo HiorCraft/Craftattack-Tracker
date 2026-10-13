@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { loadTracker } from "@/lib/data";
 import { duration, headUrl, num, ago } from "@/lib/format";
 import { playtimeOf, trackedSecondsOf } from "@/lib/playtime";
+import { getTwitchSubscriptionBoard } from "@/lib/store";
 
 // Kein Skeleton: die Seite wird komplett auf dem Server gerendert (SSR) und blockiert bis die Daten da sind.
 export const instant = false;
@@ -18,7 +19,8 @@ export default function Page(props: PageProps<"/spieler">) {
 async function Players({ searchParams }: { searchParams: PageProps<"/spieler">["searchParams"] }) {
   const sp = await searchParams;
   const filter = typeof sp.filter === "string" ? sp.filter : "alle";
-  const { state, now } = await loadTracker();
+  const [{ state, now }, subscriptionBoard] = await Promise.all([loadTracker(), getTwitchSubscriptionBoard()]);
+  const subscriptions = new Map(subscriptionBoard.map((entry) => [entry.id, entry.value]));
 
   let players = Object.values(state.players);
   if (filter === "online") players = players.filter((p) => p.online);
@@ -116,6 +118,10 @@ async function Players({ searchParams }: { searchParams: PageProps<"/spieler">["
                       </dd>
                       <dt>Tode</dt>
                       <dd className="num">{p.stats.deaths !== undefined ? num(p.stats.deaths) : "–"}</dd>
+                      <dt>Twitch Subs</dt>
+                      <dd className="num">
+                        {num(subscriptions.get(p.id) ?? 0)}
+                      </dd>
                       <dt title="Vom Tracker gemessen, für alle Spieler">Online (Tracker)</dt>
                       <dd className="num">
                         {duration(trackedSecondsOf(p, now))}

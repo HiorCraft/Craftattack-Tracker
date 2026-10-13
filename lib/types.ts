@@ -83,6 +83,10 @@ export type EventType =
   | "stream_start"
   | "stream_end"
   | "stream_title"
+  | "subscription"
+  | "subscription_gift"
+  | "follower_burst"
+  | "raid"
   | "server_online"
   | "server_offline"
   | "tracker_start"
@@ -148,6 +152,17 @@ export interface PlayerState {
    * damit der Endpoint auch funktioniert, wenn er gerade nicht streamt.
    */
   twitchLogin: string | null;
+  /** Zuletzt von Twitch gelieferte Follower-Gesamtzahl als Delta-Basis */
+  followers: number | null;
+  followersAt: string | null;
+  /** Ob der Streamer bei seiner vorigen Follower-Messung auf dem Server war */
+  followersOnlineAtSample: boolean;
+  /** Seit Trackerstart gemessene Follower-Zuwächse während aufeinanderfolgender Server-Messungen */
+  followersOnServer: number;
+  /** Follower-Zuwachs auf dem Server im aktuellen Stream */
+  followersOnLiveStream: number;
+  /** Stream, zu dem die letzte Follower-Messung gehörte */
+  followersLiveAtSample: string | null;
   firstSeen: string;
   lastSeen: string;
   /** Beginn der aktuellen Online-Session */
@@ -162,6 +177,8 @@ export interface PlayerState {
   sessions: number;
   liveSince: string | null;
   peakViewers: number;
+  /** Höchste Zuschauerzahl im aktuell laufenden Stream */
+  livePeakViewers: number;
   /** Höchste Zuschauerzahl, während der Spieler gleichzeitig auf dem Server war */
   peakViewersOnServer: number;
   /** Vom Tracker gemessene Stream-Zeit (Sekunden), während der Spieler auf dem Server war */
@@ -206,6 +223,9 @@ export interface PlayerPoint {
   blocksBroken: number | null;
   mobsKilled: number | null;
   distance: number | null;
+  followersOnServer: number | null;
+  /** Vom Tracker gezählte Twitch-Abos; separate Ereignis-Zeitreihe kann dieses Feld ergänzen */
+  twitchSubs?: number | null;
 }
 
 export interface TotalsPoint {

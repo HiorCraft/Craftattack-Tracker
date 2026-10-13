@@ -109,6 +109,13 @@ async function migrate(db: Db) {
   await db.query(`ALTER TABLE players ADD COLUMN IF NOT EXISTS afk_blocks_at integer`);
   await db.query(`ALTER TABLE players ADD COLUMN IF NOT EXISTS afk_check jsonb`);
   await db.query(`ALTER TABLE players ADD COLUMN IF NOT EXISTS playtime_tracked integer`);
+  await db.query(`ALTER TABLE players ADD COLUMN IF NOT EXISTS followers integer`);
+  await db.query(`ALTER TABLE players ADD COLUMN IF NOT EXISTS followers_at timestamptz`);
+  await db.query(`ALTER TABLE players ADD COLUMN IF NOT EXISTS followers_online_at_sample boolean NOT NULL DEFAULT false`);
+  await db.query(`ALTER TABLE players ADD COLUMN IF NOT EXISTS followers_on_server integer NOT NULL DEFAULT 0`);
+  await db.query(`ALTER TABLE players ADD COLUMN IF NOT EXISTS followers_on_live_stream integer NOT NULL DEFAULT 0`);
+  await db.query(`ALTER TABLE players ADD COLUMN IF NOT EXISTS followers_live_at_sample text`);
+  await db.query(`ALTER TABLE players ADD COLUMN IF NOT EXISTS live_peak_viewers integer NOT NULL DEFAULT 0`);
   // Stand der einmaligen Verlaufs-Korrekturen (siehe lib/backfill.ts)
   await db.query(`ALTER TABLE tracker_meta ADD COLUMN IF NOT EXISTS history_fix integer NOT NULL DEFAULT 0`);
   await db.query(`CREATE INDEX IF NOT EXISTS events_at_idx ON events (at)`);
@@ -126,8 +133,10 @@ async function migrate(db: Db) {
       blocks_broken    integer,
       mobs_killed      integer,
       distance         double precision,
+      followers_on_server integer,
       PRIMARY KEY (player, at)
     )`);
+  await db.query(`ALTER TABLE player_history ADD COLUMN IF NOT EXISTS followers_on_server integer`);
   await db.query(`
     CREATE TABLE IF NOT EXISTS history (
       at               timestamptz PRIMARY KEY,

@@ -9,7 +9,7 @@ export async function GET(req: Request) {
   const type = url.searchParams.get("type");
   const [state, events] = await Promise.all([getState(), getEvents()]);
   let list = events;
-  if (player) list = list.filter((e) => e.player === player);
+  if (player) list = list.filter((e) => e.player === player || e.meta?.raidTargetPlayerId === player);
   if (type) list = list.filter((e) => e.type === type);
   return NextResponse.json({
     tracker: {

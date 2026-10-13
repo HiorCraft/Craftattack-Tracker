@@ -935,7 +935,28 @@ export async function getBoardRanksBefore(hoursAgo = 24): Promise<Partial<Record
       rows.sort((a, b) => Number(b.value) - Number(a.value));
       out[key] = Object.fromEntries(rows.map((r, i) => [r.player, i + 1]));
     }
+
     return out;
+  });
+}
+
+/** Rang je Spieler in der Follower-Bestenliste vor `hoursAgo` Stunden. */
+export async function getFollowerRanksBefore(hoursAgo = 24): Promise<Record<string, number>> {
+  return cached(`followerRanksBefore:${hoursAgo}`, 300_000, async () => {
+    await ensureLoaded();
+    const db = await getDb();
+    const cutoff = new Date(Date.now() - hoursAgo * 3600_000);
+    const rows = (
+      await db.query<{ player: string; value: number | string }>(
+        `SELECT DISTINCT ON (player) player, followers_on_server AS value
+           FROM player_history
+          WHERE at <= $1 AND followers_on_server IS NOT NULL
+          ORDER BY player, at DESC`,
+        [cutoff],
+      )
+    ).rows;
+    rows.sort((a, b) => Number(b.value) - Number(a.value));
+    return Object.fromEntries(rows.map((row, index) => [row.player, index + 1]));
   });
 }
 

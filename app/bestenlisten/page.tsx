@@ -1,8 +1,8 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { loadTracker } from "@/lib/data";
-import { getFullBoard } from "@/lib/store";
-import { getAfkBoard, getAfkRanksBefore, getBoardRanksBefore, getTrackedRanksBefore } from "@/lib/analytics";
+import { getFullBoard, getTwitchSubscriptionBoard } from "@/lib/store";
+import { getAfkBoard, getAfkRanksBefore, getBoardRanksBefore, getFollowerRanksBefore, getTrackedRanksBefore } from "@/lib/analytics";
 import { BOARD_KEYS, type AfkKind, type BoardKey } from "@/lib/types";
 import { ago, boardValue, duration, headUrl, num } from "@/lib/format";
 import { BOARD_ICON, Icon } from "@/components/Icons";
@@ -12,19 +12,21 @@ export const instant = false;
 
 export const metadata: Metadata = { title: "Bestenlisten" };
 
-const BOARDS: Record<BoardKey | "tracked" | "afk" | "afkmobs" | "afkblocks", { title: string; sub: string; tone: string }> = {
+const BOARDS: Record<BoardKey | "followers" | "twitchSubs" | "tracked" | "afk" | "afkmobs" | "afkblocks", { title: string; sub: string; tone: string }> = {
   playtimeSeconds: { title: "Dauerzocker", sub: "Spielzeit laut API, außerhalb der Top 10 aus Join/Leave weitergerechnet", tone: "sky" },
   diamonds: { title: "Diamantenbank", sub: "Diamanten", tone: "diamond" },
   deaths: { title: "Friedhof", sub: "Tode", tone: "redstone" },
   blocksBroken: { title: "Abrissbirne", sub: "Abgebaute Blöcke", tone: "gold" },
   mobsKilled: { title: "Monsterjäger", sub: "Erledigte Mobs", tone: "grass" },
   distance: { title: "Weltenbummler", sub: "Gelaufene Strecke", tone: "pink" },
+  followers: { title: "Follower-Zuwachs auf dem Server", sub: "Neue Twitch-Follower während der Streamer auf dem Server waren", tone: "twitch" },
+  twitchSubs: { title: "Sub-Stars", sub: "Twitch-Abos auf dem Server seit Beginn der IRC-Erfassung", tone: "amethyst" },
   tracked: { title: "Dauergäste", sub: "Online-Zeit laut Tracker, alle Spieler", tone: "lava" },
   afk: { title: "Standbilder", sub: "AFK-Zeit laut Tracker: online, aber ≥ 5 Min keine Bewegung", tone: "gold" },
   afkmobs: { title: "Mob-Farmer", sub: "AFK-Zeit, in der trotzdem ≥ 10 Mobs pro Minute gestorben sind (AFK-Mobfarm)", tone: "gold" },
   afkblocks: { title: "Block-Farmer", sub: "AFK-Zeit, in der trotzdem ≥ 10 Blöcke pro Minute abgebaut wurden (AFK-Blockfarm)", tone: "gold" },
 };
-const KEYS = [...BOARD_KEYS, "tracked", "afk", "afkmobs", "afkblocks"] as const;
+const KEYS = [...BOARD_KEYS, "followers", "twitchSubs", "tracked", "afk", "afkmobs", "afkblocks"] as const;
 const AFK_KEYS = ["afk", "afkmobs", "afkblocks"] as const;
 const isAfkKey = (k: string): k is (typeof AFK_KEYS)[number] => (AFK_KEYS as readonly string[]).includes(k);
 const afkKindOf = (k: string): AfkKind | undefined => (k === "afkmobs" ? "mobs" : k === "afkblocks" ? "blocks" : undefined);
@@ -53,9 +55,17 @@ export default async function Page(props: PageProps<"/bestenlisten">) {
   const key: Key = (KEYS as readonly string[]).includes(raw) ? (raw as Key) : "playtimeSeconds";
   const span: Span = typeof sp.seit === "string" && sp.seit in SPANS ? (sp.seit as Span) : "24h";
   const hours = SPANS[span].hours;
-  const [{ state, now }, ranksBefore] = await Promise.all([
+  const [{ state, now }, ranksBefore]: [{ state: Awaited<ReturnType<typeof loadTracker>>["state"]; now: number }, Record<string, number>] = await Promise.all([
     loadTracker(),
-    key === "tracked" ? getTrackedRanksBefore(hours) : isAfkKey(key) ? getAfkRanksBefore(hours, afkKindOf(key)) : getBoardRanksBefore(hours).then((r) => r[key] ?? {}),
+    key === "tracked"
+      ? getTrackedRanksBefore(hours)
+      : isAfkKey(key)
+        ? getAfkRanksBefore(hours, afkKindOf(key))
+        : key === "followers"
+          ? getFollowerRanksBefore(hours)
+        : key === "twitchSubs"
+          ? Promise.resolve({})
+          : getBoardRanksBefore(hours).then((r) => r[key] ?? {}),
   ]);
   const b = BOARDS[key];
 
@@ -74,12 +84,14 @@ export default async function Page(props: PageProps<"/bestenlisten">) {
       }))
       .filter((p) => p.value > 0)
       .sort((a, b) => b.value - a.value);
+  } else if (key === "twitchSubs") {
+    rows = await getTwitchSubscriptionBoard();
   } else {
     rows = await getFullBoard(key);
   }
-  const inApi = new Set((key === "tracked" || isAfkKey(key) ? [] : state.latest?.boards?.[key] ?? []).map((e) => e.id));
-  const fmt = (v: number) => (key === "tracked" || isAfkKey(key) ? duration(v) : boardValue(key, v));
-  const IconCmp = key === "tracked" ? Icon.users : key === "afkmobs" ? Icon.sword : key === "afkblocks" ? Icon.pickaxe : key === "afk" ? Icon.clock : Icon[BOARD_ICON[key]];
+  const inApi = new Set((key === "tracked" || key === "followers" || key === "twitchSubs" || isAfkKey(key) ? [] : state.latest?.boards?.[key] ?? []).map((e) => e.id));
+  const fmt = (v: number) => (key === "tracked" || isAfkKey(key) ? duration(v) : key === "followers" ? num(v) : boardValue(key, v));
+  const IconCmp = key === "followers" || key === "tracked" ? Icon.users : key === "twitchSubs" ? Icon.gift : key === "afkmobs" ? Icon.sword : key === "afkblocks" ? Icon.pickaxe : key === "afk" ? Icon.clock : Icon[BOARD_ICON[key]];
 
   return (
     <>
@@ -88,8 +100,9 @@ export default async function Page(props: PageProps<"/bestenlisten">) {
           <p className="eyebrow">Mehr als Top 10</p>
           <h1 className="t-1">Bestenlisten</h1>
           <p>
-            Die API zeigt pro Liste nur zehn Namen. Der Tracker merkt sich aber jeden, der dort je aufgetaucht ist,
-            mit seinem letzten bekannten Wert. So wächst jede Liste mit der Zeit über die Top 10 hinaus.
+            Die API zeigt pro Spielstatistik nur zehn Namen. Der Tracker merkt sich aber jeden, der dort je aufgetaucht ist,
+            mit seinem letzten bekannten Wert. Twitch-Follower werden minütlich für alle erfassten Kanäle gelesen.
+            Twitch-Abos werden ab Beginn der IRC-Erfassung gezählt, aber nur wenn der Streamer beim Eingang auf dem Server online war (AFK zählt als online).
           </p>
         </div>
       </section>
@@ -129,7 +142,9 @@ export default async function Page(props: PageProps<"/bestenlisten">) {
             </header>
             <ol className="st-board__list st-board__list--full">
               {rows.length === 0 ? (
-                <li className="st-board__note">Noch keiner. Die Liste füllt sich, sobald Spieler in der API auftauchen.</li>
+                <li className="st-board__note">
+                  Noch keiner. {key === "followers" ? "Die Liste füllt sich, sobald Follower-Zuwächse während Server-Sessions erfasst werden." : "Die Liste füllt sich, sobald Spieler in der API auftauchen."}
+                </li>
               ) : (
                 rows.map((e, i) => {
                   const before = ranksBefore[e.id];
@@ -171,7 +186,7 @@ export default async function Page(props: PageProps<"/bestenlisten">) {
             </ol>
           </section>
           <p className="muted" style={{ marginTop: 16, fontSize: ".9375rem", maxWidth: 760 }}>
-            „Aktuell“ heißt: steht gerade in der Top 10 der API. Bei allen anderen ist der Wert der letzte, den der
+            „Aktuell“ heißt: steht gerade in der Top 10 der API. Bei allen anderen API-Listen ist der Wert der letzte, den der
             Tracker gesehen hat, der echte Wert kann inzwischen höher sein. „Dauergäste“, „Standbilder“ und die AFK-Farmer misst der Tracker selbst, für alle. ▲▼ zeigt die
             Bewegung gegenüber dem Stand vor {SPANS[span].label}, „neu“ heißt: damals noch nicht in der Liste.
           </p>

@@ -6,6 +6,7 @@ import type { BoardKey, PlayerPoint, PlayerState, TotalsPoint, TrackerEvent, Tra
 
 const MAX_EVENTS_IN_MEMORY = 20000;
 const MAX_HISTORY_POINTS = 2880; // 24 h bei 30 s
+const MIN_VISIBLE_SUBSCRIPTION_COUNT = 10;
 
 type Globals = typeof globalThis & {
   __acTracker?: {
@@ -71,6 +72,12 @@ interface PlayerRow {
   stats: PlayerState["stats"];
   ranks: PlayerState["ranks"] | null;
   twitch_login: string | null;
+  followers: number | null;
+  followers_at: Date | null;
+  followers_online_at_sample: boolean;
+  followers_on_server: number;
+  followers_on_live_stream: number;
+  followers_live_at_sample: string | null;
   first_seen: Date;
   last_seen: Date;
   session_start: Date | null;
@@ -78,6 +85,7 @@ interface PlayerRow {
   sessions: number;
   live_since: Date | null;
   peak_viewers: number;
+  live_peak_viewers: number;
   longest_session: number;
   peak_viewers_on_server: number | null;
   stream_on_server_seconds: number | null;
@@ -124,6 +132,12 @@ function rowToPlayer(r: PlayerRow): PlayerState {
     stats: r.stats ?? {},
     ranks: r.ranks ?? {},
     twitchLogin: r.twitch_login ?? null,
+    followers: r.followers ?? null,
+    followersAt: iso(r.followers_at),
+    followersOnlineAtSample: r.followers_online_at_sample,
+    followersOnServer: r.followers_on_server,
+    followersOnLiveStream: r.followers_on_live_stream,
+    followersLiveAtSample: r.followers_live_at_sample,
     firstSeen: iso(r.first_seen)!,
     lastSeen: iso(r.last_seen)!,
     sessionStart: iso(r.session_start),
@@ -132,6 +146,7 @@ function rowToPlayer(r: PlayerRow): PlayerState {
     sessions: r.sessions,
     liveSince: iso(r.live_since),
     peakViewers: r.peak_viewers,
+    livePeakViewers: r.live_peak_viewers,
     peakViewersOnServer: r.peak_viewers_on_server ?? 0,
     streamOnServerSeconds: r.stream_on_server_seconds ?? 0,
     streamOffServerSeconds: r.stream_off_server_seconds ?? 0,
@@ -233,13 +248,26 @@ export async function getState(): Promise<TrackerState> {
     p.longestSession ??= 0;
     p.ranks ??= {};
     p.twitchLogin ??= p.live?.login ?? null;
+    p.followers ??= null;
+    p.followersAt ??= null;
+    p.followersOnlineAtSample ??= false;
+    p.followersOnServer ??= 0;
+    p.followersOnLiveStream ??= 0;
+    p.followersLiveAtSample ??= null;
+    p.livePeakViewers ??= 0;
   }
   return state;
 }
 
 export async function getEvents(): Promise<TrackerEvent[]> {
   await ensureLoaded();
-  return g().events;
+  return g().events.filter(
+    (event) =>
+      event.type === "subscription_gift"
+        ? event.meta?.serverOnline === true
+        : event.type !== "subscription" ||
+          (event.meta?.serverOnline === true && (event.value ?? 0) >= MIN_VISIBLE_SUBSCRIPTION_COUNT),
+  );
 }
 
 /* ---------- Speichern ---------- */
@@ -286,8 +314,8 @@ export async function saveState(state: TrackerState) {
       `INSERT INTO players (id, name, uuid, online, live, stats, first_seen, last_seen, session_start,
                             tracked_seconds, sessions, live_since, peak_viewers, longest_session, ranks, twitch_login,
                             peak_viewers_on_server, stream_on_server_seconds, stream_off_server_seconds,
-                            last_move_at, afk_since, afk_seconds, afk_farm, afk_mobs_at, afk_blocks_at, playtime_tracked, afk_check)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+                            last_move_at, afk_since, afk_seconds, afk_farm, afk_mobs_at, afk_blocks_at, playtime_tracked, afk_check, followers, followers_at, followers_online_at_sample, followers_on_server, followers_on_live_stream, followers_live_at_sample, live_peak_viewers)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)
        ON CONFLICT (id) DO UPDATE SET
          name = EXCLUDED.name, uuid = EXCLUDED.uuid, online = EXCLUDED.online, live = EXCLUDED.live,
          stats = EXCLUDED.stats, first_seen = EXCLUDED.first_seen, last_seen = EXCLUDED.last_seen,
@@ -298,7 +326,11 @@ export async function saveState(state: TrackerState) {
          stream_on_server_seconds = EXCLUDED.stream_on_server_seconds, stream_off_server_seconds = EXCLUDED.stream_off_server_seconds,
          last_move_at = EXCLUDED.last_move_at, afk_since = EXCLUDED.afk_since, afk_seconds = EXCLUDED.afk_seconds,
          afk_farm = EXCLUDED.afk_farm, afk_mobs_at = EXCLUDED.afk_mobs_at, afk_blocks_at = EXCLUDED.afk_blocks_at,
-         playtime_tracked = EXCLUDED.playtime_tracked, afk_check = EXCLUDED.afk_check`,
+         playtime_tracked = EXCLUDED.playtime_tracked, afk_check = EXCLUDED.afk_check,
+         followers = EXCLUDED.followers, followers_at = EXCLUDED.followers_at,
+         followers_online_at_sample = EXCLUDED.followers_online_at_sample, followers_on_server = EXCLUDED.followers_on_server,
+         followers_on_live_stream = EXCLUDED.followers_on_live_stream, followers_live_at_sample = EXCLUDED.followers_live_at_sample,
+         live_peak_viewers = EXCLUDED.live_peak_viewers`,
       [
         p.id,
         p.name,
@@ -327,6 +359,13 @@ export async function saveState(state: TrackerState) {
         p.afkBlocksAt ?? null,
         p.playtimeTracked === null || p.playtimeTracked === undefined ? null : Math.round(p.playtimeTracked),
         p.afkCheck ? JSON.stringify(p.afkCheck) : null,
+        p.followers,
+        toDate(p.followersAt),
+        p.followersOnlineAtSample,
+        p.followersOnServer,
+        p.followersOnLiveStream,
+        p.followersLiveAtSample,
+        p.livePeakViewers,
       ],
     );
   }
@@ -353,6 +392,188 @@ export async function appendEvents(events: TrackerEvent[]) {
     store.events = store.events.slice(-MAX_EVENTS_IN_MEMORY);
   }
   for (const e of events) await insertEventRow(db, e);
+}
+
+/** Speichert ein von einer Live-Quelle geliefertes Ereignis und aktualisiert den Ereigniszähler. */
+export async function appendLiveEvent(event: TrackerEvent): Promise<boolean> {
+  await ensureLoaded();
+  const store = g();
+  const db = await getDb();
+  if (!(await insertEventRow(db, event))) return false;
+  store.events.push(event);
+  if (store.events.length > MAX_EVENTS_IN_MEMORY) {
+    store.events = store.events.slice(-MAX_EVENTS_IN_MEMORY);
+  }
+  if (store.state) store.state.eventCount += 1;
+  return true;
+}
+
+/** Erhöht das minutenweise Twitch-Abo-Ereignis atomar und aktualisiert den aktuellen Feed-Eintrag. */
+export async function incrementLiveSubscriptionEvent(event: TrackerEvent): Promise<void> {
+  if (event.type !== "subscription" || !event.value || event.value < 1 || event.meta?.serverOnline !== true) {
+    throw new Error("Ungültiges Twitch-Abo-Ereignis.");
+  }
+  await ensureLoaded();
+  const store = g();
+  const db = await getDb();
+  const result = await db.query<{ value: number; delta: number; inserted: boolean }>(
+    `INSERT INTO events (id, at, type, player, player_name, uuid, "where", delta, value, meta)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)
+     ON CONFLICT (id) DO UPDATE SET
+       delta = COALESCE(events.delta, 0) + EXCLUDED.delta,
+       value = COALESCE(events.value, 0) + EXCLUDED.value
+     RETURNING value, delta, (xmax = 0) AS inserted`,
+    [
+      event.id,
+      toDate(event.at),
+      event.type,
+      event.player ?? null,
+      event.playerName ?? null,
+      event.uuid ?? null,
+      event.where,
+      event.value,
+      event.meta ? JSON.stringify(event.meta) : null,
+    ],
+  );
+  const row = result.rows[0];
+  if (!row) throw new Error("Twitch-Abo-Ereignis konnte nicht gespeichert werden.");
+
+  const existing = store.events.find((item) => item.id === event.id);
+  if (existing) {
+    existing.value = Number(row.value);
+    existing.delta = Number(row.delta);
+  } else {
+    event.value = Number(row.value);
+    event.delta = Number(row.delta);
+    store.events.push(event);
+    store.events.sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.id.localeCompare(b.id));
+    if (store.events.length > MAX_EVENTS_IN_MEMORY) {
+      store.events = store.events.slice(-MAX_EVENTS_IN_MEMORY);
+    }
+  }
+  if (row.inserted && store.state) store.state.eventCount += 1;
+}
+
+export interface TwitchSubscriptionPoint {
+  at: string;
+  value: number;
+}
+
+export interface TwitchSubscriptionProfile {
+  total: number;
+  currentStream: number;
+  history: TwitchSubscriptionPoint[];
+}
+
+/** Twitch-Abos seit Beginn der Erfassung sowie Tagesverlauf und aktueller Stream. */
+export async function getTwitchSubscriptionProfile(
+  player: string,
+  streamStartedAt: string | null,
+): Promise<TwitchSubscriptionProfile> {
+  await ensureLoaded();
+  const db = await getDb();
+  const [daily, stream] = await Promise.all([
+    db.query<{ at: Date; count: number | string }>(
+      `SELECT date_trunc('day', at) AS at, SUM(delta) AS count
+         FROM events
+        WHERE type IN ('subscription', 'subscription_gift') AND player = $1 AND meta->>'serverOnline' = 'true'
+        GROUP BY date_trunc('day', at)
+        ORDER BY date_trunc('day', at)`,
+      [player],
+    ),
+    streamStartedAt
+      ? db.query<{ count: number | string }>(
+          `SELECT COALESCE(SUM(delta), 0) AS count
+             FROM events
+            WHERE type IN ('subscription', 'subscription_gift') AND player = $1 AND meta->>'streamStartedAt' = $2
+              AND meta->>'serverOnline' = 'true'`,
+          [player, streamStartedAt],
+        )
+      : Promise.resolve({ rows: [{ count: 0 }] }),
+  ]);
+  let total = 0;
+  const history = daily.rows.map((row) => {
+    total += Number(row.count);
+    return { at: iso(row.at)!, value: total };
+  });
+  return { total, currentStream: Number(stream.rows[0]?.count ?? 0), history };
+}
+
+export async function getTwitchLiveSubscriptionCounts(
+  streams: { player: string; startedAt: string | null }[],
+): Promise<Map<string, number>> {
+  const wanted = streams.filter((stream): stream is { player: string; startedAt: string } => Boolean(stream.startedAt));
+  const counts = new Map<string, number>();
+  if (wanted.length === 0) return counts;
+  await ensureLoaded();
+  const db = await getDb();
+  const values = wanted.map((_, index) => `($${index * 2 + 1}, $${index * 2 + 2})`).join(", ");
+  const params = wanted.flatMap((stream) => [stream.player, stream.startedAt]);
+  const rows = await db.query<{ player: string; stream_started_at: string; count: number | string }>(
+    `SELECT e.player, e.meta->>'streamStartedAt' AS stream_started_at, SUM(e.delta) AS count
+       FROM events e
+       JOIN (VALUES ${values}) AS active(player, stream_started_at)
+         ON e.player = active.player AND e.meta->>'streamStartedAt' = active.stream_started_at
+      WHERE e.type IN ('subscription', 'subscription_gift') AND e.meta->>'serverOnline' = 'true'
+      GROUP BY e.player, e.meta->>'streamStartedAt'`,
+    params,
+  );
+  for (const row of rows.rows) counts.set(row.player, Number(row.count));
+  return counts;
+}
+
+export async function getTwitchSubscriptionBoard(): Promise<FullBoardEntry[]> {
+  await ensureLoaded();
+  const db = await getDb();
+  const rows = await db.query<{
+    player: string;
+    name: string;
+    uuid: string;
+    value: number | string;
+    at: Date;
+  }>(
+    `SELECT player, MAX(player_name) AS name, MAX(uuid) AS uuid, SUM(delta) AS value, MAX(at) AS at
+       FROM events
+      WHERE type IN ('subscription', 'subscription_gift') AND player IS NOT NULL AND meta->>'serverOnline' = 'true'
+      GROUP BY player
+      HAVING SUM(delta) > 0
+      ORDER BY SUM(delta) DESC, MAX(player_name)`,
+  );
+  return rows.rows.map((row) => ({
+    id: row.player,
+    name: row.name,
+    uuid: row.uuid,
+    value: Number(row.value),
+    at: iso(row.at)!,
+    online: g().state?.players[row.player]?.online ?? false,
+  }));
+}
+
+export interface TwitchSubscriptionMinuteRecord {
+  id: string;
+  name: string;
+  uuid: string;
+  value: number;
+  at: string;
+}
+
+export async function getTwitchSubscriptionMinuteRecord(): Promise<TwitchSubscriptionMinuteRecord | null> {
+  await ensureLoaded();
+  const db = await getDb();
+  const row = (
+    await db.query<{ player: string; name: string; uuid: string; value: number | string; at: Date }>(
+      `SELECT player, MAX(player_name) AS name, MAX(uuid) AS uuid, SUM(delta) AS value, MAX(at) AS at
+         FROM events
+        WHERE type IN ('subscription', 'subscription_gift') AND player IS NOT NULL
+          AND meta->>'serverOnline' = 'true' AND meta->>'bucket' = 'minute'
+        GROUP BY player, meta->>'channel', meta->>'streamStartedAt', date_trunc('minute', at)
+        ORDER BY SUM(delta) DESC, MAX(at) ASC
+        LIMIT 1`,
+    )
+  ).rows[0];
+  return row
+    ? { id: row.player, name: row.name, uuid: row.uuid, value: Number(row.value), at: iso(row.at)! }
+    : null;
 }
 
 /** Fügt ein Ereignis in die DB ein; false, wenn es die ID schon gab. */
@@ -463,7 +684,7 @@ const PLAYER_POINT_MAX_GAP_MS = 5 * 60_000;
 const lastPoint = new Map<string, { at: number; sig: string }>();
 
 function pointSignature(p: PlayerPoint) {
-  return [p.online, p.viewers, p.playtimeSeconds, p.deaths, p.diamonds, p.blocksBroken, p.mobsKilled, p.distance].join("|");
+  return [p.online, p.viewers, p.playtimeSeconds, p.deaths, p.diamonds, p.blocksBroken, p.mobsKilled, p.distance, p.followersOnServer].join("|");
 }
 
 /** Schreibt pro Spieler einen Punkt, wenn sich etwas geändert hat oder der letzte Punkt zu alt ist. */
@@ -477,7 +698,7 @@ export async function recordPlayerPoints(players: PlayerState[], at: string, fre
   const db = await getDb();
   const t = Date.parse(at);
   for (const p of players) {
-    const hasData = p.online || p.live || Object.keys(p.stats).length > 0;
+    const hasData = p.online || p.live || p.followersAt !== null || Object.keys(p.stats).length > 0;
     if (!hasData) continue;
     const isFresh = (key: BoardKey) => !fresh || (fresh.get(p.id)?.has(key) ?? false);
     const point: PlayerPoint = {
@@ -491,14 +712,15 @@ export async function recordPlayerPoints(players: PlayerState[], at: string, fre
       blocksBroken: isFresh("blocksBroken") ? (p.stats.blocksBroken ?? null) : null,
       mobsKilled: isFresh("mobsKilled") ? (p.stats.mobsKilled ?? null) : null,
       distance: isFresh("distance") ? (p.stats.distance ?? null) : null,
+      followersOnServer: p.followersAt ? p.followersOnServer : null,
     };
     const sig = pointSignature(point);
     const last = lastPoint.get(p.id);
     if (last && last.sig === sig && t - last.at < PLAYER_POINT_MAX_GAP_MS) continue;
     await db.query(
-      `INSERT INTO player_history (player, at, online, viewers, playtime_seconds, deaths, diamonds, blocks_broken, mobs_killed, distance)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (player, at) DO NOTHING`,
-      [p.id, toDate(at), point.online, point.viewers, point.playtimeSeconds, point.deaths, point.diamonds, point.blocksBroken, point.mobsKilled, point.distance],
+      `INSERT INTO player_history (player, at, online, viewers, playtime_seconds, deaths, diamonds, blocks_broken, mobs_killed, distance, followers_on_server)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (player, at) DO NOTHING`,
+      [p.id, toDate(at), point.online, point.viewers, point.playtimeSeconds, point.deaths, point.diamonds, point.blocksBroken, point.mobsKilled, point.distance, point.followersOnServer],
     );
     lastPoint.set(p.id, { at: t, sig });
   }
@@ -514,6 +736,7 @@ interface PlayerPointRow {
   blocks_broken: number | null;
   mobs_killed: number | null;
   distance: number | null;
+  followers_on_server: number | null;
 }
 
 export async function getPlayerHistory(id: string, limit = 3000): Promise<PlayerPoint[]> {
@@ -532,6 +755,7 @@ export async function getPlayerHistory(id: string, limit = 3000): Promise<Player
     blocksBroken: r.blocks_broken,
     mobsKilled: r.mobs_killed,
     distance: r.distance === null ? null : Number(r.distance),
+    followersOnServer: r.followers_on_server,
   }));
 }
 
@@ -554,6 +778,7 @@ const COLUMN: Record<string, string> = {
   blocksBroken: "blocks_broken",
   mobsKilled: "mobs_killed",
   distance: "distance",
+  followers: "followers_on_server",
 };
 
 /** Letzter bekannter Wert pro Spieler für ein Board, absteigend sortiert. */
@@ -778,6 +1003,8 @@ export const SERIES_METRICS = [
   "blocksBroken",
   "mobsKilled",
   "distance",
+  "followers",
+  "twitchSubs",
   "online",
   "afkSeconds",
   "afkMobsSeconds",
@@ -819,6 +1046,7 @@ const PLAYER_COL: Partial<Record<SeriesMetric, string>> = {
   blocksBroken: "blocks_broken",
   mobsKilled: "mobs_killed",
   distance: "distance",
+  followers: "followers_on_server",
   online: "(CASE WHEN online THEN 1 ELSE 0 END)",
 };
 
@@ -833,10 +1061,14 @@ export async function getSeries(q: SeriesQuery): Promise<{ series: SeriesLine[];
   await ensureLoaded();
   const db = await getDb();
   const players = g().state?.players ?? {};
-  const perPlayer = q.players.length > 0 && PLAYER_COL[q.metric] !== undefined;
-  const table = perPlayer || HISTORY_COL[q.metric] === undefined ? "player_history" : "history";
+  const perPlayer = q.players.length > 0 && (PLAYER_COL[q.metric] !== undefined || q.metric === "twitchSubs");
+  const table = q.metric === "twitchSubs" ? "events" : perPlayer || HISTORY_COL[q.metric] === undefined ? "player_history" : "history";
 
-  const firstRow = (await db.query<{ at: Date | null }>(`SELECT min(at) AS at FROM ${table}`)).rows[0];
+  const firstRow = (await db.query<{ at: Date | null }>(
+    q.metric === "twitchSubs"
+      ? `SELECT min(at) AS at FROM events WHERE type IN ('subscription', 'subscription_gift') AND meta->>'serverOnline' = 'true'`
+      : `SELECT min(at) AS at FROM ${table}`,
+  )).rows[0];
   const firstAt = firstRow?.at ? new Date(firstRow.at) : null;
   const from = new Date(q.from ?? firstAt?.getTime() ?? Date.now());
   const to = new Date(q.to ?? Date.now());
@@ -846,6 +1078,60 @@ export async function getSeries(q: SeriesQuery): Promise<{ series: SeriesLine[];
     series: q.mode === "zuwachs" ? series.map((s) => ({ ...s, points: toDelta(s.points) })) : series,
     bucketMinutes: minutes,
   });
+
+  if (q.metric === "twitchSubs") {
+    if (perPlayer) {
+      const placeholders = q.players.map((_, index) => `$${index + 4}`).join(", ");
+      const rows = (
+        await db.query<{ player: string; at: Date; v: number | string }>(
+          `WITH buckets AS (
+             SELECT player, ${bucket} AS at, SUM(delta) AS delta
+               FROM events
+              WHERE type IN ('subscription', 'subscription_gift') AND meta->>'serverOnline' = 'true'
+                AND at <= $3 AND player IN (${placeholders})
+              GROUP BY player, 2
+           ), cumulative AS (
+             SELECT player, at, SUM(delta) OVER (PARTITION BY player ORDER BY at) AS v
+               FROM buckets
+           )
+           SELECT player, at, v FROM cumulative
+            WHERE at >= $2 OR (
+              $${q.players.length + 4} = 'zuwachs'
+              AND at = (SELECT max(previous.at) FROM cumulative previous
+                         WHERE previous.player = cumulative.player AND previous.at < $2)
+            )
+            ORDER BY player, at`,
+          [minutes, from, to, ...q.players, q.mode],
+        )
+      ).rows;
+      const byPlayer = new Map<string, SeriesLine>();
+      for (const id of q.players) byPlayer.set(id, { id, name: players[id]?.name ?? id, points: [] });
+      for (const row of rows) {
+        byPlayer.get(row.player)?.points.push({ at: iso(row.at)!, v: Number(row.v) });
+      }
+      return finish([...byPlayer.values()]);
+    }
+
+    const rows = (
+      await db.query<{ at: Date; v: number | string }>(
+        `WITH buckets AS (
+           SELECT ${bucket} AS at, SUM(delta) AS delta
+             FROM events
+            WHERE type IN ('subscription', 'subscription_gift') AND meta->>'serverOnline' = 'true' AND at <= $3
+            GROUP BY 1
+         ), cumulative AS (
+           SELECT at, SUM(delta) OVER (ORDER BY at) AS v FROM buckets
+         )
+         SELECT at, v FROM cumulative
+          WHERE at >= $2 OR (
+            $4 = 'zuwachs' AND at = (SELECT max(previous.at) FROM cumulative previous WHERE previous.at < $2)
+          )
+          ORDER BY at`,
+        [minutes, from, to, q.mode],
+      )
+    ).rows;
+    return finish([{ id: "alle", name: "Alle Spieler", points: rows.map((row) => ({ at: iso(row.at)!, v: Number(row.v) })) }]);
+  }
 
   // Server-Verlauf (eine Linie)
   if (table === "history") {
