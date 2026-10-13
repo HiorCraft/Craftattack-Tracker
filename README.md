@@ -71,4 +71,5 @@ Koordinaten liefert die API nicht. „Wo“ bedeutet daher: auf dem Server oder 
 - `CA_EXT_CONCURRENCY` gleichzeitige ext-Anfragen pro Poll (Standard 4)
 - `CA_EXT_INTERVAL_MS` wie oft die Einzelstatistik der Online-Spieler geholt wird (Standard 60000); `CA_EXT_FULL_INTERVAL_MS` wie oft alle bekannten Spieler (Standard 600000). Cloudflare vor craftattack.one sperrt die IP bei zu vielen Anfragen (HTTP 403).
 - `CA_POLL_INTERVAL_MS` Abfrageintervall (Standard 30000)
+- `CA_IPV4_ONLY=0` schaltet den IPv4-Zwang für ausgehende Verbindungen ab (Standard an, weil Cloudflare die IPv6-Adresse des Servers sperrt)
 - `NEXT_PUBLIC_TWITCH_URL`, `NEXT_PUBLIC_DISCORD_URL`, `NEXT_PUBLIC_GITHUB_URL` optionale Footer-Links (werden beim Build eingebettet)
