@@ -17,7 +17,7 @@ export interface Clip {
 }
 
 /**
- * Meistgesehene Clips: eines Spielers (`player`) oder aller, optional nur der letzten `hours` Stunden. Je Kanal
+ * Meistgesehene Clips aus der Zeit auf dem Server (CraftAttack, nicht andere Inhalte): eines Spielers (`player`) oder aller, optional nur der letzten `hours` Stunden. Je Kanal
  * höchstens `perPlayer`, damit ein großer Streamer nicht die ganze Liste füllt.
  */
 export async function getTopClips({ player, hours, limit = 8, perPlayer = 2 }: { player?: string; hours?: number; limit?: number; perPlayer?: number }): Promise<Clip[]> {
@@ -27,7 +27,7 @@ export async function getTopClips({ player, hours, limit = 8, perPlayer = 2 }: {
       `SELECT * FROM (
          SELECT c.*, p.name, p.uuid, row_number() OVER (PARTITION BY c.player ORDER BY c.view_count DESC) AS n
            FROM twitch_clips c JOIN players p ON p.id = c.player
-          WHERE ($1::text IS NULL OR c.player = $1) AND ($2::int IS NULL OR c.created_at >= now() - make_interval(hours => $2))
+          WHERE c.on_server AND ($1::text IS NULL OR c.player = $1) AND ($2::int IS NULL OR c.created_at >= now() - make_interval(hours => $2))
        ) x
        WHERE $1::text IS NOT NULL OR n <= $3
        ORDER BY view_count DESC

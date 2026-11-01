@@ -206,16 +206,34 @@ async function streamEventsFromVods(): Promise<{ added: number; corrected: numbe
   return { added, corrected };
 }
 
-/** Beliebte Clips als Ereignis (mit Link zum Clip) */
+/**
+ * Auf dem Server? Der Clip zeigt die Sekunden vor seinem Erstellen: zählt, wenn der Streamer in diesem Moment laut
+ * Verlauf online war. Neue Clips und die der letzten zwei Tage (Verlauf kann nachträglich ergänzt werden).
+ */
+async function markOnServer(): Promise<void> {
+  const db = await getDb();
+  await db.query(
+    `UPDATE twitch_clips c SET on_server = EXISTS (
+       SELECT 1 FROM player_history h
+        WHERE h.player = c.player AND h.online
+          AND h.at BETWEEN c.created_at - make_interval(secs => greatest(c.duration, 30) + 120) AND c.created_at + interval '1 minute')
+      WHERE c.on_server IS NULL OR c.created_at > now() - interval '2 days'`,
+  );
+  // Clip-Ereignisse von Clips abseits des Servers entfernen (auch ältere, vor dieser Regel angelegte)
+  await db.query(`DELETE FROM events e USING twitch_clips c WHERE e.type = 'clip' AND e.id = 'clip-' || c.id AND c.on_server IS NOT TRUE`);
+}
+
+/** Beliebte Clips als Ereignis (mit Link zum Clip), nur aus der Zeit auf dem Server */
 async function clipEvents(): Promise<number> {
   const db = await getDb();
+  await markOnServer();
   const rows = (
     await db.query<{ id: string; player: string; created_at: Date; title: string; view_count: number; creator_name: string | null; url: string; name: string; uuid: string; duration: number }>(
       `SELECT * FROM (
          SELECT c.id, c.player, c.created_at, c.title, c.view_count, c.creator_name, c.url, c.duration, p.name, p.uuid,
                 row_number() OVER (PARTITION BY c.player, (c.created_at AT TIME ZONE 'Europe/Berlin')::date ORDER BY c.view_count DESC) AS n
            FROM twitch_clips c JOIN players p ON p.id = c.player
-          WHERE c.view_count >= $1 AND c.created_at >= $2) x
+          WHERE c.view_count >= $1 AND c.created_at >= $2 AND c.on_server) x
         WHERE n <= $3`,
       [CLIP_MIN_VIEWS, new Date(SEASON_START), CLIPS_PER_DAY],
     )

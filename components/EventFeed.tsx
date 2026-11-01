@@ -119,9 +119,9 @@ function detail(e: TrackerEvent): string | null {
 function EventTile({ e, focus, highlight }: { e: TrackerEvent; focus?: string; highlight?: boolean }) {
   const showPlayer = !focus || e.player !== focus;
   const meta = EVENT_META[e.type];
-  // Zusatzwerte (Typ „stat“, Meilensteine eines Zusatzwerts) mit dem Icon ihres Werts
-  const extraKey = String(e.meta?.key ?? e.meta?.board ?? "");
-  const IconCmp = Icon[(e.type === "stat" || e.type === "milestone") && extraKey in EXTRA_STATS ? (EXTRA_STATS[extraKey as keyof typeof EXTRA_STATS].icon as keyof typeof Icon) : EVENT_ICON[e.type]];
+  // Meilensteine eines Zusatzwerts mit dem Icon ihres Werts
+  const extraKey = String(e.meta?.board ?? "");
+  const IconCmp = Icon[e.type === "milestone" && extraKey in EXTRA_STATS ? (EXTRA_STATS[extraKey as keyof typeof EXTRA_STATS].icon as keyof typeof Icon) : EVENT_ICON[e.type]];
   const sub = meta.sub?.(e);
   const text = meta.text(e);
   const estimated = e.meta?.estimated === true;
@@ -266,6 +266,7 @@ export function EventFeed({
   highlight,
   empty = "Noch nichts passiert. Der Tracker braucht erst zwei Abfragen, um Unterschiede zu sehen.",
   getTimeState,
+  isShown = isShownEvent,
 }: {
   events: TrackerEvent[];
   /** Spieler, um den es auf der Seite geht: sein eigener Kopf entfällt, wenn er selbst handelt */
@@ -274,8 +275,10 @@ export function EventFeed({
   highlight?: string;
   empty?: string;
   getTimeState?: (at: string) => { server: boolean; live: boolean; href?: string };
+  /** Was im Feed erscheint (Standard: feste Schwellen; Seiten übergeben die Tages-Schwellen, lib/feedThresholds.ts) */
+  isShown?: (e: TrackerEvent) => boolean;
 }) {
-  const shown = events.filter(isShownEvent);
+  const shown = events.filter(isShown);
   if (shown.length === 0) return <p className="st-online__empty">{empty}</p>;
   const visibleEvents = combineGiftSubscriptions(shown);
   const out: React.ReactNode[] = [];
