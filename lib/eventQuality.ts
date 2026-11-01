@@ -37,10 +37,11 @@ export async function checkEventQuality(): Promise<number> {
      UPDATE events e SET meta = COALESCE(e.meta, '{}'::jsonb) || '{"qc": 1, "catchUp": true, "catchUpReason": "gap"}'::jsonb
       WHERE e.type = ANY($1) AND e.player IS NOT NULL AND (e.meta->>'qc') IS NULL
         AND NOT (e.type = 'death' AND (e.meta ? 'deathMessage' OR e.meta ? 'feedAt'))
-        AND EXISTS (SELECT 1 FROM gaps g WHERE e.at >= g.b AND e.at <= g.b + interval '3 minutes')`,
+        AND EXISTS (SELECT 1 FROM gaps g WHERE e.at >= g.b AND e.at <= g.b + interval '3 minutes')
+      RETURNING e.id`,
     [types, GAP_MS / 1000],
   );
-  flagged += gap.rowCount ?? 0;
+  flagged += gap.rows.length;
   // Veraltete Vorwerte und Zeit offline
   for (const [type, col] of Object.entries(COUNTER_COLUMN)) {
     const r = await db.query(
