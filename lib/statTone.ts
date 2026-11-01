@@ -41,6 +41,7 @@ export const METRIC_TONE = {
   viewers: "twitch",
   followers: "twitch",
   twitchSubs: "twitch",
+  twitchBits: "twitch",
   twitchEarnings: "twitch",
   // Auf dem Server sein: derselbe Ton wie die Spielzeit (CSS: --presence), auch im Zeitstrahl
   onlineCount: BOARD_TONE.playtimeSeconds,

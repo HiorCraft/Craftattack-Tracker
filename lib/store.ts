@@ -32,6 +32,7 @@ const KEEP_IN_MEMORY = new Set<TrackerEvent["type"]>([
   "chat",
   "cheer",
   "clip",
+  "stat",
   "server_online",
   "server_offline",
   "tracker_start",
@@ -1103,6 +1104,8 @@ export interface TwitchCheerProfile {
   count: number;
   /** Größter einzelner Cheer auf dem Server */
   biggest: { bits: number; fromName: string; at: string } | null;
+  /** Bits auf dem Server über die Zeit (aufsummiert, stündlich) */
+  history: { at: string; value: number }[];
   /** Bits im laufenden Stream (ab `streamStartedAt`) */
   currentStream: number;
 }
@@ -1123,12 +1126,22 @@ export async function getTwitchCheerProfile(id: string, streamStartedAt: string 
   ]);
   const s = sum.rows[0];
   const t = top.rows[0];
+  // Verlauf: Bits auf dem Server, aufsummiert je Stunde
+  const hist = (
+    await db.query<{ at: Date; v: string }>(
+      `SELECT at, SUM(b) OVER (ORDER BY at) AS v FROM (
+         SELECT date_trunc('hour', at) AS at, SUM(bits) AS b FROM twitch_cheers WHERE channel_id = $1 AND on_server GROUP BY 1
+       ) h ORDER BY at`,
+      [id],
+    )
+  ).rows;
   return {
     onServer: Number(s?.on_server ?? 0),
     total: Number(s?.total ?? 0),
     count: s?.count ?? 0,
     biggest: t ? { bits: t.bits, fromName: t.from_name, at: iso(t.at)! } : null,
     currentStream: Number(s?.current ?? 0),
+    history: hist.map((r) => ({ at: iso(r.at)!, value: Number(r.v) })),
   };
 }
 
@@ -1794,6 +1807,7 @@ const BASE_SERIES_METRICS = [
   "foodEaten",
   "followers",
   "twitchSubs",
+  "twitchBits",
   "twitchEarnings",
   "online",
   "afkSeconds",
@@ -1857,13 +1871,16 @@ export async function getSeries(q: SeriesQuery): Promise<{ series: SeriesLine[];
   await ensureLoaded();
   const db = await getDb();
   const players = g().state?.players ?? {};
-  const perPlayer = q.players.length > 0 && (PLAYER_COL[q.metric] !== undefined || q.metric === "twitchSubs" || q.metric === "twitchEarnings");
-  const table = q.metric === "twitchSubs" || q.metric === "twitchEarnings" ? "events" : perPlayer || HISTORY_COL[q.metric] === undefined ? "player_history" : "history";
+  const twitch = q.metric === "twitchSubs" || q.metric === "twitchBits" || q.metric === "twitchEarnings";
+  const perPlayer = q.players.length > 0 && (PLAYER_COL[q.metric] !== undefined || twitch);
+  const table = q.metric === "twitchBits" ? "twitch_cheers" : twitch ? "events" : perPlayer || HISTORY_COL[q.metric] === undefined ? "player_history" : "history";
 
   const firstRow = (await db.query<{ at: Date | null }>(
-    q.metric === "twitchSubs" || q.metric === "twitchEarnings"
-      ? `SELECT min(at) AS at FROM events WHERE type IN ('subscription', 'subscription_gift') AND meta->>'serverOnline' = 'true'`
-      : `SELECT min(at) AS at FROM ${table}`,
+    q.metric === "twitchBits"
+      ? `SELECT min(at) AS at FROM twitch_cheers WHERE on_server`
+      : twitch
+        ? `SELECT min(at) AS at FROM events WHERE type IN ('subscription', 'subscription_gift') AND meta->>'serverOnline' = 'true'`
+        : `SELECT min(at) AS at FROM ${table}`,
   )).rows[0];
   const firstAt = firstRow?.at ? new Date(firstRow.at) : null;
   const from = new Date(q.from ?? firstAt?.getTime() ?? Date.now());
@@ -1878,6 +1895,33 @@ export async function getSeries(q: SeriesQuery): Promise<{ series: SeriesLine[];
   if (q.metric === "twitchEarnings") {
     const lines = await getEarningsSeries(q.players, from.getTime(), to.getTime(), minutes);
     return finish(lines.map((l) => ({ id: l.id, name: l.id === "alle" ? "Alle Spieler" : (players[l.id]?.name ?? l.id), points: l.points })));
+  }
+
+  if (q.metric === "twitchBits") {
+    // Bits auf dem Server, summiert über die Zeit (je Kanal bzw. alle zusammen)
+    const ids = perPlayer ? q.players : null;
+    const rows = (
+      await db.query<{ player: string; at: Date; v: number | string }>(
+        `WITH buckets AS (
+           SELECT ${ids ? "channel_id" : "'alle'"} AS player, ${bucket} AS at, SUM(bits) AS delta
+             FROM twitch_cheers
+            WHERE on_server AND at <= $3 ${ids ? "AND channel_id = ANY($5)" : ""}
+            GROUP BY 1, 2
+         ), cumulative AS (
+           SELECT player, at, SUM(delta) OVER (PARTITION BY player ORDER BY at) AS v FROM buckets
+         )
+         SELECT player, at, v FROM cumulative
+          WHERE at >= $2 OR (
+            $4 = 'zuwachs' AND at = (SELECT max(previous.at) FROM cumulative previous WHERE previous.player = cumulative.player AND previous.at < $2)
+          )
+          ORDER BY player, at`,
+        [minutes, from, to, q.mode, ...(ids ? [ids] : [])],
+      )
+    ).rows;
+    const lines = new Map<string, SeriesLine>();
+    for (const id of ids ?? ["alle"]) lines.set(id, { id, name: id === "alle" ? "Alle Spieler" : (players[id]?.name ?? id), points: [] });
+    for (const row of rows) lines.get(row.player)?.points.push({ at: iso(row.at)!, v: Number(row.v) });
+    return finish([...lines.values()]);
   }
 
   if (q.metric === "twitchSubs") {

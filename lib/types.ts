@@ -169,6 +169,7 @@ export type EventType =
   | "first_join"
   | "rank"
   | "milestone"
+  | "stat"
   | "record"
   | "afk_start"
   | "afk_end"
@@ -315,6 +316,7 @@ export interface PlayerPoint {
   extra?: Record<string, number>;
   /** Vom Tracker gezählte Twitch-Abos; separate Ereignis-Zeitreihe kann dieses Feld ergänzen */
   twitchSubs?: number | null;
+  twitchBits?: number | null;
   /** Geschätzte Twitch-Einnahmen auf dem Server, aufsummiert (Euro) */
   twitchEarnings?: number | null;
 }

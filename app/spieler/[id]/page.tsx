@@ -15,6 +15,8 @@ import { EventFeed } from "@/components/EventFeed";
 import { BOARD_ICON, Icon } from "@/components/Icons";
 import { FigValue } from "@/components/FigValue";
 import { StatSpark } from "@/components/StatSpark";
+import { ClipGrid } from "@/components/ClipGrid";
+import { getTopClips } from "@/lib/clips";
 import { EstimatePlayer, PlayerEstimateSummary } from "@/components/Estimates";
 import { getAllSessions, getFullBoard, getPlayerHistory, getPlayerSharedChatSessions, getPlayerTopHistory, getPlayerTwitchChat, getTwitchCheerProfile, getTwitchSubscriptionBoard, getTwitchSubscriptionProfile } from "@/lib/store";
 import { SharedChatList } from "@/components/SharedChatList";
@@ -76,6 +78,9 @@ export default function Page(props: PageProps<"/spieler/[id]">) {
       <Suspense fallback={null}>
         <HighlightsSection params={params} searchParams={searchParams} />
       </Suspense>
+      <Suspense fallback={null}>
+        <ClipsSection params={params} />
+      </Suspense>
       <Suspense fallback={<InsightsSkeleton />}>
         <InsightsSection params={params} />
       </Suspense>
@@ -112,7 +117,7 @@ interface Phase extends Session {
 
 /** Baut aus Stream-an/aus-Ereignissen eine Stream-Liste (laufender Stream: end = null). */
 /** Einzelner Verlauf als Messpunkte für StatSpark */
-function sparkPoints(rows: { at: string; value: number }[], key: "twitchSubs" | "twitchEarnings"): PlayerPoint[] {
+function sparkPoints(rows: { at: string; value: number }[], key: "twitchSubs" | "twitchBits" | "twitchEarnings"): PlayerPoint[] {
   return rows.map((point) => ({
     at: point.at,
     online: false,
@@ -354,14 +359,18 @@ async function StatsSection({ params }: { params: Params }) {
             }
             if (k === "twitchBits") {
               return (
-                <div key={k} className="box st-fig" data-tone={METRIC_TONE.twitchSubs}>
+                <div key={k} className="box st-fig st-fig--spark" data-tone={METRIC_TONE.twitchSubs}>
                   <dt className="pstat">
-                    <span className="pstat__label" title="Bits aus Cheers im eigenen Kanal, während der Streamer auf dem Server war">
+                    <Link className="pstat__label pstat__link" href={graphHref(k)} title="Bits aus Cheers im eigenen Kanal, während der Streamer auf dem Server war · im Graphen öffnen">
                       <Icon.bits width={18} height={18} aria-hidden="true" />
                       <span>Twitch Bits</span>
-                    </span>
+                      <span className="pstat__go" aria-hidden="true">↗</span>
+                    </Link>
                   </dt>
-                  <FigValue>{num(cheers.onServer)}</FigValue>
+                  <Link className="pstat__val" href={graphHref(k)} tabIndex={-1} aria-hidden="true">
+                    <FigValue>{num(cheers.onServer)}</FigValue>
+                  </Link>
+                  <StatSpark points={sparkPoints(cheers.history, "twitchBits")} k="twitchBits" label="Twitch Bits" href={graphHref(k)} />
                   <p className="muted" style={{ fontSize: ".75rem", marginTop: 4 }}>
                     {cheers.count === 0
                       ? "Noch kein Cheer erfasst"
@@ -829,5 +838,36 @@ async function ChatSection({ params }: { params: Params }) {
       </section>
     )}
     </>
+  );
+}
+
+/** Beliebteste Clips des Spielers über die ganze Staffel, dazu die besten der letzten 24 Stunden */
+async function ClipsSection({ params }: { params: Params }) {
+  const { id } = await ctxFor(params);
+  const [season, recent] = await Promise.all([getTopClips({ player: id, limit: 6 }), getTopClips({ player: id, hours: 24, limit: 3 })]);
+  if (!season.length) return null;
+  const fresh = recent.filter((c) => !season.some((s) => s.id === c.id));
+  return (
+    <section className="block block--tight" data-tone="paper" aria-labelledby="clips-h">
+      <div className="wrap">
+        <div className="section-head">
+          <h2 className="t-2" id="clips-h">
+            Beliebteste Clips
+          </h2>
+          <Link className="btn btn--small" data-tone="white" href={`/ereignisse?t=clip&spieler=${encodeURIComponent(id)}`}>
+            Alle Clips
+          </Link>
+        </div>
+        <ClipGrid clips={season} showPlayer={false} />
+        {fresh.length > 0 && (
+          <>
+            <h3 className="t-3" style={{ marginTop: 24 }}>
+              Neu in den letzten 24 Stunden
+            </h3>
+            <ClipGrid clips={fresh} showPlayer={false} />
+          </>
+        )}
+      </div>
+    </section>
   );
 }

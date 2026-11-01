@@ -25,6 +25,9 @@ export async function register() {
     // Twitch-Verlauf (VODs, Clips) auch rückwirkend, z. B. Streams in Tracker-Lücken
     const { startTwitchHistorySync } = await import("./lib/twitchHistory");
     startTwitchHistorySync();
+    // Ereignisse und Meilensteine für die Zusatzwerte (platzierte Blöcke, Handel, Angeln, …), auch rückwirkend
+    const { startExtraEvents } = await import("./lib/extraEvents");
+    startExtraEvents();
     // Einmal pro Prozess: alte Verlaufsdaten korrigieren und fehlende AFK-Farm-Ereignisse nachtragen
     const { runBackfills } = await import("./lib/backfill");
     runBackfills().catch((err: unknown) => console.error("[tracker] Nachträge fehlgeschlagen:", err));

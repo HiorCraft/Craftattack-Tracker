@@ -147,6 +147,8 @@ async function migrate(db: Db) {
   await db.query(`ALTER TABLE tracker_meta ADD COLUMN IF NOT EXISTS history_fix integer NOT NULL DEFAULT 0`);
   // Stand der AFK-Neubewertung (siehe AFK_HISTORY_VERSION in lib/backfill.ts)
   await db.query(`ALTER TABLE tracker_meta ADD COLUMN IF NOT EXISTS afk_history_version integer NOT NULL DEFAULT 0`);
+  // Bis wohin Ereignisse aus den Zusatzwerten angelegt sind (lib/extraEvents.ts)
+  await db.query(`ALTER TABLE tracker_meta ADD COLUMN IF NOT EXISTS extra_events_until timestamptz`);
   await db.query(`CREATE INDEX IF NOT EXISTS events_at_idx ON events (at)`);
   await db.query(`CREATE INDEX IF NOT EXISTS events_player_at_idx ON events (player, at)`);
   await db.query(`CREATE INDEX IF NOT EXISTS events_type_at_idx ON events (type, at)`);

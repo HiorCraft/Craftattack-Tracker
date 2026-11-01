@@ -4,6 +4,7 @@ import { EVENT_META, eventBadge, eventHref, isShownEvent, sharedChatPlayers } fr
 import { time } from "@/lib/format";
 import { Head } from "./Head";
 import { BOARD_ICON, EVENT_ICON, Icon } from "./Icons";
+import { EXTRA_STATS } from "@/lib/playerStats";
 
 const dayFmt = new Intl.DateTimeFormat("de-DE", {
   weekday: "long",
@@ -118,7 +119,9 @@ function detail(e: TrackerEvent): string | null {
 function EventTile({ e, focus, highlight }: { e: TrackerEvent; focus?: string; highlight?: boolean }) {
   const showPlayer = !focus || e.player !== focus;
   const meta = EVENT_META[e.type];
-  const IconCmp = Icon[EVENT_ICON[e.type]];
+  // Zusatzwerte (Typ „stat“, Meilensteine eines Zusatzwerts) mit dem Icon ihres Werts
+  const extraKey = String(e.meta?.key ?? e.meta?.board ?? "");
+  const IconCmp = Icon[(e.type === "stat" || e.type === "milestone") && extraKey in EXTRA_STATS ? (EXTRA_STATS[extraKey as keyof typeof EXTRA_STATS].icon as keyof typeof Icon) : EVENT_ICON[e.type]];
   const sub = meta.sub?.(e);
   const text = meta.text(e);
   const estimated = e.meta?.estimated === true;
