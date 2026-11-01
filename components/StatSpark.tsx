@@ -7,7 +7,7 @@ import { Sparkline } from "./Sparkline";
 import { usePlayerZones } from "./Estimates";
 
 /** Kennzahl in den Schätzungs-Nachträgen (scripts/estimate.mjs) */
-const ESTIMATE_STAT: Partial<Record<SparkKey, string>> = { viewers: "viewers", twitchSubs: "subs" };
+const ESTIMATE_STAT: Partial<Record<SparkKey, string>> = { viewers: "viewers", twitchSubs: "subs", twitchBits: "bits" };
 
 type SparkKey =
   | "viewers"
@@ -22,6 +22,7 @@ type SparkKey =
   | "foodEaten"
   | "followersOnServer"
   | "twitchSubs"
+  | "twitchBits"
   | "twitchEarnings";
 
 const FORMAT: Record<SparkKey, (v: number) => string> = {
@@ -37,6 +38,7 @@ const FORMAT: Record<SparkKey, (v: number) => string> = {
   foodEaten: num,
   followersOnServer: num,
   twitchSubs: num,
+  twitchBits: num,
   twitchEarnings: eur,
 };
 
@@ -68,7 +70,7 @@ export function StatSpark({ points, k, label, height = 56, href }: { points: Pla
       : points.filter((p) => p[k] !== null).map((p) => ({ at: p.at, v: p[k] as number }));
   // Noch keine (oder nur eine) API-Spielzeit im Verlauf: die Tracker-Online-Zeit zeigen
   if (k === "playtimeSeconds" && data.length < 2 && points.length >= 2) data = trackedSeries(points);
-  if ((k === "twitchSubs" || k === "twitchEarnings") && data.length === 1) {
+  if ((k === "twitchSubs" || k === "twitchBits" || k === "twitchEarnings") && data.length === 1) {
     data = [{ at: new Date(Date.parse(data[0].at) - 24 * 60 * 60_000).toISOString(), v: 0 }, data[0]];
   }
   if (data.length < 2) {

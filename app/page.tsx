@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import Link from "next/link";
 import { Suspense } from "react";
 import { PageSkeleton } from "@/components/Skeletons";
@@ -13,6 +14,8 @@ import { FigValue } from "@/components/FigValue";
 import { TrendChart } from "@/components/TrendChart";
 import { getBoardRanksBefore, getHistoryRange } from "@/lib/analytics";
 import { EVENT_GROUPS, isShownEvent } from "@/lib/events";
+import { getTopClips } from "@/lib/clips";
+import { ClipGrid } from "@/components/ClipGrid";
 import { BOARD_STYLE } from "@/lib/boards";
 import { BoardValue } from "@/components/BoardValue";
 import { BOARD_TONE, METRIC_TONE } from "@/lib/statTone";
@@ -166,6 +169,10 @@ async function Dashboard() {
           )}
         </div>
       </section>
+
+      <Suspense fallback={null}>
+        <TopClips />
+      </Suspense>
 
       <section className="block" data-tone="paper" aria-labelledby="feed-h">
         <div className="wrap">
@@ -393,5 +400,35 @@ async function Dashboard() {
         </div>
       </section>
     </div>
+  );
+}
+
+/** Meistgesehene Clips der letzten 24 Stunden (fehlen welche, die der letzten Woche) */
+async function TopClips() {
+  await connection();
+  let clips = await getTopClips({ hours: 24, limit: 8, perPlayer: 2 });
+  let range = "der letzten 24 Stunden";
+  if (clips.length < 4) {
+    clips = await getTopClips({ hours: 7 * 24, limit: 8, perPlayer: 2 });
+    range = "der letzten 7 Tage";
+  }
+  if (!clips.length) return null;
+  return (
+    <section className="block block--tight" data-tone="paper" aria-labelledby="clips-h">
+      <div className="wrap">
+        <div className="section-head">
+          <div className="stack" style={{ "--stack": "8px" } as React.CSSProperties}>
+            <h2 className="t-2" id="clips-h">
+              Top-Clips
+            </h2>
+            <p className="lead">Die meistgesehenen Clips {range}, höchstens zwei je Kanal.</p>
+          </div>
+          <Link className="btn btn--small" data-tone="white" href="/ereignisse?t=clip">
+            Alle Clips
+          </Link>
+        </div>
+        <ClipGrid clips={clips} />
+      </div>
+    </section>
   );
 }
