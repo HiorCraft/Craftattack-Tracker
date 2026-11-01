@@ -13,7 +13,8 @@ import { BOARD_ICON, Icon } from "@/components/Icons";
 import { FigValue } from "@/components/FigValue";
 import { TrendChart } from "@/components/TrendChart";
 import { getBoardRanksBefore, getHistoryRange } from "@/lib/analytics";
-import { EVENT_GROUPS, isShownEvent } from "@/lib/events";
+import { EVENT_GROUPS } from "@/lib/events";
+import { getFeedFilter } from "@/lib/feedThresholds";
 import { getTopClips } from "@/lib/clips";
 import { ClipGrid } from "@/components/ClipGrid";
 import { BOARD_STYLE } from "@/lib/boards";
@@ -48,7 +49,8 @@ async function Dashboard() {
   const liveList = s ? [...(s.live ?? [])].sort((a, b) => b.viewers - a.viewers) : [];
   // Globale Zuschauer: nur Streams von Spielern, die gerade auf dem Server sind
   const viewers = liveList.filter((l) => l.onServer !== false).reduce((a, l) => a + l.viewers, 0);
-  const recent = [...events].reverse().filter(isShownEvent).slice(0, 25);
+  const isShown = await getFeedFilter();
+  const recent = [...events].reverse().filter(isShown).slice(0, 25);
   // Gesamte Laufzeit (gebündelt), nicht nur die letzten Stunden
   const hist = histAll.points.length >= 2 ? histAll.points : state.history;
   const trackedPlayers = Object.keys(state.players).length;
@@ -208,7 +210,7 @@ async function Dashboard() {
                   </li>
                 ))}
               </ul>
-              <EventFeed events={recent} />
+              <EventFeed events={recent} isShown={isShown} />
             </div>
             <aside className="stack" style={{ "--stack": "16px" } as React.CSSProperties}>
               <div className="box spark-card" data-tone="white">

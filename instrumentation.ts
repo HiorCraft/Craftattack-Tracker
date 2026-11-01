@@ -28,6 +28,9 @@ export async function register() {
     // Ereignisse und Meilensteine für die Zusatzwerte (platzierte Blöcke, Handel, Angeln, …), auch rückwirkend
     const { startExtraEvents } = await import("./lib/extraEvents");
     startExtraEvents();
+    // Sammel-Sprünge (nach Lücken, veraltete Werte, Zeit offline) markieren, Feeds blenden sie aus
+    const { startEventQuality } = await import("./lib/eventQuality");
+    startEventQuality();
     // Einmal pro Prozess: alte Verlaufsdaten korrigieren und fehlende AFK-Farm-Ereignisse nachtragen
     const { runBackfills } = await import("./lib/backfill");
     runBackfills().catch((err: unknown) => console.error("[tracker] Nachträge fehlgeschlagen:", err));

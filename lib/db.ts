@@ -149,6 +149,8 @@ async function migrate(db: Db) {
   await db.query(`ALTER TABLE tracker_meta ADD COLUMN IF NOT EXISTS afk_history_version integer NOT NULL DEFAULT 0`);
   // Bis wohin Ereignisse aus den Zusatzwerten angelegt sind (lib/extraEvents.ts)
   await db.query(`ALTER TABLE tracker_meta ADD COLUMN IF NOT EXISTS extra_events_until timestamptz`);
+  // Früher ein gemeinsamer Typ „stat“ für alle Zusatzwerte, jetzt je Wert ein eigener
+  await db.query(`UPDATE events SET type = meta->>'key' WHERE type = 'stat' AND meta->>'key' IS NOT NULL`);
   await db.query(`CREATE INDEX IF NOT EXISTS events_at_idx ON events (at)`);
   await db.query(`CREATE INDEX IF NOT EXISTS events_player_at_idx ON events (player, at)`);
   await db.query(`CREATE INDEX IF NOT EXISTS events_type_at_idx ON events (type, at)`);
@@ -334,5 +336,7 @@ async function migrate(db: Db) {
     )`);
   await db.query(`CREATE INDEX IF NOT EXISTS twitch_clips_player_idx ON twitch_clips (player, created_at)`);
   await db.query(`CREATE INDEX IF NOT EXISTS twitch_clips_views_idx ON twitch_clips (view_count DESC)`);
+  // Clip entstand, während der Streamer auf dem Server war (gesetzt von lib/twitchHistory.ts; NULL = noch offen)
+  await db.query(`ALTER TABLE twitch_clips ADD COLUMN IF NOT EXISTS on_server boolean`);
   // Früher: Tabelle user_files für das entfernte Konto-Feature. Bestehende (leere) Tabellen bleiben unangetastet.
 }

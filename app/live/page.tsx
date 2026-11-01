@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getFeedFilter } from "@/lib/feedThresholds";
 import { Suspense } from "react";
 import { PageSkeleton } from "@/components/Skeletons";
 import type { Metadata } from "next";
@@ -242,7 +243,7 @@ async function Live({ searchParams }: { searchParams: PageProps<"/live">["search
               Alle
             </Link>
           </div>
-          <EventFeed events={twitchEvents} empty={range.hours === null ? "Noch kein Stream an- oder ausgegangen, seit der Tracker läuft." : `Kein Stream in den letzten ${range.label} an- oder ausgegangen.`} />
+          <EventFeed events={twitchEvents} isShown={await getFeedFilter()} empty={range.hours === null ? "Noch kein Stream an- oder ausgegangen, seit der Tracker läuft." : `Kein Stream in den letzten ${range.label} an- oder ausgegangen.`} />
         </div>
       </section>
     </>

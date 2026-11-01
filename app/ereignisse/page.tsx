@@ -3,7 +3,8 @@ import { Suspense } from "react";
 import { PageSkeleton } from "@/components/Skeletons";
 import type { Metadata } from "next";
 import { loadTracker } from "@/lib/data";
-import { EVENT_GROUPS, EVENT_META, EVENT_TYPES, TIME_RANGES, eventPlayers, isShownEvent, typesForGroup } from "@/lib/events";
+import { EVENT_GROUPS, EVENT_META, EVENT_TYPES, TIME_RANGES, eventPlayers, typesForGroup } from "@/lib/events";
+import { getFeedFilter } from "@/lib/feedThresholds";
 import type { EventType } from "@/lib/types";
 import { num } from "@/lib/format";
 import { EventFeed } from "@/components/EventFeed";
@@ -58,7 +59,8 @@ async function Events({ searchParams }: { searchParams: PageProps<"/ereignisse">
   // Basisfilter (ohne Kategorie), damit die Zusammenfassung pro Kategorie stimmt
   const range = TIME_RANGES.find((r) => r.key === zeit)?.ms ?? null;
   const since = range ? now - range : 0;
-  let base = [...events].reverse().filter(isShownEvent);
+  const isShown = await getFeedFilter();
+  let base = [...events].reverse().filter(isShown);
   if (since) base = base.filter((e) => Date.parse(e.at) >= since);
   if (where) base = base.filter((e) => e.where === where);
   if (players.length) base = base.filter((e) => eventPlayers(e).some((id) => players.includes(id)));
@@ -207,7 +209,7 @@ async function Events({ searchParams }: { searchParams: PageProps<"/ereignisse">
             )}
           </div>
 
-          <EventFeed events={slice} focus={player} highlight={evIndex >= 0 ? ev : undefined} getTimeState={getTimeState} />
+          <EventFeed events={slice} focus={player} highlight={evIndex >= 0 ? ev : undefined} getTimeState={getTimeState} isShown={isShown} />
           {evIndex >= 0 && <ScrollToHighlight id={`ev-${ev}`} />}
           {player && (
             <PresenceLegend />

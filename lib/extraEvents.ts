@@ -8,7 +8,7 @@ import type { TrackerEvent } from "./types";
  * Ereignisse für die Zusatzwerte aus /api/player (platzierte Blöcke, Handel, Verzaubern, Angeln, …). Die Werte
  * kommen höchstens alle 5 Minuten je Spieler in `player_history.extra_stats`; dieser Job (nur Tracker, alle 10 Min)
  * vergleicht aufeinanderfolgende Stände und legt daraus Ereignisse an, auch rückwirkend ab dem ersten Stand.
- * - Zuwachs ab EXTRA_EVENT_MIN in einem Abschnitt → Ereignis „stat“ (seltene Werte schon ab 1)
+ * - Zuwachs ab EXTRA_EVENT_MIN in einem Abschnitt → Ereignis mit dem Namen des Werts als Typ (seltene schon ab 1)
  * - Überschreiten einer Marke aus EXTRA_MILESTONES → Meilenstein
  * Schwellen nach der Verteilung der Zuwächse (seltene ~1 %); sonst würden Sprünge oder Aufheben alles füllen.
  */
@@ -85,7 +85,7 @@ export async function buildExtraEvents(): Promise<number> {
         if (a < m && b >= m) out.push({ ...base, id: `xmile-${p.id}-${key}-${m}`, type: "milestone", value: m, meta: { board: key, label: EXTRA_STATS[key].label } });
       }
       const min = EXTRA_EVENT_MIN[key];
-      if (min !== undefined && b - a >= min && step <= MAX_STEP_MS) out.push({ ...base, id: `xstat-${p.id}-${key}-${atMs}`, type: "stat", delta: b - a, value: b, meta: { key } });
+      if (min !== undefined && b - a >= min && step <= MAX_STEP_MS) out.push({ ...base, id: `xstat-${p.id}-${key}-${atMs}`, type: key as TrackerEvent["type"], delta: b - a, value: b, meta: { key } });
     });
   }
   // In Paketen eintragen (rückwirkend beim ersten Lauf viele)

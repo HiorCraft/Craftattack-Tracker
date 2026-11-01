@@ -1,11 +1,14 @@
 import type { EventType, TrackerEvent } from "./types";
 import { duration, hearts, num, distance } from "./format";
-import { BOARD_TONE, METRIC_TONE } from "./statTone";
+import { BOARD_TONE, GROUP_TONE, METRIC_TONE } from "./statTone";
 import { EXTRA_STATS, FORMATTERS, type ExtraStatKey } from "./playerStats";
 
-/** Zusatzwert eines Ereignisses (Typ „stat“ oder Meilenstein eines Zusatzwerts) */
+/** Zusatzwerte mit eigenem Ereignistyp (lib/extraEvents.ts) */
+export const EXTRA_EVENT_TYPES = ["blocksPlaced", "damageTaken", "raidsWon", "itemsCrafted", "itemsEnchanted", "tradedWithVillagers", "animalsKilled", "animalsBred", "fishCaught", "bellsRung"] as const satisfies readonly ExtraStatKey[];
+
+/** Zusatzwert eines Ereignisses (eigener Typ oder Meilenstein eines Zusatzwerts) */
 const extraOf = (e: TrackerEvent) => {
-  const key = String(e.meta?.key ?? e.meta?.board ?? "") as ExtraStatKey;
+  const key = ((EXTRA_EVENT_TYPES as readonly string[]).includes(e.type) ? e.type : String(e.meta?.board ?? "")) as ExtraStatKey;
   const m = EXTRA_STATS[key];
   return m ? { key, ...m, fmt: FORMATTERS[m.format] } : null;
 };
@@ -324,15 +327,21 @@ export const EVENT_META: Record<EventType, EventMeta> = {
       }
     },
   },
-  stat: {
-    label: "Statistik",
-    tone: "white",
-    text: statText,
-    sub: (e) => {
-      const x = extraOf(e);
-      return x && e.value !== undefined ? `Jetzt ${x.fmt(e.value)} insgesamt · ${x.label}` : null;
-    },
-  },
+  // Zusatzwerte: Farbe der Gruppe des Werts (wie in Graph und Profil), Satz je Wert
+  ...(Object.fromEntries(
+    EXTRA_EVENT_TYPES.map((k) => [
+      k,
+      {
+        label: EXTRA_STATS[k].label,
+        tone: GROUP_TONE[EXTRA_STATS[k].group],
+        text: statText,
+        sub: (e: TrackerEvent) => {
+          const x = extraOf(e);
+          return x && e.value !== undefined ? `Jetzt ${x.fmt(e.value)} insgesamt` : null;
+        },
+      },
+    ]),
+  ) as Record<(typeof EXTRA_EVENT_TYPES)[number], EventMeta>),
   record: {
     label: "Rekord",
     tone: "white",
@@ -351,7 +360,9 @@ export const EVENT_META: Record<EventType, EventMeta> = {
 export const EVENT_GROUPS: { key: string; label: string; tone: string; types: EventType[] }[] = [
   { key: "server", label: "Server", tone: "white", types: ["join", "leave", "afk_start", "afk_mobs_start", "afk_mobs_end", "afk_blocks_start", "afk_blocks_end", "afk_end", "server_online", "server_offline", "tracker_start"] },
   { key: "death", label: "Tode", tone: BOARD_TONE.deaths, types: ["death"] },
-  { key: "loot", label: "Loot & Arbeit", tone: "white", types: ["diamonds", "blocksBroken", "mobsKilled", "distance", "damageDealt", "totemsUsed", "foodEaten", "stat"] },
+  { key: "loot", label: "Loot & Kampf", tone: "white", types: ["diamonds", "blocksBroken", "mobsKilled", "distance", "damageDealt", "totemsUsed", "foodEaten", "damageTaken", "raidsWon"] },
+  { key: "bau", label: "Bauen & Handel", tone: GROUP_TONE.items, types: ["blocksPlaced", "itemsCrafted", "itemsEnchanted", "tradedWithVillagers"] },
+  { key: "natur", label: "Tiere & Natur", tone: GROUP_TONE.tiere, types: ["animalsKilled", "animalsBred", "fishCaught", "bellsRung"] },
   { key: "twitch", label: "Twitch", tone: "twitch", types: ["stream_start", "stream_end", "stream_title", "subscription", "subscription_gift", "cheer", "clip", "follower_burst", "raid", "chat", "shared_chat_start", "shared_chat_end"] },
   { key: "highlights", label: "Highlights", tone: "white", types: ["achievement", "first_join", "rank", "milestone", "record"] },
 ];
@@ -420,7 +431,16 @@ export function eventBadge(e: TrackerEvent): string | null {
       return e.meta?.board === "playtimeSeconds" ? `${Math.round((e.value ?? 0) / 3600)} h` : e.meta?.board === "distance" ? distance(e.value ?? 0) : e.meta?.board === "damageDealt" ? `${hearts(e.value ?? 0)} Herzen` : (extraOf(e)?.fmt(e.value ?? 0) ?? num(e.value ?? 0));
     case "record":
       return num(e.value ?? 0);
-    case "stat": {
+    case "blocksPlaced":
+    case "damageTaken":
+    case "raidsWon":
+    case "itemsCrafted":
+    case "itemsEnchanted":
+    case "tradedWithVillagers":
+    case "animalsKilled":
+    case "animalsBred":
+    case "fishCaught":
+    case "bellsRung": {
       const x = extraOf(e);
       return x ? `+${x.fmt(e.delta ?? 0)}` : null;
     }
@@ -465,8 +485,8 @@ export const EVENT_TYPES: EventType[] = [
   "shared_chat_end",
   "rank",
   "milestone",
-  "stat",
   "record",
+  ...EXTRA_EVENT_TYPES,
   "server_online",
   "server_offline",
   "tracker_start",
@@ -501,7 +521,9 @@ export const FEED_MIN_DELTA: Partial<Record<TrackerEvent["type"], number>> = {
 };
 
 /** Kleine Zähler-Ereignisse ausblenden (auch ältere, die vor der Schwelle gespeichert wurden) */
-export function isShownEvent(e: Pick<TrackerEvent, "type" | "delta"> & { value?: number }): boolean {
+export function isShownEvent(e: Pick<TrackerEvent, "type" | "delta"> & { value?: number; meta?: TrackerEvent["meta"] }): boolean {
+  // Zuwachs, der sich über eine Tracker-Lücke oder Zeit ohne frische Werte angesammelt hat (lib/eventQuality.ts)
+  if (e.meta?.catchUp === true) return false;
   const min = FEED_MIN_DELTA[e.type];
   if (min === undefined) return true;
   return (e.type === "subscription" ? (e.value ?? e.delta ?? 0) : (e.delta ?? 0)) >= min;
