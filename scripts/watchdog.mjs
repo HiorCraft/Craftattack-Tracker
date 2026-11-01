@@ -21,7 +21,10 @@ if (!NTFY_URL) throw new Error("NTFY_URL fehlt");
 const STATE = process.env.WATCHDOG_STATE ?? `${homedir()}/.local/state/actracker-watchdog.json`;
 const TRACKER = process.env.WATCHDOG_TRACKER ?? "http://127.0.0.1:3020/api/tracker";
 const WEB = process.env.WATCHDOG_WEB ?? "http://127.0.0.1:3010/bot";
-const PUBLIC = process.env.WATCHDOG_PUBLIC ?? "https://craftattack.hiorcraft.tv/bot";
+// Startseite statt /bot: /bot liegt fast immer fertig im Cache und antwortete auch, als die Website hing
+const PUBLIC = process.env.WATCHDOG_PUBLIC ?? "https://craftattack.hiorcraft.tv/";
+/** Speicher des Website-Dienstes (Root-Unit, cgroup v2) */
+const WEB_CGROUP = process.env.WATCHDOG_WEB_CGROUP ?? "/sys/fs/cgroup/system.slice/actracker-web.service";
 const PROXY_PORT = Number(process.env.WATCHDOG_PROXY_PORT ?? 1080);
 const MIN = 60_000;
 const REMIND_MS = 3 * 60 * MIN;
@@ -41,7 +44,7 @@ const portOpen = (port) =>
   });
 const get = async (url) => {
   try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(20_000), headers: { "user-agent": "actracker-watchdog" } });
+    const r = await fetch(url, { signal: AbortSignal.timeout(30_000), headers: { "user-agent": "actracker-watchdog" } });
     return { status: r.status, body: r.headers.get("content-type")?.includes("json") ? await r.json() : null };
   } catch (err) {
     return { status: 0, error: err?.cause?.code ?? err?.message ?? String(err) };
@@ -105,6 +108,22 @@ async function check() {
       tags: "globe_with_meridians,warning",
       after: 6 * MIN,
     };
+
+  // Website am Speicherlimit: der Kernel bremst sie dann aus (Seiten hängen, obwohl sie laufen)
+  try {
+    const cur = Number(readFileSync(`${WEB_CGROUP}/memory.current`, "utf8"));
+    const high = Number(readFileSync(`${WEB_CGROUP}/memory.high`, "utf8"));
+    if (Number.isFinite(high) && high > 0 && cur >= high * 0.95)
+      problems.webmem = {
+        title: "Website am Speicherlimit",
+        message: `Die Website nutzt ${Math.round(cur / 1e6)} von ${Math.round(high / 1e6)} MB und wird ausgebremst (Seiten laden nicht). Kurzfristig hilft ein Neustart, dauerhaft ein höheres Limit (MemoryHigh/MemoryMax im Drop-in, braucht root).`,
+        priority: "high",
+        tags: "warning",
+        after: 10 * MIN,
+      };
+  } catch {
+    /* cgroup nicht lesbar: nicht prüfen */
+  }
 
   for (const unit of ["actracker-schaetzung", "actracker-vodchat"]) {
     const s = await sh("systemctl", ["--user", "is-active", unit]);
@@ -175,7 +194,7 @@ for (const [key, p] of Object.entries(problems)) {
 for (const key of Object.keys(state)) {
   if (problems[key]) continue;
   if (state[key].notified) {
-    await notify({ title: "Läuft wieder", message: `Erledigt: ${key === "tunnel" ? "Tunnel ist wieder verbunden" : key === "polls" ? "Minecraft-Daten kommen wieder" : key === "web" ? "Website ist wieder erreichbar" : key} (Problem seit ${berlin(state[key].since)} Uhr).`, priority: "low", tags: "white_check_mark" });
+    await notify({ title: "Läuft wieder", message: `Erledigt: ${key === "tunnel" ? "Tunnel ist wieder verbunden" : key === "polls" ? "Minecraft-Daten kommen wieder" : key === "web" ? "Website ist wieder erreichbar" : key === "webmem" ? "Website hat wieder genug Speicher" : key} (Problem seit ${berlin(state[key].since)} Uhr).`, priority: "low", tags: "white_check_mark" });
     console.log(`erledigt: ${key}`);
   }
   delete state[key];
