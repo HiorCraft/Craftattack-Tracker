@@ -7,6 +7,8 @@
  *   (Namen wie „Logo“, „Platin“ oder „Veni“ würden sonst überall passen).
  */
 
+import { splitByBerlinDay } from "./berlin";
+
 export interface MentionPlayer {
   id: string;
   name: string;
@@ -72,18 +74,16 @@ export function titleSeconds(
   since: number,
   until: number,
   live: Set<string>,
+  /** Optional: Sekunden je Paar und Tag (nach der Obergrenze), z. B. für den Verlauf über die Zeit */
+  onDay?: (key: string, day: string, seconds: number) => void,
 ): Map<string, { seconds: number; last: number }> {
   const byPlayer = new Map<string, TitleChange[]>();
   for (const c of changes) (byPlayer.get(c.player) ?? byPlayer.set(c.player, []).get(c.player)!).push(c);
   const perDay = new Map<string, number>();
   const out = new Map<string, { seconds: number; last: number }>();
-  const day = (ms: number) => new Date(ms + 3600_000).toISOString().slice(0, 10);
   const add = (key: string, from: number, to: number) => {
     // Tageweise aufteilen, damit die Obergrenze je Tag greift
-    let a = from;
-    while (a < to) {
-      const d = day(a);
-      const next = Math.min(to, Date.parse(`${d}T00:00:00Z`) - 3600_000 + 86_400_000);
+    splitByBerlinDay(from, to, (d, a, next) => {
       const dk = `${key}|${d}`;
       const used = perDay.get(dk) ?? 0;
       const s = Math.min((next - a) / 1000, TITLE_MAX_SECONDS_PER_DAY - used);
@@ -92,9 +92,9 @@ export function titleSeconds(
         const o = out.get(key) ?? out.set(key, { seconds: 0, last: 0 }).get(key)!;
         o.seconds += s;
         o.last = Math.max(o.last, next);
+        onDay?.(key, d, s);
       }
-      a = next;
-    }
+    });
   };
   for (const [player, list] of byPlayer) {
     list.sort((x, y) => x.at - y.at);

@@ -23,8 +23,24 @@ function groupName(g: Group, name: (id: string) => string) {
 }
 
 /** Übersicht aller Gruppen: Karte der Gruppen (Anführer-Köpfe) und eine Karte je Gruppe */
-export function GroupsOverview({ nodes, edges, base }: { nodes: GraphNode[]; edges: LinkCounts[]; base: { path: string; key: string } }) {
-  const { analysis, weights, controls, shown: isShown, groupEdges } = useAnalysis(edges);
+export function GroupsOverview({
+  nodes,
+  edges,
+  base,
+  toolbar,
+  anchorColor,
+}: {
+  nodes: GraphNode[];
+  edges: LinkCounts[];
+  base: { path: string; key: string };
+  /** Über dem Netz, z. B. die Zeitleiste */
+  toolbar?: React.ReactNode;
+  /** Farbe je Spieler aus einer festen Einteilung: Gruppen behalten so über Zeitfenster hinweg ihre Farbe */
+  anchorColor?: ((id: string) => string | null) | null;
+}) {
+  const { analysis: raw, weights, controls, shown: isShown, groupEdges } = useAnalysis(edges);
+  const analysis = useMemo(() => (anchorColor ? recolor(raw, anchorColor) : raw), [raw, anchorColor]);
+  const [view, setView] = useState<"karte" | "alle">("karte");
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const name = (id: string) => byId.get(id)?.name ?? id;
   const href = (id: string) => `${base.path}/${encodeURIComponent(id)}?key=${encodeURIComponent(base.key)}`;
@@ -32,7 +48,16 @@ export function GroupsOverview({ nodes, edges, base }: { nodes: GraphNode[]; edg
 
   // Karte: je Gruppe ein Knoten (Kopf des Anführers), Linien = Verbindungen zwischen Gruppen
   const { mapNodes, mapEdges, leaderGroup } = useMemo(() => groupMap(analysis, byId, weights, edges.filter(isShown)), [analysis, byId, weights, edges, isShown]);
-  const colorOf = useMemo(() => (id: string) => GROUP_COLORS[(leaderGroup.get(id) ?? 0) % GROUP_COLORS.length], [leaderGroup]);
+  const colorOf = useMemo(() => (id: string) => analysis.groups[leaderGroup.get(id) ?? 0]?.color ?? GROUP_COLORS[0], [leaderGroup, analysis.groups]);
+  // Alle Spieler: jeder Kopf auf der Fläche seiner Gruppe, Rolle als Rahmen
+  const allNodes = useMemo(() => nodes.filter((n) => analysis.groupOf.has(n.id)), [nodes, analysis.groupOf]);
+  const allEdges: GraphEdge[] = useMemo(() => edges.filter(isShown).map((e) => ({ ...e, ...weigh(e, weights) })).filter((e) => e.weight > 0), [edges, weights, isShown]);
+  const memberColor = useMemo(() => (id: string) => analysis.groups[analysis.groupOf.get(id) ?? -1]?.color ?? null, [analysis]);
+  const roleOf = useMemo(() => {
+    const roles = new Map(analysis.groups.flatMap((g) => g.members.map((m) => [m.id, m.role] as const)));
+    return (id: string) => roles.get(id) ?? null;
+  }, [analysis.groups]);
+  const playerHref = useMemo(() => (id: string) => `/spieler/${encodeURIComponent(id)}`, []);
   const hrefOf = useMemo(() => (id: string) => href(id), [base.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = find ? analysis.groupOf.get(find) : undefined;
@@ -52,12 +77,28 @@ export function GroupsOverview({ nodes, edges, base }: { nodes: GraphNode[]; edg
         )}
       </div>
       <div className="box conn__box" data-tone="white">
-        <ConnectionGraph nodes={mapNodes} edges={mapEdges} territoryOf={colorOf} hrefOf={hrefOf} />
+        <div className="grp__toolbar">
+          <div className="gb__seg" role="group" aria-label="Ansicht">
+            <button type="button" aria-pressed={view === "karte"} onClick={() => setView("karte")} title="Ein Kopf je Gruppe (ihr Anführer)">
+              Gruppen
+            </button>
+            <button type="button" aria-pressed={view === "alle"} onClick={() => setView("alle")} title="Jeder Spieler auf der Fläche seiner Gruppe">
+              Alle Spieler
+            </button>
+          </div>
+          {toolbar}
+        </div>
+        {view === "karte" ? (
+          <ConnectionGraph nodes={mapNodes} edges={mapEdges} territoryOf={colorOf} hrefOf={hrefOf} />
+        ) : (
+          <ConnectionGraph nodes={allNodes} edges={allEdges} territoryOf={memberColor} roleOf={roleOf} hrefOf={playerHref} />
+        )}
         <p className="muted conn__legend">
-          Ein Kopf je Gruppe{" "}
+          {view === "karte" ? "Ein Kopf je Gruppe" : `${num(allNodes.length)} Spieler in ${num(analysis.groups.length)} Gruppen`}{" "}
           <Explain label="Was zeigt das Netz?">
-            Ein Kopf je Gruppe (ihr Anführer), Größe = Stärke der Gruppe, Linien = Verbindungen zwischen den Gruppen (Raids, Titel, Nachrichten, geteilte
-            Chats aller Mitglieder). Name beim Überfahren, anklicken öffnet die Gruppe.
+            {view === "karte"
+              ? "Ein Kopf je Gruppe (ihr Anführer), Größe = Stärke der Gruppe, Linien = Verbindungen zwischen den Gruppen (Raids, Titel, Nachrichten, geteilte Chats aller Mitglieder). Name beim Überfahren, anklicken öffnet die Gruppe."
+              : "Jeder verbundene Spieler, die Fläche zeigt seine Gruppe. Rahmen: Krone = Anführer, dick = Kern, gestrichelt = Rand. Anklicken öffnet das Profil."}
           </Explain>
         </p>
       </div>
@@ -590,4 +631,21 @@ function MatrixRow({
       })}
     </>
   );
+}
+
+/** Gruppenfarben an eine feste Einteilung binden: jede Gruppe bekommt die Farbe, die die meisten ihrer Mitglieder dort haben */
+function recolor(a: GroupAnalysis, anchor: (id: string) => string | null): GroupAnalysis {
+  const used = new Set<string>();
+  const colors = new Map<number, string>();
+  for (const g of [...a.groups].sort((x, y) => y.members.length - x.members.length)) {
+    const votes = new Map<string, number>();
+    for (const m of g.members) {
+      const c = anchor(m.id);
+      if (c) votes.set(c, (votes.get(c) ?? 0) + 1);
+    }
+    const pick = [...votes.entries()].filter(([c]) => !used.has(c)).sort((x, y) => y[1] - x[1])[0]?.[0] ?? GROUP_COLORS.find((c) => !used.has(c)) ?? g.color;
+    used.add(pick);
+    colors.set(g.index, pick);
+  }
+  return { ...a, groups: a.groups.map((g) => ({ ...g, color: colors.get(g.index) ?? g.color })) };
 }

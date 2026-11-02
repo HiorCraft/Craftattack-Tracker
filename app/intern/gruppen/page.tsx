@@ -4,8 +4,9 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { PageSkeleton } from "@/components/Skeletons";
-import { GroupsOverview } from "@/components/GroupViews";
-import { NETWORK_RANGES, getNetwork } from "@/lib/connections";
+import { GroupsTimeline } from "@/components/GroupsTimeline";
+import { Explain } from "@/components/Explain";
+import { getDailyNetwork } from "@/lib/connections";
 import { internAllowed } from "@/lib/intern";
 
 export const metadata: Metadata = { title: "Gruppen (Versuch)", robots: { index: false, follow: false } };
@@ -24,9 +25,7 @@ async function Groups({ searchParams }: { searchParams: PageProps<"/intern/grupp
   const sp = await searchParams;
   const key = sp.key;
   if (!internAllowed(key)) notFound();
-  const range = NETWORK_RANGES.find((r) => r.key === sp.zeit) ?? NETWORK_RANGES[2];
-  const { nodes, edges } = await getNetwork(range.hours);
-  const href = (zeit: string) => `/intern/gruppen?${new URLSearchParams({ key, ...(zeit === "alle" ? {} : { zeit }) })}`;
+  const { nodes, daily } = await getDailyNetwork();
   return (
     <>
       <section className="block page-head" data-tone="amethyst">
@@ -34,23 +33,17 @@ async function Groups({ searchParams }: { searchParams: PageProps<"/intern/grupp
           <p className="eyebrow">Intern · Versuch</p>
           <h1 className="t-1">Gruppen</h1>
           <p>
-            Spieler, die untereinander deutlich mehr Raids, Chat-Nachrichten und geteilte Chats haben als mit dem Rest. Jede Gruppe ist nach ihrem Anführer
-            benannt: dem Mitglied, das in der Gruppe die meiste Aufmerksamkeit bekommt. Siehe auch das <Link href={`/intern/netz?key=${encodeURIComponent(key)}`}>Netz</Link>.
+            Wer untereinander deutlich enger verbunden ist als mit dem Rest, über die ganze Staffel oder an einem bestimmten Tag.{" "}
+            <Explain>
+              Gezählt werden Raids, Chat-Nachrichten, geteilte Chats und Namen im Stream-Titel. Jede Gruppe ist nach ihrem Anführer benannt: dem
+              Mitglied, das in der Gruppe die meiste Aufmerksamkeit bekommt. Siehe auch das <Link href={`/intern/netz?key=${encodeURIComponent(key)}`}>Netz</Link>.
+            </Explain>
           </p>
         </div>
       </section>
       <section className="block" data-tone="paper">
         <div className="wrap">
-          <ul className="filters" aria-label="Zeitraum">
-            {NETWORK_RANGES.map((r) => (
-              <li key={r.key}>
-                <Link className="tag" aria-current={range.key === r.key ? "true" : undefined} href={href(r.key)}>
-                  {r.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
-          <GroupsOverview nodes={nodes} edges={edges} base={{ path: "/intern/gruppen", key }} />
+          <GroupsTimeline nodes={nodes} daily={daily} base={{ path: "/intern/gruppen", key }} />
         </div>
       </section>
     </>

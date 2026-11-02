@@ -5642,3 +5642,43 @@ a.st-board__mvlink:focus-visible {
 .conn__side > .conn__controls {
   margin: 0;
 }
+
+/* Gruppen: Leiste über dem Netz (Ansicht, Zeitleiste) */
+.grp__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 12px;
+  border-bottom: 2px solid color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.grp__toolbar .gb__seg {
+  margin: 0;
+}
+.grp__toolbar .gb__seg button {
+  min-height: 32px;
+  padding: 3px 10px;
+  font-size: 0.8125rem;
+}
+.grp__time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  flex: 1 1 420px;
+  min-width: 0;
+}
+.grp__time input[type="range"] {
+  flex: 1 1 160px;
+  min-width: 120px;
+  accent-color: var(--ink);
+}
+.grp__time-day {
+  min-width: 11ch;
+  font-size: 0.875rem;
+}
+/* Suche in einer senkrechten Einstellungs-Spalte: keine Flex-Basis (sonst 220 px Höhe) */
+.conn__group > .psearch {
+  flex: none;
+  max-width: none;
+}

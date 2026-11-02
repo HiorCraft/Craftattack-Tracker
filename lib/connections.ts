@@ -2,6 +2,8 @@ import "server-only";
 import { getDb } from "./db";
 import { emptyLink, type LinkCounts } from "./connectionWeights";
 import { mentionMatcher, titleSeconds } from "./titleMentions";
+import { berlinDay, splitByBerlinDay } from "./berlin";
+import type { DailyNetwork } from "./dailyNetwork";
 import { loadTracker } from "./data";
 
 /** Zeiträume für die Netz-Seiten */
@@ -137,4 +139,106 @@ export async function getNetwork(hours: number | null): Promise<{ nodes: Network
     });
   const nodes = Object.values(state.players).map((p) => ({ id: p.id, name: p.name, uuid: p.uuid, online: p.online, live: Boolean(p.live) }));
   return { nodes, edges };
+}
+
+export async function getDailyNetwork(): Promise<{ nodes: NetworkNode[]; daily: DailyNetwork }> {
+  const db = await getDb();
+  const [{ state }, raids, chats, messages, streams, players] = await Promise.all([
+    loadTracker(),
+    db.query<{ src: string; dst: string; day: string; n: number }>(
+      `SELECT player AS src, meta->>'raidTargetPlayerId' AS dst, to_char(at AT TIME ZONE 'Europe/Berlin', 'YYYY-MM-DD') AS day, count(*)::int AS n
+         FROM events
+        WHERE type = 'raid' AND player IS NOT NULL AND meta->>'raidTargetPlayerId' IS NOT NULL
+        GROUP BY 1, 2, 3`,
+    ),
+    db.query<{ participants: string[]; started_at: Date; ended_at: Date | null }>(
+      `SELECT participants, started_at, ended_at FROM shared_chat_sessions WHERE cardinality(participants) > 1`,
+    ),
+    db.query<{ src: string; dst: string; day: string; n: number }>(
+      `SELECT sender_id AS src, channel_id AS dst, to_char(at AT TIME ZONE 'Europe/Berlin', 'YYYY-MM-DD') AS day, count(*)::int AS n
+         FROM twitch_chat_messages
+        WHERE sender_id <> channel_id
+        GROUP BY 1, 2, 3`,
+    ),
+    db.query<{ player: string; at: Date; title: string | null }>(
+      `SELECT player, at, CASE WHEN type = 'stream_end' THEN NULL ELSE coalesce(meta->>'title', '') END AS title
+         FROM events
+        WHERE type IN ('stream_start', 'stream_title', 'stream_end') AND player IS NOT NULL`,
+    ),
+    db.query<{ id: string; name: string; twitch_login: string | null; live: boolean }>(`SELECT id, name, twitch_login, live IS NOT NULL AS live FROM players`),
+  ]);
+  const known = (id: string) => Boolean(state.players[id]);
+  // Zeile je Tag und Paar
+  const rows = new Map<string, LinkCounts & { day: string }>();
+  const row = (day: string, x: string, y: string) => {
+    const [a, b] = x < y ? [x, y] : [y, x];
+    const k = `${day}|${a}|${b}`;
+    return rows.get(k) ?? rows.set(k, { ...emptyLink(a, b), day }).get(k)!;
+  };
+  for (const r of raids.rows) {
+    if (r.src === r.dst || !known(r.src) || !known(r.dst)) continue;
+    const e = row(r.day, r.src, r.dst);
+    if (r.src === e.a) e.raidsAB += r.n;
+    else e.raidsBA += r.n;
+  }
+  for (const m of messages.rows) {
+    if (!known(m.src) || !known(m.dst)) continue;
+    const e = row(m.day, m.src, m.dst);
+    if (m.src === e.a) e.msgsAB += m.n;
+    else e.msgsBA += m.n;
+  }
+  const nowPairs: [string, string][] = [];
+  for (const s of chats.rows) {
+    const ids = [...new Set(s.participants)].filter(known).sort();
+    const end = (s.ended_at ?? new Date()).getTime();
+    const start = s.started_at.getTime();
+    for (let i = 0; i < ids.length; i++)
+      for (let j = i + 1; j < ids.length; j++) {
+        row(berlinDay(start), ids[i], ids[j]).chats++;
+        splitByBerlinDay(start, end, (day, a, b) => {
+          row(day, ids[i], ids[j]).chatSeconds += Math.round((b - a) / 1000);
+        });
+        if (!s.ended_at) nowPairs.push([ids[i], ids[j]]);
+      }
+  }
+  const match = mentionMatcher(players.rows.map((p) => ({ id: p.id, name: p.name, twitchLogin: p.twitch_login })));
+  const live = new Set(players.rows.filter((p) => p.live).map((p) => p.id));
+  titleSeconds(
+    streams.rows.map((r) => ({ player: r.player, at: r.at.getTime(), title: r.title })),
+    match,
+    0,
+    Date.now(),
+    live,
+    (key, day, seconds) => {
+      const [src, dst] = key.split("|");
+      if (!known(src) || !known(dst)) return;
+      const e = row(day, src, dst);
+      if (src === e.a) e.titleAB += seconds;
+      else e.titleBA += seconds;
+    },
+  );
+  const days = [...new Set([...rows.values()].map((r) => r.day))].sort();
+  const ids = Object.keys(state.players).sort();
+  const dayIx = new Map(days.map((d, i) => [d, i]));
+  const idIx = new Map(ids.map((id, i) => [id, i]));
+  const daily: DailyNetwork = {
+    days,
+    ids,
+    rows: [...rows.values()].map((r) => [
+      dayIx.get(r.day)!,
+      idIx.get(r.a)!,
+      idIx.get(r.b)!,
+      r.raidsAB,
+      r.raidsBA,
+      r.chats,
+      r.chatSeconds,
+      Math.round(r.titleAB),
+      Math.round(r.titleBA),
+      r.msgsAB,
+      r.msgsBA,
+    ]),
+    now: nowPairs.map(([a, b]) => [idIx.get(a)!, idIx.get(b)!]),
+  };
+  const nodes = Object.values(state.players).map((p) => ({ id: p.id, name: p.name, uuid: p.uuid, online: p.online, live: Boolean(p.live) }));
+  return { nodes, daily };
 }
