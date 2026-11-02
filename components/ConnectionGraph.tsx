@@ -58,6 +58,8 @@ function describe(e: GraphEdge, self: string) {
 /** Rand um das Netz im Canvas (Platz für Namen über den Köpfen) */
 const PAD = 36;
 const MAX_SCALE = 1.6;
+/** Rastergröße der Gebiete in Bildschirm-Pixeln */
+const CELL = 4;
 /** Reichweite der Abstoßung in Weltkoordinaten */
 const REPEL_RANGE = 420;
 
@@ -192,8 +194,94 @@ export function ConnectionGraph({
     const sr = (n: Node) => Math.max(4.5, n.r * Math.min(1, view.s * 1.3));
 
     let drag: Node | null = null;
-    /** Hilfsfläche für die Gebiete */
-    let off: HTMLCanvasElement | null = null;
+    /** Gebiete als kleines Raster-Bild (eine Zelle = CELL px) */
+    let terr: HTMLCanvasElement | null = null;
+    let frame = 0;
+    let terrSum = NaN;
+    /** CSS-Farbe → [r, g, b] (über ein 1×1-Canvas, das jede Farbangabe normalisiert) */
+    const rgbCache = new Map<string, [number, number, number]>();
+    const probe = document.createElement("canvas").getContext("2d");
+    const rgb = (c: string): [number, number, number] => {
+      let v = rgbCache.get(c);
+      if (!v) {
+        v = [128, 128, 128];
+        if (probe) {
+          probe.fillStyle = "#000";
+          probe.fillStyle = c;
+          probe.fillRect(0, 0, 1, 1);
+          const d = probe.getImageData(0, 0, 1, 1).data;
+          v = [d[0], d[1], d[2]];
+        }
+        rgbCache.set(c, v);
+      }
+      return v;
+    };
+    const paintTerritories = (territory: (id: string) => string | null, color: (n: string) => string): HTMLCanvasElement | null => {
+      const cols = Math.ceil(W() / CELL);
+      const rows = Math.ceil(H() / CELL);
+      if (!cols || !rows) return null;
+      const pts = ns
+        .map((n) => {
+          const c = territory(n.id);
+          return c ? { x: sx(n), y: sy(n), r: sr(n) * 2.4 + 16, c: rgb(color(c)), key: c } : null;
+        })
+        .filter((p): p is NonNullable<typeof p> => p !== null);
+      // Je Zelle: Index der nächsten Gruppe (-1 = keine in Reichweite)
+      const keys = [...new Set(pts.map((p) => p.key))];
+      const idx = pts.map((p) => keys.indexOf(p.key));
+      const owner = new Int16Array(cols * rows).fill(-1);
+      for (let j = 0; j < rows; j++) {
+        const cy = (j + 0.5) * CELL;
+        for (let i = 0; i < cols; i++) {
+          const cx = (i + 0.5) * CELL;
+          let best = -1;
+          let bestD = Infinity;
+          for (let q = 0; q < pts.length; q++) {
+            const p = pts[q];
+            const dx = cx - p.x;
+            const dy = cy - p.y;
+            if (dx > p.r || dx < -p.r || dy > p.r || dy < -p.r) continue;
+            const d = (dx * dx + dy * dy) / (p.r * p.r);
+            if (d < 1 && d < bestD) {
+              bestD = d;
+              best = idx[q];
+            }
+          }
+          owner[j * cols + i] = best;
+        }
+      }
+      const cv = terr && terr.width === cols && terr.height === rows ? terr : document.createElement("canvas");
+      cv.width = cols;
+      cv.height = rows;
+      const c2 = cv.getContext("2d");
+      if (!c2) return null;
+      const img = c2.createImageData(cols, rows);
+      const ink = rgb(color("--line"));
+      const colorsOf = keys.map((k) => rgb(color(k)));
+      for (let j = 0; j < rows; j++) {
+        for (let i = 0; i < cols; i++) {
+          const o = owner[j * cols + i];
+          if (o < 0) continue;
+          // Grenze: ein Nachbar gehört zu einer anderen Gruppe
+          const other = (di: number, dj: number) => {
+            const ii = i + di;
+            const jj = j + dj;
+            if (ii < 0 || jj < 0 || ii >= cols || jj >= rows) return false;
+            const n = owner[jj * cols + ii];
+            return n >= 0 && n !== o;
+          };
+          const border = other(1, 0) || other(-1, 0) || other(0, 1) || other(0, -1);
+          const [r, g, b] = border ? ink : colorsOf[o];
+          const k = (j * cols + i) * 4;
+          img.data[k] = r;
+          img.data[k + 1] = g;
+          img.data[k + 2] = b;
+          img.data[k + 3] = border ? 150 : 62;
+        }
+      }
+      c2.putImageData(img, 0, 0);
+      return cv;
+    };
     let hover: Node | null = null;
     /** Zuletzt angetippter Kopf (Touch) */
     let tapped: Node | null = null;
@@ -278,38 +366,23 @@ export function ConnectionGraph({
       const base = es.length > 150 ? 0.4 : 0.55;
       // Überfahrener Kopf, sonst der im Auswahlfeld hervorgehobene Spieler
       const hl = hover ?? (focusRef.current ? (byId.get(focusRef.current) ?? null) : null);
-      // Gebiete: je Farbe alle Kreise deckend auf eine eigene Fläche, dann halbdurchsichtig drüber. So verschmelzen
-      // nahe Köpfe einer Gruppe zu einer gleichmäßigen Fläche, statt sich zu dunklen Flecken zu stapeln.
+      // Gebiete: Jede Stelle gehört zum nächsten Kopf (wenn er nah genug ist), wie Länder auf einer Karte. So gibt
+      // es keine Überlappung; wo zwei Gruppen aneinandergrenzen, entsteht eine Grenzlinie. Gerechnet auf einem
+      // groben Raster (4 px), bei Bewegung nur jedes vierte Bild, dann weich hochskaliert.
       const territory = territoryRef.current;
       if (territory) {
-        const byColor = new Map<string, Node[]>();
-        for (const n of ns) {
-          const c = territory(n.id);
-          if (c) (byColor.get(c) ?? byColor.set(c, []).get(c)!).push(n);
+        frame++;
+        // Nur neu rechnen, wenn sich Köpfe bewegt haben (Prüfsumme der Positionen), dann höchstens jedes vierte Bild
+        let sum = 0;
+        for (const n of ns) sum += Math.round(sx(n)) * 7 + Math.round(sy(n)) * 13 + Math.round(sr(n));
+        const stale = !terr || terr.width !== Math.ceil(W() / CELL) || terr.height !== Math.ceil(H() / CELL);
+        if (stale || (sum !== terrSum && frame % 4 === 0)) {
+          terr = paintTerritories(territory, color);
+          terrSum = sum;
         }
-        if (!off || off.width !== canvas.width || off.height !== canvas.height) {
-          off = document.createElement("canvas");
-          off.width = canvas.width;
-          off.height = canvas.height;
-        }
-        const octx = off.getContext("2d");
-        if (octx) {
-          for (const [c, list] of byColor) {
-            octx.setTransform(1, 0, 0, 1, 0, 0);
-            octx.clearRect(0, 0, off.width, off.height);
-            octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            octx.fillStyle = color(c);
-            for (const n of list) {
-              octx.beginPath();
-              octx.arc(sx(n), sy(n), sr(n) * 2.4 + 16, 0, Math.PI * 2);
-              octx.fill();
-            }
-            ctx.globalAlpha = 0.26;
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.drawImage(off, 0, 0);
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          }
-          ctx.globalAlpha = 1;
+        if (terr) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.drawImage(terr, 0, 0, terr.width * CELL, terr.height * CELL);
         }
       }
       for (const e of es) {
