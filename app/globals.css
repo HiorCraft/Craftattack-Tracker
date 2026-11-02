@@ -5264,21 +5264,12 @@ a.st-board__mvlink:focus-visible {
 }
 
 /* Graph: Erklärung einer Veränderung */
-.gb-chart__jump {
-  cursor: pointer;
+.gb-chart__sel rect {
+  fill: color-mix(in srgb, var(--gold) 30%, transparent);
 }
-.gb-chart__jump circle {
-  fill: var(--gold);
-  stroke: var(--line);
+.gb-chart__sel line {
+  stroke: var(--gold);
   stroke-width: 2;
-  vector-effect: non-scaling-stroke;
-}
-.gb-chart__jump text {
-  font-size: 12px;
-  font-weight: 700;
-  text-anchor: middle;
-  fill: var(--on-tone);
-  pointer-events: none;
 }
 .gx {
   margin-top: 16px;
