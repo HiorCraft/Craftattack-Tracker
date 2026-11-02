@@ -59,7 +59,9 @@ function describe(e: GraphEdge, self: string) {
 const PAD = 36;
 const MAX_SCALE = 1.6;
 /** Rastergröße der Gebiete in Bildschirm-Pixeln */
-const CELL = 4;
+const CELL = 6;
+/** Reichweite eines Kopfs für sein Gebiet (Bildschirm-Pixel): weit genug, dass nahe Köpfe ohne Lücke verbinden */
+const REACH = 80;
 /** Reichweite der Abstoßung in Weltkoordinaten */
 const REPEL_RANGE = 420;
 
@@ -223,31 +225,57 @@ export function ConnectionGraph({
       const pts = ns
         .map((n) => {
           const c = territory(n.id);
-          return c ? { x: sx(n), y: sy(n), r: sr(n) * 2.4 + 16, c: rgb(color(c)), key: c } : null;
+          return c ? { x: sx(n), y: sy(n), key: c } : null;
         })
         .filter((p): p is NonNullable<typeof p> => p !== null);
-      // Je Zelle: Index der nächsten Gruppe (-1 = keine in Reichweite)
+      // Je Zelle: Gruppe des nächsten Kopfs (-1 = keiner in Reichweite). Nächster-Nachbar-Suche in Kacheln von
+      // REACH Pixeln: je Kachel einmal die Köpfe der 3×3 Kacheln drumherum sammeln, dann nur diese prüfen.
       const keys = [...new Set(pts.map((p) => p.key))];
-      const idx = pts.map((p) => keys.indexOf(p.key));
+      const group = Int16Array.from(pts, (p) => keys.indexOf(p.key));
+      const xs = Float64Array.from(pts, (p) => p.x);
+      const ys = Float64Array.from(pts, (p) => p.y);
+      const bw = Math.ceil(W() / REACH);
+      const bh = Math.ceil(H() / REACH);
+      const tiles: number[][] = Array.from({ length: bw * bh }, () => []);
+      pts.forEach((p, q) => {
+        const bx = Math.min(bw - 1, Math.max(0, Math.floor(p.x / REACH)));
+        const by = Math.min(bh - 1, Math.max(0, Math.floor(p.y / REACH)));
+        tiles[by * bw + bx].push(q);
+      });
       const owner = new Int16Array(cols * rows).fill(-1);
-      for (let j = 0; j < rows; j++) {
-        const cy = (j + 0.5) * CELL;
-        for (let i = 0; i < cols; i++) {
-          const cx = (i + 0.5) * CELL;
-          let best = -1;
-          let bestD = Infinity;
-          for (let q = 0; q < pts.length; q++) {
-            const p = pts[q];
-            const dx = cx - p.x;
-            const dy = cy - p.y;
-            if (dx > p.r || dx < -p.r || dy > p.r || dy < -p.r) continue;
-            const d = (dx * dx + dy * dy) / (p.r * p.r);
-            if (d < 1 && d < bestD) {
-              bestD = d;
-              best = idx[q];
+      const per = REACH / CELL;
+      for (let by = 0; by < bh; by++) {
+        for (let bx = 0; bx < bw; bx++) {
+          const cand: number[] = [];
+          for (let oy = -1; oy <= 1; oy++)
+            for (let ox = -1; ox <= 1; ox++) {
+              const tx = bx + ox;
+              const ty = by + oy;
+              if (tx >= 0 && ty >= 0 && tx < bw && ty < bh) cand.push(...tiles[ty * bw + tx]);
+            }
+          if (!cand.length) continue;
+          const i0 = Math.floor(bx * per);
+          const i1 = Math.min(cols, Math.floor((bx + 1) * per));
+          const j0 = Math.floor(by * per);
+          const j1 = Math.min(rows, Math.floor((by + 1) * per));
+          for (let j = j0; j < j1; j++) {
+            const cy = (j + 0.5) * CELL;
+            for (let i = i0; i < i1; i++) {
+              const cx = (i + 0.5) * CELL;
+              let best = -1;
+              let bestD = REACH * REACH;
+              for (const q of cand) {
+                const dx = cx - xs[q];
+                const dy = cy - ys[q];
+                const d = dx * dx + dy * dy;
+                if (d < bestD) {
+                  bestD = d;
+                  best = group[q];
+                }
+              }
+              owner[j * cols + i] = best;
             }
           }
-          owner[j * cols + i] = best;
         }
       }
       const cv = terr && terr.width === cols && terr.height === rows ? terr : document.createElement("canvas");
@@ -366,9 +394,9 @@ export function ConnectionGraph({
       const base = es.length > 150 ? 0.4 : 0.55;
       // Überfahrener Kopf, sonst der im Auswahlfeld hervorgehobene Spieler
       const hl = hover ?? (focusRef.current ? (byId.get(focusRef.current) ?? null) : null);
-      // Gebiete: Jede Stelle gehört zum nächsten Kopf (wenn er nah genug ist), wie Länder auf einer Karte. So gibt
-      // es keine Überlappung; wo zwei Gruppen aneinandergrenzen, entsteht eine Grenzlinie. Gerechnet auf einem
-      // groben Raster (4 px), bei Bewegung nur jedes vierte Bild, dann weich hochskaliert.
+      // Gebiete: Jede Stelle gehört zum nächsten Kopf (bis REACH Pixel), wie Länder auf einer Karte. Keine
+      // Überlappung, keine Lücken zwischen nahen Köpfen; wo zwei Gruppen aneinandergrenzen, entsteht eine
+      // Grenzlinie. Grobes Raster (CELL px), nur nach Bewegung und höchstens jedes sechste Bild, weich hochskaliert.
       const territory = territoryRef.current;
       if (territory) {
         frame++;
@@ -376,7 +404,7 @@ export function ConnectionGraph({
         let sum = 0;
         for (const n of ns) sum += Math.round(sx(n)) * 7 + Math.round(sy(n)) * 13 + Math.round(sr(n));
         const stale = !terr || terr.width !== Math.ceil(W() / CELL) || terr.height !== Math.ceil(H() / CELL);
-        if (stale || (sum !== terrSum && frame % 4 === 0)) {
+        if (stale || (sum !== terrSum && frame % 6 === 0)) {
           terr = paintTerritories(territory, color);
           terrSum = sum;
         }
