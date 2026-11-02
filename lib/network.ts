@@ -3,9 +3,10 @@
  * Gruppen. Ohne `server-only`, gerechnet wird im Browser mit den Faktoren des Besuchers.
  *
  * Richtung: Raids und Chat-Nachrichten sind einseitig. Wer bei jemandem schreibt oder ihn raidet, hat eine Verbindung
- * zu ihm, aber nicht umgekehrt. Ein geteilter Chat (Stream Together) verbindet beide gleich.
+ * zu ihm, aber nicht umgekehrt. Titel-Erwähnungen auch (wer den anderen im
+ * Stream-Titel nennt). Ein geteilter Chat (Stream Together) verbindet beide gleich.
  */
-import { BASE_POINTS, type LinkCounts, type Weights } from "./connectionWeights";
+import { directedPoints, type LinkCounts, type Weights } from "./connectionWeights";
 
 /**
  * - `von`: was der Spieler selbst tut (er raidet, schreibt bei anderen), weiter über deren Verbindungen
@@ -16,11 +17,9 @@ export type Direction = "von" | "zu" | "gegenseitig";
 
 /** Stärke a → b und b → a nach den Faktoren `w` */
 export function directed(e: LinkCounts, w: Weights): { ab: number; ba: number } {
-  const shared = e.chats * BASE_POINTS.shared * w.shared;
-  return {
-    ab: e.raidsAB * BASE_POINTS.raid * w.raid + e.msgsAB * BASE_POINTS.msgs * w.msgs + shared,
-    ba: e.raidsBA * BASE_POINTS.raid * w.raid + e.msgsBA * BASE_POINTS.msgs * w.msgs + shared,
-  };
+  const p = directedPoints(e, w);
+  const sum = (x: Weights) => x.raid + x.shared + x.title + x.msgs;
+  return { ab: sum(p.ab), ba: sum(p.ba) };
 }
 
 /** Gerichtete Nachbarn: out.get(a).get(b) = Stärke a → b */

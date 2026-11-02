@@ -66,10 +66,12 @@ export function NetworkLab({ nodes, edges, internKey }: { nodes: GraphNode[]; ed
     const fwd = e.a === from;
     const raids = fwd ? e.raidsAB : e.raidsBA;
     const msgs = fwd ? e.msgsAB : e.msgsBA;
+    const title = fwd ? e.titleAB : e.titleBA;
     const { ab, ba } = directed(e, weights);
     const parts = [
       raids ? `${num(raids)}× geraidet` : null,
       msgs ? `${num(msgs)} Nachrichten im Chat von ${name(to)}` : null,
+      title ? `${duration(title)} Stream mit ${name(to)} im Titel` : null,
       e.chats ? `${num(e.chats)}× geteilter Chat (${duration(e.chatSeconds)})` : null,
     ].filter(Boolean);
     const pts = dir === "gegenseitig" ? Math.min(ab, ba) : fwd ? ab : ba;

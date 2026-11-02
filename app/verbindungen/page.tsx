@@ -28,6 +28,7 @@ async function Connections({ searchParams }: { searchParams: PageProps<"/verbind
   const raids = edges.reduce((s, e) => s + e.raidsAB + e.raidsBA, 0);
   const chats = edges.reduce((s, e) => s + e.chats, 0);
   const msgs = edges.reduce((s, e) => s + e.msgsAB + e.msgsBA, 0);
+  const titleHours = Math.round(edges.reduce((s, e) => s + e.titleAB + e.titleBA, 0) / 3600);
 
   return (
     <>
@@ -36,7 +37,7 @@ async function Connections({ searchParams }: { searchParams: PageProps<"/verbind
           <p className="eyebrow">Twitch</p>
           <h1 className="t-1">Verbindungen</h1>
           <p>
-            Wer wen geraidet hat, wer gemeinsam im geteilten Chat war und wer im Twitch-Chat des anderen schreibt. Je enger die
+            Wer wen geraidet hat, wer wie lange gemeinsam im geteilten Chat war, wer wen im Stream-Titel nennt und wer im Twitch-Chat des anderen schreibt. Je enger die
             Verbindung, desto dicker die Linie und desto näher stehen die Köpfe zusammen. Wie viel jede Art zählt, stellst du
             selbst ein.
           </p>
@@ -62,6 +63,10 @@ async function Connections({ searchParams }: { searchParams: PageProps<"/verbind
             <div className="box st-fig" data-tone="diamond">
               <dt title="Je Paar von Spielern, die gemeinsam im geteilten Chat waren">Geteilte Chats</dt>
               <FigValue>{num(chats)}</FigValue>
+            </div>
+            <div className="box st-fig" data-tone="grass">
+              <dt title="Stream-Zeit, in der Spieler einen anderen im Titel nannten („WG mit @…“), höchstens 8 Std je Tag und Paar">Im Titel genannt</dt>
+              <FigValue unit="Std">{num(titleHours)}</FigValue>
             </div>
             <div className="box st-fig" data-tone="gold">
               <dt title="Nachrichten von Spielern im Twitch-Chat eines anderen Spielers">Chat-Nachrichten</dt>

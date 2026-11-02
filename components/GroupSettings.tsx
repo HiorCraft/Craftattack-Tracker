@@ -1,24 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BASE_POINTS, DEFAULT_WEIGHTS, LINK_KINDS, weigh, type LinkCounts, type LinkKind, type Weights } from "@/lib/connectionWeights";
+import { DEFAULT_WEIGHTS, KIND_INFO, LINK_KINDS, WEIGHT_PRESETS, weigh, type LinkCounts, type Weights } from "@/lib/connectionWeights";
 import { analyzeGroups, resolutionForCount, type GroupAnalysis } from "@/lib/groups";
 import { num } from "@/lib/format";
 import { isMutual } from "@/lib/network";
 
 const dec = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
-const MSGS_PER_POINT = Math.round(1 / BASE_POINTS.msgs);
-const KIND: Record<LinkKind, { label: string; color: string; unit: (w: number) => string }> = {
-  raid: { label: "Raids", color: "var(--twitch)", unit: (w) => `1 Raid = ${dec.format(BASE_POINTS.raid * w)} P.` },
-  shared: { label: "Geteilte Chats", color: "var(--diamond)", unit: (w) => `1 geteilter Chat = ${dec.format(BASE_POINTS.shared * w)} P.` },
-  msgs: { label: "Chat-Nachrichten", color: "var(--gold)", unit: (w) => `${MSGS_PER_POINT} Nachrichten = ${dec.format(MSGS_PER_POINT * BASE_POINTS.msgs * w)} P.` },
-};
-const PRESETS: { label: string; w: Weights }[] = [
-  { label: "Ausgewogen", w: DEFAULT_WEIGHTS },
-  { label: "Nur Raids", w: { raid: 1, shared: 0, msgs: 0 } },
-  { label: "Nur geteilter Chat", w: { raid: 0, shared: 1, msgs: 0 } },
-  { label: "Nur Chat", w: { raid: 0, shared: 0, msgs: 1 } },
-];
+const KIND = KIND_INFO;
+const PRESETS = WEIGHT_PRESETS;
 const same = (a: Weights, b: Weights) => LINK_KINDS.every((k) => a[k] === b[k]);
 
 /** Feinheit als Schieberegler auf einer Log-Skala: Stufe 0–40 ↔ 0,25–16 */
@@ -105,7 +95,7 @@ export function useGroupSettings(edges: LinkCounts[]) {
         {LINK_KINDS.map((k) => {
           const w = s.weights[k];
           return (
-            <label key={k} className="conn__weight">
+            <label key={k} className="conn__weight" title={KIND[k].hint}>
               <span className="conn__weight-name">
                 <i style={{ background: KIND[k].color }} aria-hidden="true" /> {KIND[k].label}
               </span>

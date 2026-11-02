@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { ConnectionGraph, type GraphEdge, type GraphNode } from "./ConnectionGraph";
 import { Head } from "./Head";
 import { PlayerSearch } from "./PlayerSearch";
-import { weigh, type LinkCounts, type Weights } from "@/lib/connectionWeights";
+import { emptyLink, weigh, type LinkCounts, type Weights } from "@/lib/connectionWeights";
 import { useGroupSettings } from "./GroupSettings";
 import { explainGroup, reasonText, ROLE_LABEL, ROLE_TONE, type Group, type GroupAnalysis, type Member, type Role } from "@/lib/groups";
 import { GROUP_COLORS } from "@/lib/network";
@@ -106,13 +106,15 @@ function groupMap(analysis: GroupAnalysis, byId: Map<string, GraphNode>, weights
     const lb = analysis.groups[gb].leader;
     const [a, b, flip] = la < lb ? [la, lb, false] : [lb, la, true];
     const k = `${a}|${b}`;
-    const t = sums.get(k) ?? sums.set(k, { a, b, raidsAB: 0, raidsBA: 0, chats: 0, chatSeconds: 0, msgsAB: 0, msgsBA: 0, now: false }).get(k)!;
+    const t = sums.get(k) ?? sums.set(k, emptyLink(a, b)).get(k)!;
     t.raidsAB += flip ? e.raidsBA : e.raidsAB;
     t.raidsBA += flip ? e.raidsAB : e.raidsBA;
     t.msgsAB += flip ? e.msgsBA : e.msgsAB;
     t.msgsBA += flip ? e.msgsAB : e.msgsBA;
     t.chats += e.chats;
     t.chatSeconds += e.chatSeconds;
+    t.titleAB += flip ? e.titleBA : e.titleAB;
+    t.titleBA += flip ? e.titleAB : e.titleBA;
     t.now ||= e.now;
   }
   const mapEdges: GraphEdge[] = [...sums.values()].map((e) => ({ ...e, ...weigh(e, weights) })).filter((e) => e.weight > 0);
@@ -240,8 +242,12 @@ export function GroupView({ nodes, edges, member, base }: { nodes: GraphNode[]; 
               <dd className="num">{num(g.inside.msgs)}</dd>
             </div>
             <div>
-              <dt>Geteilte Chats</dt>
-              <dd className="num">{num(g.inside.chats)}</dd>
+              <dt title="Gemeinsame Zeit im geteilten Chat">Geteilter Chat</dt>
+              <dd className="num">{num(Math.round(g.inside.chatSeconds / 3600))} Std</dd>
+            </div>
+            <div>
+              <dt title="Stream-Zeit, in der ein Mitglied ein anderes im Titel nannte (höchstens 8 Std je Tag)">Im Titel genannt</dt>
+              <dd className="num">{num(Math.round(g.inside.titleSeconds / 3600))} Std</dd>
             </div>
           </dl>
           {member !== g.leader && (

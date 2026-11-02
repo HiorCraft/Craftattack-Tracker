@@ -1,6 +1,7 @@
 import "server-only";
 import { getDb } from "./db";
-import type { LinkCounts } from "./connectionWeights";
+import { emptyLink, type LinkCounts } from "./connectionWeights";
+import { mentionMatcher, titleSeconds } from "./titleMentions";
 import { loadTracker } from "./data";
 
 /** Zeiträume für die Netz-Seiten */
@@ -18,7 +19,7 @@ export interface NetworkNode {
   live: boolean;
 }
 
-/** Verbindung zweier Spieler über Twitch: Raids, geteilte Chats und Nachrichten im Chat des anderen. */
+/** Verbindung zweier Spieler über Twitch: Raids, geteilte Chats, Namen im Stream-Titel und Nachrichten im Chat des anderen. */
 export interface ConnectionEdge extends LinkCounts {
   last: string;
 }
@@ -27,7 +28,7 @@ export interface ConnectionEdge extends LinkCounts {
 export async function getConnections(hours: number | null): Promise<ConnectionEdge[]> {
   const db = await getDb();
   const since = hours === null ? new Date(0) : new Date(Date.now() - hours * 3600_000);
-  const [raids, chats, messages] = await Promise.all([
+  const [raids, chats, messages, streams, players] = await Promise.all([
     db.query<{ src: string; dst: string; n: number; last: Date }>(
       `SELECT player AS src, meta->>'raidTargetPlayerId' AS dst, count(*)::int AS n, max(at) AS last
          FROM events
@@ -49,6 +50,14 @@ export async function getConnections(hours: number | null): Promise<ConnectionEd
         GROUP BY 1, 2`,
       [since],
     ),
+    // Titel ab Stream-Start und bei jedem Wechsel; ein Abschnitt vor `since` kann noch hineinreichen (bis 72 Std)
+    db.query<{ player: string; at: Date; title: string | null }>(
+      `SELECT player, at, CASE WHEN type = 'stream_end' THEN NULL ELSE coalesce(meta->>'title', '') END AS title
+         FROM events
+        WHERE type IN ('stream_start', 'stream_title', 'stream_end') AND player IS NOT NULL AND at >= $1`,
+      [new Date(since.getTime() - 72 * 3600_000)],
+    ),
+    db.query<{ id: string; name: string; twitch_login: string | null; live: boolean }>(`SELECT id, name, twitch_login, live IS NOT NULL AS live FROM players`),
   ]);
 
   const pairs = new Map<string, ConnectionEdge>();
@@ -59,7 +68,7 @@ export async function getConnections(hours: number | null): Promise<ConnectionEd
     if (!e)
       pairs.set(
         key,
-        (e = { a, b, raidsAB: 0, raidsBA: 0, chats: 0, chatSeconds: 0, msgsAB: 0, msgsBA: 0, now: false, last: new Date(0).toISOString() }),
+        (e = { ...emptyLink(a, b), last: new Date(0).toISOString() }),
       );
     return e;
   };
@@ -88,6 +97,22 @@ export async function getConnections(hours: number | null): Promise<ConnectionEd
         touch(e, s.last_seen_at);
       }
   }
+  const match = mentionMatcher(players.rows.map((p) => ({ id: p.id, name: p.name, twitchLogin: p.twitch_login })));
+  const live = new Set(players.rows.filter((p) => p.live).map((p) => p.id));
+  const titles = titleSeconds(
+    streams.rows.map((r) => ({ player: r.player, at: r.at.getTime(), title: r.title })),
+    match,
+    since.getTime(),
+    Date.now(),
+    live,
+  );
+  for (const [key, t] of titles) {
+    const [src, dst] = key.split("|");
+    const e = pair(src, dst);
+    if (src === e.a) e.titleAB += t.seconds;
+    else e.titleBA += t.seconds;
+    touch(e, new Date(t.last));
+  }
   for (const m of messages.rows) {
     const e = pair(m.src, m.dst);
     if (m.src === e.a) e.msgsAB += m.n;
@@ -105,7 +130,11 @@ export async function getNetwork(hours: number | null): Promise<{ nodes: Network
   const [{ state }, all] = await Promise.all([loadTracker(), getConnections(hours)]);
   const edges: LinkCounts[] = all
     .filter((e) => state.players[e.a] && state.players[e.b])
-    .map(({ a, b, raidsAB, raidsBA, chats, chatSeconds, msgsAB, msgsBA, now }) => ({ a, b, raidsAB, raidsBA, chats, chatSeconds, msgsAB, msgsBA, now }));
+    .map((e) => {
+      const { last, ...counts } = e;
+      void last;
+      return counts;
+    });
   const nodes = Object.values(state.players).map((p) => ({ id: p.id, name: p.name, uuid: p.uuid, online: p.online, live: Boolean(p.live) }));
   return { nodes, edges };
 }

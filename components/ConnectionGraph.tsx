@@ -51,6 +51,10 @@ function describe(e: GraphEdge, self: string) {
   if (raidsOut) parts.push(`${num(raidsOut)}× geraidet`);
   if (raidsIn) parts.push(`${num(raidsIn)}× geraidet worden`);
   if (e.chats) parts.push(`${num(e.chats)}× geteilter Chat (${duration(e.chatSeconds)})${e.now ? ", gerade" : ""}`);
+  const titleOut = mine ? e.titleAB : e.titleBA;
+  const titleIn = mine ? e.titleBA : e.titleAB;
+  if (titleOut) parts.push(`${duration(titleOut)} im eigenen Titel genannt`);
+  if (titleIn) parts.push(`${duration(titleIn)} in dessen Titel genannt worden`);
   if (msgsOut) parts.push(`${num(msgsOut)} Nachr. in dessen Chat`);
   if (msgsIn) parts.push(`${num(msgsIn)} Nachr. im eigenen Chat`);
   return parts.join(" · ");
@@ -346,7 +350,7 @@ export function ConnectionGraph({
       const ink = color("--ink");
       const paper = color("--paper");
       const line = color("--line");
-      const kindColor = { raid: color("--twitch"), shared: color("--diamond"), msgs: color("--gold") };
+      const kindColor = { raid: color("--twitch"), shared: color("--diamond"), title: color("--grass"), msgs: color("--gold") };
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, W(), H());
       const base = es.length > 150 ? 0.4 : 0.55;

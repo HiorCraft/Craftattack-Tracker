@@ -5,27 +5,14 @@ import { useEffect, useMemo, useState } from "react";
 import { ConnectionGraph, type GraphEdge, type GraphNode } from "./ConnectionGraph";
 import { Head } from "./Head";
 import { PlayerSearch } from "./PlayerSearch";
-import { BASE_POINTS, DEFAULT_WEIGHTS, LINK_KINDS, weigh, type LinkCounts, type LinkKind, type Weights } from "@/lib/connectionWeights";
+import { DEFAULT_WEIGHTS, KIND_INFO, LINK_KINDS, WEIGHT_PRESETS, weigh, type LinkCounts, type Weights } from "@/lib/connectionWeights";
 import { adjacency, closeness, distancesFrom, type Direction } from "@/lib/network";
 import { duration, num } from "@/lib/format";
 
 /** Punkte und Faktoren mit höchstens zwei Nachkommastellen */
 const dec = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
-/** So viele Nachrichten ergeben bei Faktor 1 einen Punkt */
-const MSGS_PER_POINT = Math.round(1 / BASE_POINTS.msgs);
-
-const KIND: Record<LinkKind, { label: string; color: string; unit: (w: number) => string }> = {
-  raid: { label: "Raids", color: "var(--twitch)", unit: (w) => `1 Raid = ${dec.format(BASE_POINTS.raid * w)} P.` },
-  shared: { label: "Geteilte Chats", color: "var(--diamond)", unit: (w) => `1 geteilter Chat = ${dec.format(BASE_POINTS.shared * w)} P.` },
-  msgs: { label: "Chat-Nachrichten", color: "var(--gold)", unit: (w) => `${MSGS_PER_POINT} Nachrichten = ${dec.format(MSGS_PER_POINT * BASE_POINTS.msgs * w)} P.` },
-};
-
-const PRESETS: { label: string; w: Weights }[] = [
-  { label: "Ausgewogen", w: DEFAULT_WEIGHTS },
-  { label: "Nur Raids", w: { raid: 1, shared: 0, msgs: 0 } },
-  { label: "Nur geteilter Chat", w: { raid: 0, shared: 1, msgs: 0 } },
-  { label: "Nur Chat", w: { raid: 0, shared: 0, msgs: 1 } },
-];
+const KIND = KIND_INFO;
+const PRESETS = WEIGHT_PRESETS;
 
 export const DIRECTIONS: { key: Direction; label: string; hint: string }[] = [
   { key: "von", label: "Von ihm aus", hint: "Wen er raidet, bei wem er schreibt, und weiter über deren Verbindungen" },
@@ -159,7 +146,7 @@ export function ConnectionExplorer({ nodes, edges }: { nodes: GraphNode[]; edges
           {LINK_KINDS.map((k) => {
             const w = s.weights[k];
             return (
-              <label key={k} className="conn__weight">
+              <label key={k} className="conn__weight" title={KIND[k].hint}>
                 <span className="conn__weight-name">
                   <i style={{ background: KIND[k].color }} aria-hidden="true" /> {KIND[k].label}
                 </span>
@@ -305,6 +292,12 @@ export function ConnectionExplorer({ nodes, edges }: { nodes: GraphNode[]; edges
                   <th className="num">← Raids</th>
                   <th className="num">Geteilte Chats</th>
                   <th className="num">Zeit im Chat</th>
+                  <th className="num" title="Stream-Zeit, in der der erste Spieler den zweiten im Titel nannte (höchstens 8 Std je Tag)">
+                    Titel →
+                  </th>
+                  <th className="num" title="Stream-Zeit, in der der zweite Spieler den ersten im Titel nannte">
+                    ← Titel
+                  </th>
                   <th className="num" title="Nachrichten des ersten Spielers im Chat des zweiten">
                     Nachr. →
                   </th>
@@ -334,6 +327,8 @@ export function ConnectionExplorer({ nodes, edges }: { nodes: GraphNode[]; edges
                       {e.chats ? num(e.chats) : "–"}
                     </td>
                     <td className="num">{e.chatSeconds ? duration(e.chatSeconds) : "–"}</td>
+                    <td className="num">{e.titleAB ? duration(e.titleAB) : "–"}</td>
+                    <td className="num">{e.titleBA ? duration(e.titleBA) : "–"}</td>
                     <td className="num">{e.msgsAB ? num(e.msgsAB) : "–"}</td>
                     <td className="num">{e.msgsBA ? num(e.msgsBA) : "–"}</td>
                     <td className="num">
