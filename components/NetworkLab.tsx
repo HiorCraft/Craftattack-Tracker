@@ -78,6 +78,7 @@ export function NetworkLab({ nodes, edges, internKey }: { nodes: GraphNode[]; ed
   const unreachable = useMemo(() => nodes.filter((n) => !reach.has(n.id)).sort((a, b) => a.name.localeCompare(b.name, "de")), [nodes, reach]);
 
   const groupNodes = useMemo(() => nodes.filter((n) => groupOf.has(n.id)), [nodes, groupOf]);
+  const roleAll = useMemo(() => new Map(analysis.groups.flatMap((x) => x.members.map((m) => [m.id, m.role] as const))), [analysis.groups]);
   const groupColor = useMemo(() => (id: string) => GROUP_COLORS[(groupOf.get(id) ?? 0) % GROUP_COLORS.length], [groupOf]);
   const graphEdges: GraphEdge[] = useMemo(() => edges.filter(isShown).map((e) => ({ ...e, ...weigh(e, weights) })).filter((e) => e.weight > 0), [edges, weights, isShown]);
   const groups: Group[] = useMemo(() => {
@@ -196,7 +197,7 @@ export function NetworkLab({ nodes, edges, internKey }: { nodes: GraphNode[]; ed
       ) : (
         <>
           <div className="box conn__box" data-tone="white">
-            <ConnectionGraph nodes={groupNodes} edges={graphEdges} colorOf={groupColor} />
+            <ConnectionGraph nodes={groupNodes} edges={graphEdges} territoryOf={groupColor} roleOf={(id) => roleAll.get(id) ?? null} />
           </div>
           <ul className="netlab__groups">
             {groups.map((g) => (

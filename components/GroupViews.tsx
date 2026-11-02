@@ -12,7 +12,6 @@ import { GROUP_COLORS } from "@/lib/network";
 import { num } from "@/lib/format";
 
 const pct = (v: number) => `${Math.round(v * 100)} %`;
-const ROLE_COLOR: Record<Role, string> = { anfuehrer: "--gold", kern: "--grass", mitglied: "--sky", rand: "--paper" };
 const ROLE_ORDER: Role[] = ["anfuehrer", "kern", "mitglied", "rand"];
 
 /** Gemeinsame Einstellungen (Gewichtung, Feinheit oder Anzahl der Gruppen), siehe GroupSettings */
@@ -50,7 +49,7 @@ export function GroupsOverview({ nodes, edges, base }: { nodes: GraphNode[]; edg
         )}
       </div>
       <div className="box conn__box" data-tone="white">
-        <ConnectionGraph nodes={mapNodes} edges={mapEdges} colorOf={colorOf} hrefOf={hrefOf} />
+        <ConnectionGraph nodes={mapNodes} edges={mapEdges} territoryOf={colorOf} hrefOf={hrefOf} />
         <p className="muted conn__legend">Ein Kopf je Gruppe (ihr Anführer), Größe = Stärke der Gruppe, Linien = Verbindungen zwischen den Gruppen (Raids, Nachrichten, geteilte Chats aller Mitglieder). Name beim Überfahren, anklicken öffnet die Gruppe.</p>
       </div>
       <ul className="grp__cards">
@@ -185,15 +184,16 @@ export function GroupView({ nodes, edges, member, base }: { nodes: GraphNode[]; 
   }, [ids, around, weighted]);
   const gNodes = useMemo(() => nodes.filter((n) => shown.has(n.id)), [nodes, shown]);
   const gEdges: GraphEdge[] = useMemo(() => weighted.filter((e) => shown.has(e.a) && shown.has(e.b)), [weighted, shown]);
-  const colorOf = useMemo(
+  // Farbe = Gruppe (als Gebiet hinter den Köpfen), Rahmenform = Rolle in der eigenen Gruppe (auch bei Außenstehenden)
+  const roleAll = useMemo(() => new Map(analysis.groups.flatMap((x) => x.members.map((m) => [m.id, m.role] as const))), [analysis.groups]);
+  const territoryOf = useMemo(
     () => (id: string) => {
-      const m = memberOf.get(id);
-      if (m) return ROLE_COLOR[m.role];
       const og = analysis.groupOf.get(id);
       return og === undefined ? null : GROUP_COLORS[og % GROUP_COLORS.length];
     },
-    [memberOf, analysis.groupOf],
+    [analysis.groupOf],
   );
+  const roleOf = useMemo(() => (id: string) => roleAll.get(id) ?? null, [roleAll]);
   // Außenstehende führen zu ihrer Gruppe, Mitglieder zum Profil
   const hrefOf = useMemo(() => (id: string) => (memberOf.has(id) ? `/spieler/${encodeURIComponent(id)}` : href(id)), [memberOf]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -330,17 +330,20 @@ export function GroupView({ nodes, edges, member, base }: { nodes: GraphNode[]; 
             </button>
           ))}
         </div>
-        <ConnectionGraph nodes={gNodes} edges={gEdges} focus={hover} colorOf={colorOf} hrefOf={hrefOf} />
+        <ConnectionGraph nodes={gNodes} edges={gEdges} focus={hover} territoryOf={territoryOf} roleOf={roleOf} hrefOf={hrefOf} />
         <ul className="conn__legend muted">
+          <li>
+            <i style={{ background: `var(${g.color})`, opacity: 0.5 }} /> Fläche = Gruppe
+          </li>
           {ROLE_ORDER.map((r) => (
             <li key={r}>
-              <i style={{ background: `var(${ROLE_COLOR[r]})` }} /> {ROLE_LABEL[r]}
+              <span className={`gx-role gx-role--${r}`} aria-hidden="true" /> {ROLE_LABEL[r]}
             </li>
           ))}
           <li>
             {around === 0
               ? "Nur Verbindungen innerhalb der Gruppe"
-              : `${num(gNodes.length - g.members.length)} Spieler außerhalb, Rahmen in der Farbe ihrer Gruppe (anklicken öffnet sie)`}{" "}
+              : `${num(gNodes.length - g.members.length)} Spieler außerhalb, auf der Fläche ihrer Gruppe (anklicken öffnet sie)`}{" "}
             · Name beim Überfahren
           </li>
         </ul>
