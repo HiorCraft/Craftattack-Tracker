@@ -11,7 +11,7 @@
  * Zustand in WATCHDOG_STATE (Standard ~/.local/state/actracker-watchdog.json).
  */
 import { execFile } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, statfsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, statfsSync, appendFileSync } from "node:fs";
 import { connect } from "node:net";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
@@ -28,6 +28,8 @@ const WEB_CGROUP = process.env.WATCHDOG_WEB_CGROUP ?? "/sys/fs/cgroup/system.sli
 const PROXY_PORT = Number(process.env.WATCHDOG_PROXY_PORT ?? 1080);
 const MIN = 60_000;
 const REMIND_MS = 3 * 60 * MIN;
+/** „Läuft wieder“ erst, wenn es so lange am Stück wieder läuft; kommt das Problem vorher zurück, ist es derselbe Vorfall */
+const STABLE_MS = 10 * MIN;
 
 const sh = (cmd, args) => new Promise((res) => execFile(cmd, args, { timeout: 15_000 }, (err, out) => res(err ? (out || "").trim() || "failed" : out.trim())));
 const portOpen = (port) =>
@@ -125,6 +127,46 @@ async function check() {
     /* cgroup nicht lesbar: nicht prüfen */
   }
 
+  // Ganzer Server: wenig freier Arbeitsspeicher und Swap fast voll → alles wird langsam
+  const mem = Object.fromEntries(
+    readFileSync("/proc/meminfo", "utf8")
+      .split("\n")
+      .map((l) => l.match(/^(\w+):\s+(\d+)/))
+      .filter(Boolean)
+      .map((m) => [m[1], Number(m[2]) * 1024]),
+  );
+  const availMb = mem.MemAvailable / 1e6;
+  const swapUsed = mem.SwapTotal ? 1 - mem.SwapFree / mem.SwapTotal : 0;
+  if (availMb < 350 && swapUsed > 0.85)
+    problems.ram = {
+      title: "Arbeitsspeicher des Servers knapp",
+      message: `Nur noch ${Math.round(availMb)} MB frei, Swap zu ${Math.round(swapUsed * 100)} % voll. Website und Tracker werden langsam. Hilft: offene Claude-Code-Sitzungen schließen, sonst bitte melden (Dienste neu starten oder Server mit mehr RAM).`,
+      priority: "high",
+      tags: "warning",
+      after: 15 * MIN,
+    };
+  // Speicherverlauf der Dienste (zur Fehlersuche, letzte ~3 Tage)
+  try {
+    const rss = async (unit, user) => {
+      const pid = await sh("systemctl", [...(user ? ["--user"] : []), "show", "-p", "MainPID", "--value", unit]);
+      const kids = await sh("pgrep", ["-P", pid]);
+      const all = [pid, ...kids.split("\n")].filter((x) => /^\d+$/.test(x) && x !== "0");
+      let sum = 0;
+      for (const p of all) {
+        const m = readFileSync(`/proc/${p}/status`, "utf8").match(/VmRSS:\s+(\d+)/);
+        if (m) sum += Number(m[1]);
+      }
+      return Math.round(sum / 1024);
+    };
+    const line = `${new Date().toISOString()} avail=${Math.round(availMb)} swap=${Math.round(swapUsed * 100)}% web=${await rss("actracker-web", false)} tracker=${await rss("actracker-tracker", true)} schaetzung=${await rss("actracker-schaetzung", true)} vodchat=${await rss("actracker-vodchat", true)}\n`;
+    const log = `${homedir()}/.local/state/actracker-mem.log`;
+    appendFileSync(log, line);
+    const lines = readFileSync(log, "utf8").split("\n");
+    if (lines.length > 2200) writeFileSync(log, lines.slice(-2000).join("\n"));
+  } catch {
+    /* nur Protokoll */
+  }
+
   for (const unit of ["actracker-schaetzung", "actracker-vodchat"]) {
     const s = await sh("systemctl", ["--user", "is-active", unit]);
     if (s !== "active")
@@ -183,6 +225,8 @@ const now = Date.now();
 const problems = await check();
 for (const [key, p] of Object.entries(problems)) {
   const s = (state[key] ??= { since: now, notified: 0 });
+  // Zwischendurch kurz gut: weiter derselbe Vorfall (keine neue Meldung, kein „Läuft wieder“)
+  delete s.okSince;
   const due = now - s.since >= p.after && (!s.notified || now - s.notified >= REMIND_MS);
   if (due) {
     await notify({ ...p, title: s.notified ? `Noch immer: ${p.title}` : p.title, message: `${p.message} (seit ${berlin(s.since)} Uhr)` });
@@ -190,11 +234,13 @@ for (const [key, p] of Object.entries(problems)) {
     console.log(`gemeldet: ${key}`);
   }
 }
-// Erledigt: nur melden, wenn vorher gemeldet wurde
+// Erledigt: erst nach STABLE_MS ohne Problem, und nur melden, wenn vorher gemeldet wurde
 for (const key of Object.keys(state)) {
   if (problems[key]) continue;
   if (state[key].notified) {
-    await notify({ title: "Läuft wieder", message: `Erledigt: ${key === "tunnel" ? "Tunnel ist wieder verbunden" : key === "polls" ? "Minecraft-Daten kommen wieder" : key === "web" ? "Website ist wieder erreichbar" : key === "webmem" ? "Website hat wieder genug Speicher" : key} (Problem seit ${berlin(state[key].since)} Uhr).`, priority: "low", tags: "white_check_mark" });
+    state[key].okSince ??= now;
+    if (now - state[key].okSince < STABLE_MS) continue;
+    await notify({ title: "Läuft wieder", message: `Erledigt: ${key === "tunnel" ? "Tunnel ist wieder verbunden" : key === "polls" ? "Minecraft-Daten kommen wieder" : key === "web" ? "Website ist wieder erreichbar" : key === "webmem" ? "Website hat wieder genug Speicher" : key === "ram" ? "Server hat wieder genug Arbeitsspeicher" : key} (Problem seit ${berlin(state[key].since)} Uhr).`, priority: "low", tags: "white_check_mark" });
     console.log(`erledigt: ${key}`);
   }
   delete state[key];
