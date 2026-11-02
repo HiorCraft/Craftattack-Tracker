@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Explain } from "@/components/Explain";
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { PageSkeleton } from "@/components/Skeletons";
@@ -14,7 +15,7 @@ const RANGES = NETWORK_RANGES;
 /** Öffnet sofort mit Überschrift und Platzhaltern; die Daten werden nachgestreamt. */
 export default function Page(props: PageProps<"/verbindungen">) {
   return (
-    <Suspense fallback={<PageSkeleton eyebrow="Twitch" title="Verbindungen" tone="amethyst" />}>
+    <Suspense fallback={<PageSkeleton eyebrow="Community" title="Verbindungen" tone="amethyst" />}>
       <Connections searchParams={props.searchParams} />
     </Suspense>
   );
@@ -34,12 +35,14 @@ async function Connections({ searchParams }: { searchParams: PageProps<"/verbind
     <>
       <section className="block page-head" data-tone="amethyst">
         <div className="wrap">
-          <p className="eyebrow">Twitch</p>
+          <p className="eyebrow">Community</p>
           <h1 className="t-1">Verbindungen</h1>
           <p>
-            Wer wen geraidet hat, wer wie lange gemeinsam im geteilten Chat war, wer wen im Stream-Titel nennt und wer im Twitch-Chat des anderen schreibt. Je enger die
-            Verbindung, desto dicker die Linie und desto näher stehen die Köpfe zusammen. Wie viel jede Art zählt, stellst du
-            selbst ein.
+            Wer wen raidet, gemeinsam im geteilten Chat ist, im Titel nennt oder im Chat des anderen schreibt.{" "}
+            <Explain>
+              Je enger die Verbindung, desto dicker die Linie und desto näher stehen die Köpfe zusammen. Wie viel jede Art zählt, stellst du selbst ein.
+              Ringe um einen Spieler zeigt <Link href="/naehe">Nähe</Link>, erkannte Gruppen <Link href="/gruppen">Gruppen</Link>.
+            </Explain>
           </p>
         </div>
       </section>

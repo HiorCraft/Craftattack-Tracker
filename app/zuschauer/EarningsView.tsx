@@ -91,7 +91,7 @@ export async function EarningsView({
         </p>
       </div>
 
-      <form className="mig__pick" method="get" action="/intern/zuschauerwanderung">
+      <form className="mig__pick" method="get" action="/zuschauer">
         {Object.entries(hidden).map(([k, v]) => (
           <input key={k} type="hidden" name={k} value={v} />
         ))}

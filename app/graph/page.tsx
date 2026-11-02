@@ -16,7 +16,7 @@ export const metadata: Metadata = { title: "Graph" };
 async function Graph(props: PageProps<"/graph">) {
   const [sp, { state }] = await Promise.all([props.searchParams, loadTracker()]);
   const all = Object.values(state.players);
-  const players = all.map((p) => ({ id: p.id, name: p.name })).sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const players = all.map((p) => ({ id: p.id, name: p.name, uuid: p.uuid, online: p.online })).sort((a, b) => a.name.localeCompare(b.name, "de"));
   const initial = parseGraphQuery(sp);
   return (
     <>

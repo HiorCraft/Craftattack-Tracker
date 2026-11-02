@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Icon } from "./Icons";
 import { SOCIALS } from "@/lib/site";
+import { HUBS } from "@/lib/hubs";
 import { ESTIMATE, ESTIMATE_PATH } from "@/lib/estimateMode";
 
 export function SiteFooter() {
@@ -23,21 +24,11 @@ export function SiteFooter() {
           </p>
         </div>
         <ul className="site-foot__nav">
-          <li>
-            <Link href="/">Übersicht</Link>
-          </li>
-          <li>
-            <Link href="/ereignisse">Ereignisse</Link>
-          </li>
-          <li>
-            <Link href="/spieler">Spieler</Link>
-          </li>
-          <li>
-            <Link href="/statistik">Statistik</Link>
-          </li>
-          <li>
-            <Link href="/live">Live</Link>
-          </li>
+          {HUBS.flatMap((h) => h.tabs).map((t) => (
+            <li key={t.href}>
+              <Link href={t.href}>{t.href === "/verbindungen" ? "Verbindungen" : t.label}</Link>
+            </li>
+          ))}
           <li>
             <Link href="/so-funktionierts">So funktioniert’s</Link>
           </li>

@@ -42,6 +42,9 @@ import { activeDays, dailyHighlights } from "@/lib/highlights";
 import { DayHighlights } from "@/components/DayHighlights";
 import { HowLink, PresenceLegend } from "@/components/HowLink";
 import { graphHref, type Metric } from "@/lib/graphQuery";
+import { getNetworkSummary } from "@/lib/networkSummary";
+import { closeness, distancesFrom } from "@/lib/network";
+import { ROLE_LABEL } from "@/lib/groups";
 
 
 export async function generateMetadata({ params }: PageProps<"/spieler/[id]">): Promise<Metadata> {
@@ -90,6 +93,9 @@ export default function Page(props: PageProps<"/spieler/[id]">) {
       </Suspense>
       <Suspense fallback={<RanksSkeleton />}>
         <ActivitySection params={params} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <NetworkSection params={params} />
       </Suspense>
       <Suspense fallback={<DetailsSkeleton />}>
         <DetailsSection params={params} />
@@ -855,6 +861,78 @@ async function ChatSection({ params }: { params: Params }) {
       </section>
     )}
     </>
+  );
+}
+
+/**
+ * Auszug aus „Community“: wer diesem Spieler im Netz am nächsten ist und in welcher Gruppe er ist (Standard-Gewichte,
+ * ganze Staffel). Ausführlich auf /naehe und /gruppen.
+ */
+async function NetworkSection({ params }: { params: Params }) {
+  const { id } = await ctxFor(params);
+  const { nodes, edges, out, analysis } = await getNetworkSummary();
+  if (!edges.some((e) => e.a === id || e.b === id)) return null;
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const name = (x: string) => byId.get(x)?.name ?? x;
+  const near = [...distancesFrom(id, out, "von").values()].filter((r) => r.id !== id).sort((a, b) => a.dist - b.dist).slice(0, 10);
+  const g = analysis.groups[analysis.groupOf.get(id) ?? -1];
+  const me = g?.members.find((m) => m.id === id);
+  const members = g ? [...g.members].sort((a, b) => b.rank - a.rank) : [];
+  return (
+    <section className="block block--tight" data-tone="paper" aria-labelledby="net-h">
+      <div className="wrap">
+        <Fold
+          id="profil.netz"
+          titleId="net-h"
+          title="Verbindungen"
+          aside={
+            <Link className="btn btn--small" data-tone="white" href={`/naehe?spieler=${encodeURIComponent(id)}`}>
+              Ringe ansehen
+            </Link>
+          }
+        >
+          <div className="pnet">
+            <div className="box" data-tone="white">
+              <h3 className="eyebrow">
+                Am nächsten{" "}
+                <Explain>Über den kürzesten Weg im Netz aus Raids, geteiltem Chat, Namen im Titel und Chat-Nachrichten, in Richtung der anderen.</Explain>
+              </h3>
+              <ol className="pnet__near">
+                {near.map((r) => (
+                  <li key={r.id}>
+                    <Link href={`/spieler/${encodeURIComponent(r.id)}`}>
+                      <Head id={r.id} uuid={byId.get(r.id)?.uuid} name={name(r.id)} size={22} src={32} decorative /> <span>{name(r.id)}</span>
+                    </Link>
+                    <span className="muted num">{Math.round(closeness(r.dist) * 100)} %</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+            {g && me && (
+              <div className="box pnet__group" data-tone="white" style={{ "--grp": `var(${g.color})` } as React.CSSProperties}>
+                <h3 className="eyebrow">Gruppe</h3>
+                <p className="t-3">
+                  <Link href={`/gruppen/${encodeURIComponent(id)}`}>Gruppe um {name(g.leader)}</Link>
+                </p>
+                <p className="muted">
+                  {ROLE_LABEL[me.role]} · {num(g.members.length)} Mitglieder · {Math.round(me.belonging * 100)} % der Verbindungen in der Gruppe
+                </p>
+                <ul className="pnet__heads">
+                  {members.slice(0, 24).map((m) => (
+                    <li key={m.id}>
+                      <Link href={`/spieler/${encodeURIComponent(m.id)}`} title={`${name(m.id)} · ${ROLE_LABEL[m.role]}`} data-role={m.role}>
+                        <Head id={m.id} uuid={byId.get(m.id)?.uuid} name={name(m.id)} size={28} src={32} decorative />
+                      </Link>
+                    </li>
+                  ))}
+                  {members.length > 24 && <li className="muted">+{num(members.length - 24)}</li>}
+                </ul>
+              </div>
+            )}
+          </div>
+        </Fold>
+      </div>
+    </section>
   );
 }
 

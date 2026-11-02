@@ -1,5 +1,5 @@
 /**
- * Netz-Auswertung für /verbindungen und /intern/netz: gerichtete Stärken, Abstände von einem Spieler aus und
+ * Netz-Auswertung für /verbindungen und /naehe: gerichtete Stärken, Abstände von einem Spieler aus und
  * Gruppen. Ohne `server-only`, gerechnet wird im Browser mit den Faktoren des Besuchers.
  *
  * Richtung: Raids und Chat-Nachrichten sind einseitig. Wer bei jemandem schreibt oder ihn raidet, hat eine Verbindung

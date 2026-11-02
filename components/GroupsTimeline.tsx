@@ -22,7 +22,7 @@ const dayLabel = (d: string) => DAY.format(Date.parse(`${d}T12:00:00Z`));
  * das Netz je Tag einmal, Fenster und Gruppen rechnet der Browser. Farben hängen an der Einteilung der ganzen
  * Staffel, damit dieselbe Gruppe beim Durchspielen ihre Farbe behält.
  */
-export function GroupsTimeline({ nodes, daily, base }: { nodes: GraphNode[]; daily: DailyNetwork; base: { path: string; key: string } }) {
+export function GroupsTimeline({ nodes, daily }: { nodes: GraphNode[]; daily: DailyNetwork }) {
   const last = daily.days.length - 1;
   const [to, setTo] = useState(last);
   const [win, setWin] = useState<Win>("gesamt");
@@ -100,5 +100,5 @@ export function GroupsTimeline({ nodes, daily, base }: { nodes: GraphNode[]; dai
     </div>
   );
 
-  return <GroupsOverview nodes={nodes} edges={edges} base={base} toolbar={toolbar} anchorColor={anchorColor} />;
+  return <GroupsOverview nodes={nodes} edges={edges} toolbar={toolbar} anchorColor={anchorColor} />;
 }

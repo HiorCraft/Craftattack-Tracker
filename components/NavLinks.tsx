@@ -3,33 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ThemeToggle } from "./ThemeToggle";
-
-const LINKS = [
-  { href: "/", label: "Übersicht" },
-  { href: "/ereignisse", label: "Ereignisse" },
-  { href: "/spieler", label: "Spieler" },
-  { href: "/bestenlisten", label: "Bestenlisten" },
-  { href: "/statistik", label: "Statistik" },
-  { href: "/graph", label: "Graph" },
-  { href: "/zeitstrahl", label: "Zeitstrahl" },
-  { href: "/live", label: "Live" },
-  { href: "/verbindungen", label: "Verbindungen" },
-  { href: "/events", label: "Events" },
-] as const;
+import { HUBS, hubOf } from "@/lib/hubs";
 
 function List({ path }: { path: string | null }) {
+  const current = hubOf(path);
   return (
     <ul className="nav">
-      {LINKS.map((l) => {
-        const active = path !== null && (l.href === "/" ? path === "/" : path.startsWith(l.href));
-        return (
-          <li key={l.href}>
-            <Link href={l.href} aria-current={active ? "page" : undefined}>
-              {l.label}
-            </Link>
-          </li>
-        );
-      })}
+      {HUBS.map((h) => (
+        <li key={h.key}>
+          <Link href={h.tabs[0].href} aria-current={current?.hub.key === h.key ? "page" : undefined}>
+            {h.label}
+          </Link>
+        </li>
+      ))}
       <li>
         <a className="nav__ext" href="https://craftattack.one/stats/" target="_blank" rel="noopener">
           Original
@@ -51,4 +37,24 @@ export function NavLinks({ static: isStatic = false }: { static?: boolean }) {
 function ActiveList() {
   const path = usePathname();
   return <List path={path} />;
+}
+
+/** Reiter des aktuellen Bereichs (nur, wenn er mehr als einen hat) */
+export function HubTabs() {
+  const path = usePathname();
+  const current = hubOf(path);
+  if (!current || current.hub.tabs.length < 2) return null;
+  return (
+    <nav className="subnav" aria-label={current.hub.label}>
+      <ul className="wrap subnav__in">
+        {current.hub.tabs.map((t) => (
+          <li key={t.href}>
+            <Link href={t.href} aria-current={t.href === current.tab.href ? "page" : undefined}>
+              {t.label}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
 }

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { NavLinks } from "./NavLinks";
+import { HubTabs, NavLinks } from "./NavLinks";
 
 export function SiteHeader() {
   return (
@@ -19,6 +19,9 @@ export function SiteHeader() {
           </Suspense>
         </nav>
       </div>
+      <Suspense fallback={null}>
+        <HubTabs />
+      </Suspense>
     </header>
   );
 }

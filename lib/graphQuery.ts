@@ -205,6 +205,8 @@ export const COLORS = ["var(--ink)", "#9146ff", "#ff6452", "#1f9e8f", "#2f9a1f",
 export interface PlayerOption {
   id: string;
   name: string;
+  uuid?: string;
+  online?: boolean;
 }
 
 export const MAX_METRICS = 6;

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { GraphNode } from "./ConnectionGraph";
 import { Explain } from "./Explain";
 import { DIRECTIONS } from "./ConnectionExplorer";
@@ -16,11 +16,23 @@ import { duration, num } from "@/lib/format";
 const pct = (v: number) => `${Math.round(v * 100)} %`;
 
 /**
- * Versuchsfläche fürs Netz (intern): ein Spieler in der Mitte, alle anderen nach ihrer Nähe zu ihm (Ringe).
- * Gruppen haben eine eigene Seite (/intern/gruppen); hier färben sie nur die Rahmen.
+ * Nähe (/naehe): ein Spieler in der Mitte, alle anderen nach ihrer Nähe zu ihm (Ringe).
+ * Gruppen haben eine eigene Seite (/gruppen); hier färben sie nur die Rahmen. Die Mitte steht in der Adresse (`?spieler=`).
  * Gerichtet ausgewertet: Raids und Chat-Nachrichten gelten nur in ihre Richtung.
  */
-export function NetworkLab({ nodes, edges, groupsHref }: { nodes: GraphNode[]; edges: LinkCounts[]; groupsHref: string }) {
+export function NetworkLab({
+  nodes,
+  edges,
+  initialFocus = "",
+  ranges,
+  range,
+}: {
+  nodes: GraphNode[];
+  edges: LinkCounts[];
+  initialFocus?: string;
+  ranges: { key: string; label: string }[];
+  range: string;
+}) {
   const { analysis, weights, controls } = useGroupSettings(edges);
   const [dir, setDir] = useState<Direction>("von");
   const [scale, setScale] = useState<RadialScale>("naehe");
@@ -36,8 +48,19 @@ export function NetworkLab({ nodes, edges, groupsHref }: { nodes: GraphNode[]; e
     for (const e of edges) for (const id of [e.a, e.b]) deg.set(id, (deg.get(id) ?? 0) + 1);
     return [...deg.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
   }, [edges]);
-  const [focus, setFocus] = useState("");
+  const [focus, setFocus] = useState(initialFocus);
   const center = focus || busiest;
+  // Mitte in der Adresse halten (teilbar, Zeitraum-Wechsel behält sie)
+  useEffect(() => {
+    if (!focus) return;
+    const u = new URL(window.location.href);
+    u.searchParams.set("spieler", focus);
+    window.history.replaceState(window.history.state, "", u);
+  }, [focus]);
+  const rangeHref = (key: string) => {
+    const q = new URLSearchParams({ ...(key === "alle" ? {} : { zeit: key }), ...(focus ? { spieler: focus } : {}) }).toString();
+    return q ? `/naehe?${q}` : "/naehe";
+  };
   const name = (id: string) => byId.get(id)?.name ?? id;
 
   const out = useMemo(() => adjacency(edges, weights), [edges, weights]);
@@ -77,6 +100,16 @@ export function NetworkLab({ nodes, edges, groupsHref }: { nodes: GraphNode[]; e
     <div className="conn__layout">
       <div className="conn__side stack" style={{ "--stack": "12px" } as React.CSSProperties}>
         <div className="box conn__controls" data-tone="white">
+          <fieldset className="conn__group">
+            <legend className="eyebrow">Zeitraum</legend>
+            <div className="gb__seg" role="group" aria-label="Zeitraum">
+              {ranges.map((r) => (
+                <Link key={r.key} href={rangeHref(r.key)} aria-current={range === r.key ? "true" : undefined} scroll={false}>
+                  {r.label}
+                </Link>
+              ))}
+            </div>
+          </fieldset>
           <fieldset className="conn__group">
             <legend className="eyebrow">Mitte</legend>
             <PlayerSearch players={nodes} value={center} onChange={(id) => setFocus(id)} label="Spieler in der Mitte" />
@@ -137,7 +170,7 @@ export function NetworkLab({ nodes, edges, groupsHref }: { nodes: GraphNode[]; e
                 </>
               )}
               {" · "}
-              <Link href={groupsHref}>Gruppen</Link>
+              <Link href={`/gruppen/${encodeURIComponent(center)}`}>Gruppe von {name(center)}</Link>
             </p>
           )}
         </div>
@@ -165,8 +198,10 @@ export function NetworkLab({ nodes, edges, groupsHref }: { nodes: GraphNode[]; e
                       <td className="num">{pct(closeness(r.dist))}</td>
                       <td className="num">{r.hops === 1 ? "direkt" : num(r.hops)}</td>
                       <td>
-                        <i className="netlab__swatch" style={{ background: `var(${GROUP_COLORS[(groupOf.get(r.id) ?? 0) % GROUP_COLORS.length]})` }} aria-hidden="true" /> {(groupOf.get(r.id) ?? 0) + 1}
-                        {groupOf.get(r.id) === groupOf.get(center) && <span className="muted"> (gleiche)</span>}
+                        <Link href={`/gruppen/${encodeURIComponent(r.id)}`} className="conn__person">
+                          <i className="netlab__swatch" style={{ background: `var(${GROUP_COLORS[(groupOf.get(r.id) ?? 0) % GROUP_COLORS.length]})` }} aria-hidden="true" />{" "}
+                          {groupOf.get(r.id) === groupOf.get(center) ? "gleiche" : `um ${name(analysis.groups[groupOf.get(r.id) ?? -1]?.leader ?? r.id)}`}
+                        </Link>
                       </td>
                     </tr>
                   ))}

@@ -31,7 +31,7 @@ import {
 } from "@/lib/graphQuery";
 import { LEADERBOARDS, type TopCategory } from "@/lib/leaderboards";
 import { STAT_GROUPS } from "@/lib/playerStats";
-import { Head } from "./Head";
+import { PlayerMulti } from "./PlayerSearch";
 import { GraphExplain, type ExplainTarget } from "./GraphExplain";
 import { ItemPicker } from "./ItemPicker";
 
@@ -447,7 +447,6 @@ function MultiChart({
 
 export function GraphBuilder({ players, initial, items }: { players: PlayerOption[]; initial: GraphQuery; items: ItemOptions }) {
   const [q, setQ] = useState<GraphQuery>(initial);
-  const [search, setSearch] = useState("");
   const [playersOpen, setPlayersOpen] = useState(false);
   const [picker, setPicker] = useState<PickerTab | null>(null);
   const [metricSearch, setMetricSearch] = useState("");
@@ -459,7 +458,6 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
   const [shownQ, setShownQ] = useState<GraphQuery | null>(null);
   const inflight = useRef(new Set<string>());
   const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const nameOf = useMemo(() => new Map(players.map((p) => [p.id, p.name])), [players]);
   const itemNames = useMemo(() => {
     const m = new Map<string, string>();
     for (const [c, list] of Object.entries(items)) for (const o of list ?? []) m.set(`${c}|${o.key}`, o.name);
@@ -479,7 +477,7 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
   const currentScores = playerScores?.key === rankingKey && !playerScores.error ? playerScores.scores : null;
 
   // Reihenfolge der Vorschläge erst holen, wenn die Spielersuche offen ist (und nur einmal je Auswahl)
-  const wantScores = playersOpen || search !== "";
+  const wantScores = playersOpen;
   useEffect(() => {
     if (!rankingMetric || !wantScores || playerScores?.key === rankingKey) return;
     const ctrl = new AbortController();
@@ -662,14 +660,6 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
   const togglePlayer = (id: string) =>
     set({ spieler: q.spieler.includes(id) ? q.spieler.filter((x) => x !== id) : q.spieler.length >= 12 ? q.spieler : [...q.spieler, id] });
 
-  const suggestions = useMemo(() => {
-    return fuzzyFilter(
-      players.filter((p) => !q.spieler.includes(p.id)),
-      search,
-      (p) => [p.name, p.id],
-      (a, b) => (currentScores ? (currentScores[b.id] ?? 0) - (currentScores[a.id] ?? 0) : 0) || a.name.localeCompare(b.name, "de"),
-    ).slice(0, 10);
-  }, [players, q.spieler, search, currentScores]);
 
   // Kennzahl-Auswahl: Suche über alle Reiter (außer Einzeln), sonst der gewählte Reiter
   const needle = metricSearch.trim().toLowerCase();
@@ -760,43 +750,18 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
         {anyPerPlayer && (
           <div className="gb__line">
             <span className="eyebrow">Spieler</span>
-            <ul className="gb__chips" aria-label="Ausgewählte Spieler">
-              <li>
-                <button type="button" className="gb__chip" data-tone={q.spieler.length === 0 ? "ink" : "white"} onClick={() => set({ spieler: [] })} title="Ohne Auswahl: Summe aller Spieler, bei Rängen und Einzel-Items die besten fünf">
-                  {metas.some((m) => m.needsPlayers) && !metas.some((m) => m.perPlayer && !m.needsPlayers) ? "Beste 5" : "Alle"}
-                </button>
-              </li>
-              {q.spieler.map((id) => (
-                <li key={id}>
-                  <button type="button" className="gb__chip gb__chip--head" data-tone="ink" onClick={() => togglePlayer(id)} aria-label={`${nameOf.get(id) ?? id} entfernen`}>
-                    <Head id={id} name={nameOf.get(id) ?? id} size={20} src={32} decorative /> <span aria-hidden="true">×</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <div className="gb__pick">
-              <input
-                type="search"
-                placeholder="+ Spieler"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onFocus={() => setPlayersOpen(true)}
-                onBlur={() => setTimeout(() => setPlayersOpen(false), 150)}
-                aria-label="Spieler suchen"
-              />
-              {(playersOpen || search) && (
-                <ul className="gb__chips gb__suggest" aria-label="Vorschläge">
-                  {suggestions.map((p) => (
-                    <li key={p.id}>
-                      <button type="button" className="gb__chip" data-tone="white" onMouseDown={(e) => e.preventDefault()} onClick={() => togglePlayer(p.id)} disabled={q.spieler.length >= 12}>
-                        <Head id={p.id} name={p.name} size={20} src={32} decorative /> {p.name}
-                      </button>
-                    </li>
-                  ))}
-                  {suggestions.length === 0 && <li className="muted">Niemand gefunden.</li>}
-                </ul>
-              )}
-            </div>
+            <PlayerMulti
+              players={players}
+              selected={q.spieler}
+              max={12}
+              onAdd={togglePlayer}
+              onRemove={togglePlayer}
+              onClear={() => set({ spieler: [] })}
+              allLabel={metas.some((m) => m.needsPlayers) && !metas.some((m) => m.perPlayer && !m.needsPlayers) ? "Beste 5" : "Alle"}
+              allHint="Ohne Auswahl: Summe aller Spieler, bei Rängen und Einzel-Items die besten fünf"
+              rank={currentScores ? (a, b) => (currentScores[b.id] ?? 0) - (currentScores[a.id] ?? 0) || a.name.localeCompare(b.name, "de") : undefined}
+              onOpenChange={setPlayersOpen}
+            />
           </div>
         )}
 

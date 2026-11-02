@@ -18,6 +18,9 @@ const ROLE_ORDER: Role[] = ["anfuehrer", "kern", "mitglied", "rand"];
 /** Gemeinsame Einstellungen (Gewichtung, Feinheit oder Anzahl der Gruppen), siehe GroupSettings */
 const useAnalysis = useGroupSettings;
 
+/** Seite einer Gruppe, adressiert über ein Mitglied */
+const groupHref = (id: string) => `/gruppen/${encodeURIComponent(id)}`;
+
 function groupName(g: Group, name: (id: string) => string) {
   return `Gruppe um ${name(g.leader)}`;
 }
@@ -26,13 +29,11 @@ function groupName(g: Group, name: (id: string) => string) {
 export function GroupsOverview({
   nodes,
   edges,
-  base,
   toolbar,
   anchorColor,
 }: {
   nodes: GraphNode[];
   edges: LinkCounts[];
-  base: { path: string; key: string };
   /** Über dem Netz, z. B. die Zeitleiste */
   toolbar?: React.ReactNode;
   /** Farbe je Spieler aus einer festen Einteilung: Gruppen behalten so über Zeitfenster hinweg ihre Farbe */
@@ -43,7 +44,7 @@ export function GroupsOverview({
   const [view, setView] = useState<"karte" | "alle">("karte");
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const name = (id: string) => byId.get(id)?.name ?? id;
-  const href = (id: string) => `${base.path}/${encodeURIComponent(id)}?key=${encodeURIComponent(base.key)}`;
+  const href = groupHref;
   const [find, setFind] = useState("");
 
   // Karte: je Gruppe ein Knoten (Kopf des Anführers), Linien = Verbindungen zwischen Gruppen
@@ -58,7 +59,7 @@ export function GroupsOverview({
     return (id: string) => roles.get(id) ?? null;
   }, [analysis.groups]);
   const playerHref = useMemo(() => (id: string) => `/spieler/${encodeURIComponent(id)}`, []);
-  const hrefOf = useMemo(() => (id: string) => href(id), [base.key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const hrefOf = groupHref;
 
   const found = find ? analysis.groupOf.get(find) : undefined;
 
@@ -201,11 +202,11 @@ function Bar({ parts }: { parts: { v: number; color: string; label: string }[] }
 }
 
 /** Seite einer Gruppe: Anführer und warum, Netz der Mitglieder, Rollen, Zugehörigkeit, Matrix, Nachbargruppen */
-export function GroupView({ nodes, edges, member, base }: { nodes: GraphNode[]; edges: LinkCounts[]; member: string; base: { path: string; key: string } }) {
+export function GroupView({ nodes, edges, member }: { nodes: GraphNode[]; edges: LinkCounts[]; member: string }) {
   const { analysis, weights, controls, shown: isShown, groupEdges } = useAnalysis(edges);
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const name = (id: string) => byId.get(id)?.name ?? id;
-  const href = (id: string) => `${base.path}/${encodeURIComponent(id)}?key=${encodeURIComponent(base.key)}`;
+  const href = groupHref;
   const [hover, setHover] = useState<string | null>(null);
   const [sort, setSort] = useState<"rolle" | "zugehoerigkeit" | "rang">("rolle");
 

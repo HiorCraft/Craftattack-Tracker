@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { PageSkeleton } from "@/components/Skeletons";
 import { FigValue } from "@/components/FigValue";
@@ -13,10 +12,9 @@ import { num } from "@/lib/format";
 import { parseShareMode } from "@/lib/earnings";
 import { EarningsView } from "./EarningsView";
 import { PlayerSearch } from "@/components/PlayerSearch";
-import { internAllowed } from "@/lib/intern";
+import { Explain } from "@/components/Explain";
 
-/** Interne Auswertung: nirgends verlinkt und nicht für Suchmaschinen */
-export const metadata: Metadata = { title: "Zuschauerwanderung", robots: { index: false, follow: false } };
+export const metadata: Metadata = { title: "Zuschauer", description: "Wohin Zuschauer wandern, wenn CraftAttack-Streamer live gehen, aufhören oder raiden." };
 
 const pct = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1, signDisplay: "exceptZero" });
 const signed = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0, signDisplay: "exceptZero" });
@@ -33,8 +31,6 @@ const span = (a: number, b: number) => {
   return month(x) === month(y) ? `${d(x)}.–${d(y)}. ${month(y)}` : `${day.format(a)} – ${day.format(b)}`;
 };
 
-const allowed = internAllowed;
-
 const VIEWS = [
   { key: "uebersicht", label: "Starts" },
   { key: "offline", label: "Offline & Raids" },
@@ -47,47 +43,46 @@ type View = (typeof VIEWS)[number]["key"];
 
 type Names = Record<string, { name: string; uuid: string } | undefined>;
 
-export default function Page(props: PageProps<"/intern/zuschauerwanderung">) {
+export default function Page(props: PageProps<"/zuschauer">) {
   return (
-    <Suspense fallback={<PageSkeleton eyebrow="Intern" title="Zuschauerwanderung" tone="ender" />}>
+    <Suspense fallback={<PageSkeleton eyebrow="Community" title="Zuschauer" tone="ender" />}>
       <Analysis searchParams={props.searchParams} />
     </Suspense>
   );
 }
 
-async function Analysis({ searchParams }: { searchParams: PageProps<"/intern/zuschauerwanderung">["searchParams"] }) {
+async function Analysis({ searchParams }: { searchParams: PageProps<"/zuschauer">["searchParams"] }) {
   await connection();
   const sp = await searchParams;
-  const key = sp.key;
-  if (!allowed(key)) notFound();
   const view: View = VIEWS.some((v) => v.key === sp.ansicht) ? (sp.ansicht as View) : "uebersicht";
   const earnings = view === "einnahmen";
   const [{ state }, m] = await Promise.all([loadTracker(), earnings ? null : getViewerMigration()]);
   const names: Names = Object.fromEntries(Object.values(state.players).map((p) => [p.id, { name: p.name, uuid: p.uuid }]));
   const href = (params: Record<string, string | undefined>) => {
-    const q = new URLSearchParams({ key });
+    const q = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v) q.set(k, v);
-    return `/intern/zuschauerwanderung?${q}`;
+    const s = q.toString();
+    return s ? `/zuschauer?${s}` : "/zuschauer";
   };
 
   return (
     <>
       <section className="block page-head" data-tone="ender">
         <div className="wrap">
-          <p className="eyebrow">Intern · nicht verlinkt</p>
-          <h1 className="t-1 mig__title">Zuschauerwanderung</h1>
-          {!earnings && (
-            <p>
-              Wohin gehen Zuschauer, wenn ein CraftAttack-Streamer live geht oder aufhört? Gezählt wird jeder Start, egal wie groß, und
-              der Gesamtverlust der übrigen Streams 20–40 Min danach – gegenüber dem, was diese Streams sonst bei gleichem Streamalter und
-              gleicher Tageszeit tun. Raids sind kein Abwandern: Streams, die im Zeitfenster raiden oder geraidet werden, zählen nicht
-              mit; Raids stehen getrennt.
-            </p>
-          )}
+          <p className="eyebrow">Community</p>
+          <h1 className="t-1 mig__title">Zuschauer</h1>
+          <p>
+            Wohin Zuschauer gehen, wenn ein CraftAttack-Streamer live geht, aufhört oder raidet.{" "}
+            <Explain>
+              Gezählt wird jeder Start, egal wie groß, und der Gesamtverlust der übrigen Streams 20–40 Min danach, gegenüber dem, was diese Streams sonst
+              bei gleichem Streamalter und gleicher Tageszeit tun. Raids sind kein Abwandern: Streams, die im Zeitfenster raiden oder geraidet werden,
+              zählen nicht mit; Raids stehen getrennt. Die Werte sind Hinweise, keine Beweise.
+            </Explain>
+          </p>
         </div>
       </section>
 
-      <section className="block block--tight" data-tone="ink">
+      <section className="block block--tight" data-tone="paper">
         <div className="wrap">
           <ul className="mig__tabs filters" aria-label="Ansicht">
             {VIEWS.map((v) => (
@@ -100,8 +95,8 @@ async function Analysis({ searchParams }: { searchParams: PageProps<"/intern/zus
           </ul>
           {m && (
             <>
-              <dl className="grid st-figs">
-                <div className="box st-fig" data-tone="white">
+              <dl className="grid st-figs st-figs--6">
+                <div className="box st-fig" data-tone="white" style={{ gridColumn: "span 2" }}>
                   <dt>Zeitraum</dt>
                   <FigValue>{m.from && m.to ? span(m.from, m.to) : "–"}</FigValue>
                 </div>
@@ -119,16 +114,19 @@ async function Analysis({ searchParams }: { searchParams: PageProps<"/intern/zus
                 </div>
               </dl>
               <p className="muted mig__note">
-                „Unsicher“: wenige Fälle oder der Effekt ist kleiner als das Zweifache seines Standardfehlers. Starts und Enden überlagern sich
-                und betreffen viele Streams gleichzeitig; die Werte sind Hinweise, keine Beweise. Wegen Raids ausgelassen: {num(m.skippedRaid)}{" "}
-                Beobachtungen. Startzeit laut Twitch, nicht der Zeitpunkt, an dem der Tracker den Start bemerkte.
+                Wie sicher ist das?{" "}
+                <Explain label="Wie sicher">
+                  „Unsicher“: wenige Fälle oder der Effekt ist kleiner als das Zweifache seines Standardfehlers. Starts und Enden überlagern sich und
+                  betreffen viele Streams gleichzeitig. Wegen Raids ausgelassen: {num(m.skippedRaid)} Beobachtungen. Startzeit laut Twitch, nicht der
+                  Zeitpunkt, an dem der Tracker den Start bemerkte.
+                </Explain>
               </p>
             </>
           )}
         </div>
       </section>
 
-      <section className="block mig" data-tone="paper">
+      <section className="block block--tight mig" data-tone="paper">
         <div className="wrap stack">
           {m && view === "uebersicht" && <StartsView m={m} names={names} />}
           {m && view === "offline" && <OfflineView m={m} names={names} />}
@@ -137,11 +135,11 @@ async function Analysis({ searchParams }: { searchParams: PageProps<"/intern/zus
               names={names}
               id={typeof sp.spieler === "string" ? sp.spieler : undefined}
               share={parseShareMode(sp.anteil)}
-              hidden={{ key, ansicht: "einnahmen" }}
+              hidden={{ ansicht: "einnahmen" }}
               playerHref={(id) => href({ ansicht: "einnahmen", spieler: id, anteil: typeof sp.anteil === "string" ? sp.anteil : undefined })}
             />
           )}
-          {view === "tag" && <DayView names={names} day={typeof sp.tag === "string" ? sp.tag : undefined} hidden={{ key, ansicht: "tag" }} />}
+          {view === "tag" && <DayView names={names} day={typeof sp.tag === "string" ? sp.tag : undefined} hidden={{ ansicht: "tag" }} />}
           {view === "muster" && (
             <OverlayView
               names={names}
@@ -149,7 +147,7 @@ async function Analysis({ searchParams }: { searchParams: PageProps<"/intern/zus
               from={typeof sp.von === "string" ? sp.von : undefined}
               to={typeof sp.bis === "string" ? sp.bis : undefined}
               mode={sp.darstellung === "summe" || sp.darstellung === "schnitt" ? sp.darstellung : "linien"}
-              hidden={{ key, ansicht: "muster" }}
+              hidden={{ ansicht: "muster" }}
             />
           )}
           {view === "spieler" && (
@@ -157,7 +155,7 @@ async function Analysis({ searchParams }: { searchParams: PageProps<"/intern/zus
               names={names}
               id={typeof sp.spieler === "string" ? sp.spieler : undefined}
               day={typeof sp.tag === "string" ? sp.tag : undefined}
-              hidden={{ key, ansicht: "spieler" }}
+              hidden={{ ansicht: "spieler" }}
               dayHref={(id, d) => href({ ansicht: "spieler", spieler: id, tag: d })}
             />
           )}
@@ -259,9 +257,10 @@ function RaidRetentionSection({ m, names }: { m: Migration; names: Names }) {
         <h2 className="t-2">Wie viele Raid-Zuschauer bleiben</h2>
         <p className="muted">
           {num(rr.raids.length)} Raids ab 50 Zuschauern, bei denen das Ziel von 20 Min davor bis 60 Min danach durchgehend live war
-          (ausgelassen: {num(rr.skipped)}). Im Median kommen {pct0.format(rr.arrived * 100)} % der gemeldeten Raid-Zuschauer an; nach 10 Min
+          (ausgelassen: {num(rr.skipped)}).{" "}
+          <Explain>Im Median kommen {pct0.format(rr.arrived * 100)} % der gemeldeten Raid-Zuschauer an; nach 10 Min
           sind {pct0.format(at(10) * 100)} % noch da, nach 30 Min {pct0.format(at(30) * 100)} %, nach 60 Min {pct0.format(at(60) * 100)} %
-          (abzüglich des Trends, den das Ziel vorher hatte).
+          (abzüglich des Trends, den das Ziel vorher hatte).</Explain>
         </p>
       </div>
       <div className="box" data-tone="white">
@@ -309,11 +308,14 @@ async function OverlayView({
       <div className="section-head">
         <h2 className="t-2">Tage überlagern</h2>
         <p className="muted">
-          Mehrere Tage auf einer Achse von 0 bis 24 Uhr: {who}, {ov.days.length} Tage. Statt Tag und Nacht hintereinander zeigt das, wie ein
-          typischer Tag aussieht. Lücken: Der Tracker lief nicht (zählen weder in Summe noch Durchschnitt).
+          Mehrere Tage auf einer Achse von 0 bis 24 Uhr: {who}, {ov.days.length} Tage.{" "}
+          <Explain>
+            Statt Tag und Nacht hintereinander zeigt das, wie ein typischer Tag aussieht. Lücken: Der Tracker lief nicht (zählen weder in Summe noch
+            Durchschnitt).
+          </Explain>
         </p>
       </div>
-      <form className="mig__pick" method="get" action="/intern/zuschauerwanderung">
+      <form className="mig__pick" method="get" action="/zuschauer">
         {Object.entries(hidden).map(([k, v]) => (
           <input key={k} type="hidden" name={k} value={v} />
         ))}
@@ -368,7 +370,7 @@ async function OverlayView({
 
 function DayPicker({ days, current, hidden, extra }: { days: string[]; current: string; hidden: Record<string, string>; extra?: React.ReactNode }) {
   return (
-    <form className="mig__pick" method="get" action="/intern/zuschauerwanderung">
+    <form className="mig__pick" method="get" action="/zuschauer">
       {Object.entries(hidden).map(([k, v]) => (
         <input key={k} type="hidden" name={k} value={v} />
       ))}
@@ -503,10 +505,12 @@ async function PlayerView({
       <div className="section-head">
         <h2 className="t-2">{names[id]?.name ?? id}</h2>
         <p className="muted">
-          Zuschauer am {dayLong.format(dayStart + 3_600_000)} mit allem, was sie verändert hat. Ungeklärt: Änderung weit über dem
-          Erwarteten – dem, was dieser Stream sonst bei diesem Streamalter (auch in der Aufwärmphase) und dieser Tageszeit tut, plus dem,
-          was gleichzeitig mit allen anderen Streams passiert – und kein Ereignis in der Nähe: vermutlich der Stream selbst.
-          {pd.vods.length > 0 ? " Klick in den Graphen öffnet das VOD an dieser Stelle." : " Für diesen Tag ist kein VOD verfügbar."}
+          Zuschauer am {dayLong.format(dayStart + 3_600_000)} mit allem, was sie verändert hat.
+          {pd.vods.length > 0 ? " Klick in den Graphen öffnet das VOD an dieser Stelle." : " Für diesen Tag ist kein VOD verfügbar."}{" "}
+          <Explain label="Was heißt ungeklärt">
+            Ungeklärt: Änderung weit über dem Erwarteten (dem, was dieser Stream sonst bei diesem Streamalter, auch in der Aufwärmphase, und dieser
+            Tageszeit tut, plus dem, was gleichzeitig mit allen anderen Streams passiert) und kein Ereignis in der Nähe: vermutlich der Stream selbst.
+          </Explain>
         </p>
       </div>
       <DayPicker

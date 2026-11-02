@@ -5682,3 +5682,218 @@ a.st-board__mvlink:focus-visible {
   flex: none;
   max-width: none;
 }
+
+/* ---------- Reiter des Bereichs (unter dem Kopf) ---------- */
+.subnav {
+  border-top: 2px solid color-mix(in srgb, var(--line) 25%, transparent);
+}
+.subnav__in {
+  display: flex;
+  gap: 2px;
+  margin: 0 auto;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.subnav__in::-webkit-scrollbar {
+  display: none;
+}
+.subnav a {
+  display: block;
+  padding: 7px 12px 6px;
+  font-weight: 700;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  text-decoration: none;
+  border-bottom: 3px solid transparent;
+  opacity: 0.8;
+}
+.subnav a:hover {
+  opacity: 1;
+  border-bottom-color: color-mix(in srgb, var(--paper) 50%, transparent);
+}
+.subnav a[aria-current="page"] {
+  opacity: 1;
+  border-bottom-color: var(--gold);
+}
+
+/* Umschalter aus Links (z. B. Zeitraum, der neu lädt) sehen aus wie die Knöpfe daneben */
+.gb__seg a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 6px 14px;
+  background: var(--white);
+  color: var(--ink);
+  border-right: 3px solid var(--line);
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+}
+.gb__seg a:last-child {
+  border-right: 0;
+}
+.gb__seg a[aria-current="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+@media (hover: hover) {
+  .gb__seg a:not([aria-current="true"]):hover {
+    background: var(--paper);
+  }
+}
+.conn__group .gb__seg a {
+  min-height: 32px;
+  padding: 3px 10px;
+  font-size: 0.8125rem;
+}
+
+/* Profil: Auszug aus Community (Nähe + Gruppe) */
+.pnet {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  align-items: start;
+}
+.pnet__near {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 4px 16px;
+}
+.pnet__near li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.pnet__near a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 600;
+  text-decoration: none;
+}
+.pnet__near a span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pnet__group {
+  border-left: 8px solid var(--grp);
+}
+.pnet__group .t-3 {
+  margin: 4px 0;
+}
+.pnet__heads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  align-items: center;
+}
+.pnet__heads a {
+  display: block;
+  line-height: 0;
+}
+.pnet__heads a[data-role="anfuehrer"] {
+  box-shadow: 0 0 0 3px var(--gold);
+}
+
+/* ---------- Mehrfach-Spielerauswahl (überall gleich) ---------- */
+.pmulti {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+.pmulti__chips {
+  display: contents;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pmulti__chips li {
+  list-style: none;
+}
+.pmulti > .psearch {
+  flex: 0 1 240px;
+  min-width: 180px;
+}
+.pchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 4px 8px 4px 6px;
+  background: var(--ink);
+  color: var(--paper);
+  border: 0;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow: 0 0 0 2px var(--line);
+}
+.pchip__x {
+  opacity: 0.7;
+  margin-left: 2px;
+}
+.pchip:hover .pchip__x {
+  opacity: 1;
+}
+.pchip--plain {
+  background: var(--white);
+  color: var(--ink);
+  padding-inline: 10px;
+}
+.pchip--plain[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* Kopf jeder Seite flacher: Bereich und Reiter stehen schon in der Leiste darüber */
+.page-head {
+  padding-block: clamp(18px, 2.5vw, 28px) clamp(16px, 2vw, 24px);
+}
+.page-head .t-1 {
+  font-size: clamp(2rem, 4.5vw, 3rem);
+}
+.page-head > .wrap > p.eyebrow {
+  margin: 0 0 2px;
+}
+.page-head + .block {
+  padding-top: clamp(16px, 2.5vw, 28px);
+}
+
+/* Bestenlisten: breit die ganze Fläche nutzen, die lange Liste in zwei Spalten */
+@media (width >= 1200px) {
+  .bl-layout {
+    grid-template-columns: minmax(0, 21rem) minmax(0, 1fr);
+  }
+  .st-board__list--full {
+    columns: 2;
+    column-gap: 28px;
+  }
+  .st-board__list--full > li {
+    break-inside: avoid;
+  }
+}
+
+/* Schmal: erst das Netz, dann die Einstellungen (sonst scrollt man durch alle Regler, bevor man etwas sieht) */
+@media (width < 1100px) {
+  .conn__layout > .conn__main,
+  .conn__layout > .conn__box {
+    order: -1;
+  }
+}
