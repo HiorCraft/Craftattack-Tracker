@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Fold } from "./Fold";
 import type { PlayerDetail } from "@/lib/types";
 import type { TopSnapshot } from "@/lib/store";
 import { ago, dateTime, num } from "@/lib/format";
@@ -109,12 +110,16 @@ export function PlayerDetails({
   return (
     <section className="block" data-tone="paper">
       <div className="wrap">
-        <div className="section-head">
-          <h2 className="t-2">Weitere Statistiken</h2>
-          <span className="muted pdetail__stamp" title={dateTime(detail.fetchedAt)}>
-            Stand {ago(detail.fetchedAt, now)}
-          </span>
-        </div>
+        <Fold
+          id="profil.details"
+          title="Weitere Statistiken"
+          aside={
+            <span className="muted pdetail__stamp" title={dateTime(detail.fetchedAt)}>
+              Stand {ago(detail.fetchedAt, now)}
+              {detail.firstJoin ? ` · erster Join ${dateTime(detail.firstJoin)}` : ""}
+            </span>
+          }
+        >
 
         {groups.length > 0 && (
           <div className="pdetail__grid">
@@ -214,11 +219,7 @@ export function PlayerDetails({
           </>
         )}
 
-        {detail.firstJoin && (
-          <p className="muted" style={{ marginTop: 16, fontSize: ".875rem" }}>
-            Erster Join: {dateTime(detail.firstJoin)}
-          </p>
-        )}
+        </Fold>
       </div>
     </section>
   );

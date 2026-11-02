@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { Fold } from "@/components/Fold";
+import { Explain } from "@/components/Explain";
+import { ShowMore } from "@/components/ShowMore";
 import { notFound } from "next/navigation";
 import { Suspense, cache } from "react";
 import type { Metadata } from "next";
@@ -234,7 +237,7 @@ async function HeadSection({ params }: { params: Params }) {
           </Link>{" "}
           / Profil
         </p>
-        <div className="player-head" style={{ marginTop: 16 }}>
+        <div className="player-head" style={{ marginTop: 8 }}>
           <img className="skin" src={skinUrl(p.uuid, 256, p.id)} alt={`Skin von ${p.name}`} width={180} height={200} />
           <div>
             <h1 className="t-1">{p.name}</h1>
@@ -325,7 +328,7 @@ async function StatsSection({ params }: { params: Params }) {
       <div className="wrap">
         <h2 className="sr-only">Statistiken</h2>
         <PlayerEstimateSummary />
-        <dl className="grid st-figs">
+        <dl className="grid st-figs st-figs--auto">
           {profileStatKeys.map((k) => {
             if (k === "followers") {
               return (
@@ -616,16 +619,22 @@ async function TimelineSection({ params }: { params: Params }) {
     <EstimatePlayer id={id}>
     <section className="block" data-tone="paper">
       <div className="wrap">
-        <div className="grid" style={{ "--min": "300px", "--gap": "24px" } as React.CSSProperties}>
-          <div style={{ gridColumn: "span 2" }}>
-            <div className="section-head">
-              <h2 className="t-2">Verlauf</h2>
-              <Link className="btn btn--small" data-tone="white" href={`/ereignisse?spieler=${encodeURIComponent(id)}`}>
-                Alle {num(shown.length)}
-              </Link>
-            </div>
-            <EventFeed events={recent} focus={id} empty={`Für ${p.name} wurde noch nichts aufgezeichnet.`} getTimeState={getTimeState} isShown={isShown} />
-            <PresenceLegend />
+        <div className="tl-grid">
+          <div>
+            <Fold
+              id="profil.verlauf"
+              title="Verlauf"
+              aside={
+                <Link className="btn btn--small" data-tone="white" href={`/ereignisse?spieler=${encodeURIComponent(id)}`}>
+                  Alle {num(shown.length)}
+                </Link>
+              }
+            >
+              <ShowMore height={1400} label="Ereignisse">
+                <EventFeed events={recent} focus={id} empty={`Für ${p.name} wurde noch nichts aufgezeichnet.`} getTimeState={getTimeState} isShown={isShown} />
+              </ShowMore>
+              <PresenceLegend />
+            </Fold>
           </div>
           <aside className="stack" style={{ "--stack": "16px" } as React.CSSProperties}>
             <div className="box" data-tone="white">
@@ -713,9 +722,7 @@ async function TimelineSection({ params }: { params: Params }) {
                   ))
                 )}
               </ol>
-              <p className="muted" style={{ marginTop: 10, fontSize: ".875rem" }}>
-                Punkt: gerade gemeinsam online.
-              </p>
+
             </section>
             <div className="box" data-tone="white">
               <p className="eyebrow" style={{ marginBottom: 10 }}>
@@ -724,8 +731,9 @@ async function TimelineSection({ params }: { params: Params }) {
               {phases.length === 0 ? (
                 <p className="muted">Noch keine komplette Session gesehen.</p>
               ) : (
+                <ShowMore height={640} label="Sessions">
                 <ul className="sessions">
-                  {phases.slice(0, 16).map((s) => {
+                  {phases.slice(0, 40).map((s) => {
                     const with_ = s.kind === "server" ? companionsOf(id, s.start, s.end, allSessions, now) : [];
                     const shown = with_.slice(0, 8);
                     const extra =
@@ -758,6 +766,7 @@ async function TimelineSection({ params }: { params: Params }) {
                     );
                   })}
                 </ul>
+                </ShowMore>
               )}
             </div>
           </aside>
@@ -778,12 +787,15 @@ async function ChatSection({ params }: { params: Params }) {
     {(chat.sentTotal > 0 || chat.receivedTotal > 0 || sharedSessions.length > 0) && (
       <section className="block block--tight" data-tone="paper" aria-labelledby="chat-h">
         <div className="wrap">
-          <div className="section-head">
-            <h2 className="t-2" id="chat-h">
-              Chat
-            </h2>
-            <p className="muted">Nachrichten zwischen {p.name} und anderen Spielern in Twitch-Chats.</p>
-          </div>
+          <Fold
+            id="profil.chat"
+            titleId="chat-h"
+            title={
+              <>
+                Chat <Explain>Nachrichten zwischen {p.name} und anderen Spielern in Twitch-Chats.</Explain>
+              </>
+            }
+          >
           {sharedSessions.length > 0 && (
             <div className="box chatbox sharedbox" data-tone="white">
               <div className="chatbox__head">
@@ -791,7 +803,9 @@ async function ChatSection({ params }: { params: Params }) {
                   Geteilter Chat · Stream Together <span className="num">({num(sharedSessions.length)})</span>
                 </p>
               </div>
-              <SharedChatList sessions={sharedSessions} self={id} players={state.players} now={now} />
+              <ShowMore height={260} label="Sessions">
+                <SharedChatList sessions={sharedSessions} self={id} players={state.players} now={now} />
+              </ShowMore>
             </div>
           )}
           {(chat.sentTotal > 0 || chat.receivedTotal > 0) && (
@@ -836,6 +850,7 @@ async function ChatSection({ params }: { params: Params }) {
               </div>
             </div>
           )}
+          </Fold>
         </div>
       </section>
     )}
@@ -852,14 +867,16 @@ async function ClipsSection({ params }: { params: Params }) {
   return (
     <section className="block block--tight" data-tone="paper" aria-labelledby="clips-h">
       <div className="wrap">
-        <div className="section-head">
-          <h2 className="t-2" id="clips-h">
-            Beliebteste Clips
-          </h2>
-          <Link className="btn btn--small" data-tone="white" href={`/ereignisse?t=clip&spieler=${encodeURIComponent(id)}`}>
-            Alle Clips
-          </Link>
-        </div>
+        <Fold
+          id="profil.clips"
+          titleId="clips-h"
+          title="Beliebteste Clips"
+          aside={
+            <Link className="btn btn--small" data-tone="white" href={`/ereignisse?t=clip&spieler=${encodeURIComponent(id)}`}>
+              Alle Clips
+            </Link>
+          }
+        >
         <ClipGrid clips={season} showPlayer={false} />
         {fresh.length > 0 && (
           <>
@@ -869,6 +886,7 @@ async function ClipsSection({ params }: { params: Params }) {
             <ClipGrid clips={fresh} showPlayer={false} />
           </>
         )}
+        </Fold>
       </div>
     </section>
   );

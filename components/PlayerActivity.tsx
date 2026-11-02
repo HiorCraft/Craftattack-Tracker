@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { Fold } from "./Fold";
+import { Explain } from "./Explain";
 import type { StoredSession } from "@/lib/store";
 import type { RankHistory, Span } from "@/lib/analytics";
 import type { BoardKey, PlayerRank } from "@/lib/types";
@@ -117,12 +119,15 @@ export function PlayerActivity({
     <>
       <section className="block block--tight" data-tone="paper" aria-labelledby="ranks-h">
         <div className="wrap">
-          <div className="section-head">
-            <h2 className="t-2" id="ranks-h">
-              Rang-Verlauf
-            </h2>
-            <p className="muted">Platz unter allen erfassten Spielern, alle {every} neu berechnet. Oben ist besser.</p>
-          </div>
+          <Fold
+            id="profil.raenge"
+            titleId="ranks-h"
+            title={
+              <>
+                Rang-Verlauf <Explain>Platz unter allen erfassten Spielern, alle {every} neu berechnet. Oben ist besser.</Explain>
+              </>
+            }
+          >
           <div className="grid st-boards">
             {rankCharts.map((c) => {
               const style = BOARD_STYLE[c.k];
@@ -176,22 +181,18 @@ export function PlayerActivity({
               );
             })}
           </div>
+          </Fold>
         </div>
       </section>
 
       <section className="block block--tight" data-tone="paper" aria-labelledby="act-h">
         <div className="wrap">
-          <h2 className="sr-only" id="act-h">
-            Weitere Ränge und Aktivität
-          </h2>
+          <Fold id="profil.aktivitaet" titleId="act-h" title="Weitere Ränge & Aktivität">
           <div className="grid" style={{ "--min": "300px", "--gap": "24px" } as React.CSSProperties}>
             {extraGroups.length > 0 && (
               <div className="box" data-tone="white" style={{ gridColumn: "span 2" }}>
-                <p className="eyebrow" style={{ marginBottom: 4 }}>
-                  Weitere Ränge
-                </p>
-                <p className="muted" style={{ fontSize: ".875rem" }}>
-                  Rang-Verlauf der Zusatzwerte aus der Einzelstatistik, ebenfalls alle {every} neu berechnet.
+                <p className="eyebrow" style={{ marginBottom: 8 }}>
+                  Weitere Ränge <Explain>Rang-Verlauf der Zusatzwerte aus der Einzelstatistik, ebenfalls alle {every} neu berechnet.</Explain>
                 </p>
                 <div className="rankmore__body">
                   {extraGroups.map((g) => (
@@ -267,6 +268,7 @@ export function PlayerActivity({
               )}
             </div>
           </div>
+          </Fold>
         </div>
       </section>
     </>

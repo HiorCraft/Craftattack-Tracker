@@ -50,9 +50,9 @@ select {
     calc(var(--px) * 2) calc(var(--px) * 2) 0 0 var(--line);
   --font-display: var(--font-monocraft), ui-monospace, "Courier New", monospace;
   --font-body: var(--font-bricolage), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --wrap: 1180px;
+  --wrap: 1360px;
   --gutter: clamp(16px, 4vw, 40px);
-  --space-block: clamp(48px, 8vw, 104px);
+  --space-block: clamp(32px, 5vw, 64px);
   color-scheme: light;
 }
 /* Dunkles Design: Tinte und Papier tauschen, Indikator- und Tonfarben bleiben */
@@ -161,13 +161,35 @@ p {
   padding-block: calc(var(--space-block) / 2);
 }
 .page-head {
-  padding-block: clamp(40px, 7vw, 88px) clamp(32px, 5vw, 64px);
+  padding-block: clamp(24px, 4vw, 44px) clamp(20px, 3vw, 36px);
+}
+.page-head .t-1 {
+  font-size: clamp(2.25rem, 6vw, 4rem);
 }
 .page-head > .wrap > p,
 .page-head .lead {
-  max-width: 56ch;
-  margin-top: 16px;
-  font-size: 1.1875rem;
+  max-width: 64ch;
+  margin-top: 12px;
+  font-size: 1.0625rem;
+}
+/* Breit: Beschreibung rechts neben dem Titel statt darunter (halbiert die Höhe, nutzt die rechte Hälfte) */
+@media (width >= 900px) {
+  .page-head > .wrap:has(> :is(.t-1, .hero__logo) + p) {
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    column-gap: clamp(32px, 5vw, 80px);
+    align-items: end;
+  }
+  .page-head > .wrap:has(> :is(.t-1, .hero__logo) + p) > * {
+    grid-column: 1;
+  }
+  .page-head > .wrap:has(> :is(.t-1, .hero__logo) + p) > :is(.t-1, .hero__logo) + p {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: end;
+    margin: 0;
+    max-width: 70ch;
+  }
 }
 .stack > * + * {
   margin-top: var(--stack, 16px);
@@ -180,7 +202,7 @@ p {
 }
 .grid {
   gap: var(--gap, 24px);
-  grid-template-columns: repeat(auto-fill, minmax(var(--min, 260px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--min, 260px)), 1fr));
   display: grid;
 }
 .section-head {
@@ -188,7 +210,7 @@ p {
   justify-content: space-between;
   align-items: end;
   gap: 16px 24px;
-  margin-bottom: clamp(24px, 4vw, 40px);
+  margin-bottom: clamp(16px, 2.5vw, 24px);
   display: flex;
 }
 .t-1 {
@@ -197,7 +219,7 @@ p {
 }
 .t-2 {
   text-transform: uppercase;
-  font-size: clamp(2rem, 5vw, 3.25rem);
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
 }
 .t-3 {
   font-size: clamp(1.375rem, 3vw, 1.75rem);
@@ -387,7 +409,7 @@ a.box {
 }
 .hero__logo img {
   filter: drop-shadow(6px 6px #00000059);
-  width: min(70vw, 360px);
+  width: min(60vw, 240px);
 }
 .site-foot__logo {
   width: 160px;
@@ -1541,7 +1563,7 @@ a.spark-card--link:hover .eyebrow {
 
 /* ---------- 3D-Skin im Profil ---------- */
 .player-head .skin {
-  width: clamp(120px, 18vw, 180px);
+  width: clamp(80px, 10vw, 120px);
   height: auto;
   image-rendering: pixelated;
   flex: none;
@@ -2941,7 +2963,7 @@ a.spark-card--link:hover .eyebrow {
 /* Top-Listen sind gleich hoch: normales Raster, damit sie nicht 3 + 1 umbrechen */
 .pdetail__tops {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
   gap: 16px;
 }
 .pdetail__tops .pdetail__card {
@@ -5137,7 +5159,7 @@ button.conn__person {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
   gap: 16px;
 }
 .clip {
@@ -5413,4 +5435,209 @@ a.st-board__mvlink:focus-visible {
 .conn__layers button[aria-pressed="true"] .conn__layers-box {
   background: var(--ink);
   box-shadow: inset 0 0 0 2px var(--ink), inset 0 0 0 4px var(--paper);
+}
+
+/* ---------- Ausblendbare Abschnitte (components/Fold.tsx) ---------- */
+.fold__title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.fold__btn {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  box-shadow: inset 0 0 0 2px currentColor;
+  background: transparent;
+  color: inherit;
+  font: 700 1.125rem/1 var(--font-display);
+  cursor: pointer;
+  opacity: 0.45;
+}
+.fold__btn:hover,
+.fold__btn:focus-visible {
+  opacity: 1;
+}
+.fold__head[data-closed] {
+  margin-bottom: 0;
+  opacity: 0.7;
+}
+.fold__head[data-closed] .t-2 {
+  font-size: clamp(1.25rem, 2.5vw, 1.5rem);
+}
+
+/* ---------- Erklärung auf Klick (components/Explain.tsx) ---------- */
+.explain {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+  font-family: var(--font-body, inherit);
+  text-transform: none;
+  letter-spacing: normal;
+}
+.explain > summary {
+  list-style: none;
+  width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  font: 700 0.75rem/1 var(--font-display);
+  box-shadow: inset 0 0 0 2px currentColor;
+  cursor: pointer;
+  opacity: 0.55;
+}
+.explain > summary::-webkit-details-marker {
+  display: none;
+}
+.explain > summary:hover,
+.explain[open] > summary {
+  opacity: 1;
+}
+.explain__box {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 6px);
+  left: 0;
+  width: max-content;
+  max-width: min(46ch, 80vw);
+  padding: 10px 12px;
+  background: var(--ink);
+  color: var(--paper);
+  box-shadow: 0 0 0 2px var(--line), 3px 3px 0 0 var(--line);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.45;
+  white-space: normal;
+}
+.explain__box a {
+  color: inherit;
+}
+.explain--right .explain__box {
+  left: auto;
+  right: 0;
+}
+
+/* ---------- Gekürzte lange Inhalte (components/ShowMore.tsx) ---------- */
+.more__body[data-clipped] {
+  overflow: hidden;
+  position: relative;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 80px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 80px), transparent);
+}
+.more__bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+}
+.more__all {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.875rem;
+  text-decoration: underline;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.more__all:hover {
+  opacity: 1;
+}
+
+/* Tagesauswahl u. Ä. in einer Zeile, seitlich scrollbar statt mehrerer Zeilen */
+.filters--scroll {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 6px;
+}
+.filters--scroll > li {
+  flex: none;
+}
+
+/* Profil: Verlauf breit, Kennzahlen als schmale Spalte daneben */
+.tl-grid {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+@media (width >= 900px) {
+  .tl-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  }
+}
+
+/* Viele Kacheln (Profil): so viele je Zeile, wie hineinpassen */
+@media (width >= 760px) {
+  .st-figs.st-figs--auto {
+    grid-template-columns: repeat(auto-fill, minmax(165px, 1fr));
+    --gap: 14px;
+  }
+}
+
+/* Netz-Seiten: Einstellungen als Spalte neben dem Netz statt darüber (Regler nah an dem, was sie steuern) */
+.conn__layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+.conn__layout > .conn__controls {
+  margin-bottom: 0;
+}
+@media (width >= 1100px) {
+  .conn__layout {
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
+  .conn__layout > .conn__controls,
+  .conn__layout > .conn__side {
+    grid-column: 2;
+    grid-row: 1;
+    position: sticky;
+    top: 12px;
+  }
+  .conn__layout > .conn__box,
+  .conn__layout > .conn__main {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .conn__layout .conn__controls {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+  }
+  .conn__layout .conn__weight {
+    grid-template-columns: minmax(0, 1fr) 3.5rem;
+  }
+  .conn__layout .conn__weight input[type="range"] {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .conn__layout .conn__row > .conn__weight-name {
+    min-width: 0;
+  }
+  .conn__layout .conn__group .gb__seg {
+    flex-wrap: wrap;
+  }
+  .conn__layout .conn__group > legend {
+    margin-bottom: 8px;
+  }
+}
+.conn__main {
+  min-width: 0;
+}
+.conn__main > .grp__find {
+  margin-top: 0;
+}
+.conn__main > .conn__box {
+  margin: 0;
+}
+.conn__side > .conn__controls {
+  margin: 0;
 }

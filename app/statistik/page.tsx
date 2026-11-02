@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { Fold } from "@/components/Fold";
+import { Explain } from "@/components/Explain";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { PageSkeleton } from "@/components/Skeletons";
@@ -192,13 +194,17 @@ async function Stats(props: PageProps<"/statistik">) {
 
       <section className="block" data-tone="paper" aria-labelledby="season-h">
         <div className="wrap">
-          <div className="section-head">
-            <h2 className="t-2" id="season-h">
-              Die Staffel in Zahlen
-            </h2>
-            <p className="muted">Gewohnheiten, Gefahren und Treue – über alle Tage, die der Tracker gesehen hat.</p>
-          </div>
+          <Fold
+            id="statistik.season-h"
+            titleId="season-h"
+            title={
+              <>
+                Die Staffel in Zahlen <Explain>Gewohnheiten, Gefahren und Treue – über alle Tage, die der Tracker gesehen hat.</Explain>
+              </>
+            }
+          >
           <StatsExtras d={extras} tag={tagNr} />
+          </Fold>
         </div>
       </section>
 
@@ -292,12 +298,7 @@ async function Stats(props: PageProps<"/statistik">) {
 
       <section className="block" data-tone="paper" aria-labelledby="server-h">
         <div className="wrap">
-          <div className="section-head">
-            <h2 className="t-2" id="server-h">
-              Server
-            </h2>
-            <p className="muted num">{num(h.length)} Punkte · {hist.bucketMinutes} Min je Punkt</p>
-          </div>
+          <Fold id="statistik.server-h" titleId="server-h" title="Server" aside={<p className="muted num">{num(h.length)} Punkte · {hist.bucketMinutes} Min je Punkt</p>}>
           <div className="grid charts__grid" style={{ "--min": "320px" } as React.CSSProperties}>
             <Chart label="Spieler online" href={graphHref("onlineCount")} tone={METRIC_TONE.onlineCount} points={series("onlineCount")} />
             <Chart label="Streams live" href={graphHref("liveCount")} tone={METRIC_TONE.liveCount} points={series("liveCount")} />
@@ -307,17 +308,13 @@ async function Stats(props: PageProps<"/statistik">) {
             <Chart label="AFK pro Tag" href={graphHref("afkSeconds", [], "alle", DAILY)} tone={METRIC_TONE.afkSeconds} points={afkPoints} kind="playtimeSeconds" step sub="Teil der Spielzeit" />
             <Chart label="Tode gesamt" href={graphHref("deaths")} tone={BOARD_TONE.deaths} points={series("deaths")} step />
           </div>
+          </Fold>
         </div>
       </section>
 
       <section className="block" data-tone="paper" aria-labelledby="counter-h" style={{ paddingTop: 0 }}>
         <div className="wrap">
-          <div className="section-head">
-            <h2 className="t-2" id="counter-h">
-              Alle Spieler zusammen
-            </h2>
-            <p className="muted num">{num(t.length)} Punkte · {totals.bucketMinutes} Min je Punkt</p>
-          </div>
+          <Fold id="statistik.counter-h" titleId="counter-h" title="Alle Spieler zusammen" aside={<p className="muted num">{num(t.length)} Punkte · {totals.bucketMinutes} Min je Punkt</p>}>
           <div className="grid charts__grid" style={{ "--min": "320px" } as React.CSSProperties}>
             <Chart label="Diamanten" href={graphHref("diamonds")} tone={BOARD_TONE.diamonds} points={tseries("diamonds")} step />
             <Chart label="Abgebaute Blöcke" href={graphHref("blocksBroken")} tone={BOARD_TONE.blocksBroken} points={tseries("blocksBroken")} step />
@@ -338,6 +335,7 @@ async function Stats(props: PageProps<"/statistik">) {
             />
           </div>
           <HowLink section="zeitstrahl" />
+          </Fold>
         </div>
       </section>
     </>

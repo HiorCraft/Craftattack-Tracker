@@ -1,5 +1,7 @@
 "use client";
 
+import { Explain } from "./Explain";
+import { ShowMore } from "./ShowMore";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ConnectionGraph, type GraphEdge, type GraphNode } from "./ConnectionGraph";
@@ -133,6 +135,7 @@ export function ConnectionExplorer({ nodes, edges }: { nodes: GraphNode[]; edges
 
   return (
     <>
+      <div className="conn__layout">
       <div className="box conn__controls" data-tone="white">
         <fieldset className="conn__group">
           <legend className="eyebrow">Gewichtung</legend>
@@ -146,7 +149,7 @@ export function ConnectionExplorer({ nodes, edges }: { nodes: GraphNode[]; edges
           {LINK_KINDS.map((k) => {
             const w = s.weights[k];
             return (
-              <label key={k} className="conn__weight" title={KIND[k].hint}>
+              <label key={k} className="conn__weight" title={`${KIND[k].hint} · ${w === 0 ? "zählt nicht" : KIND[k].unit(w)}`}>
                 <span className="conn__weight-name">
                   <i style={{ background: KIND[k].color }} aria-hidden="true" /> {KIND[k].label}
                 </span>
@@ -160,7 +163,6 @@ export function ConnectionExplorer({ nodes, edges }: { nodes: GraphNode[]; edges
                   aria-valuetext={w === 0 ? "aus" : `Faktor ${dec.format(w)}`}
                 />
                 <b className="num conn__weight-val">{w === 0 ? "aus" : `×${dec.format(w)}`}</b>
-                <span className="muted conn__weight-unit">{w === 0 ? "zählt nicht" : KIND[k].unit(w)}</span>
               </label>
             );
           })}
@@ -168,11 +170,10 @@ export function ConnectionExplorer({ nodes, edges }: { nodes: GraphNode[]; edges
 
         <fieldset className="conn__group">
           <legend className="eyebrow">Anzeige</legend>
-          <label className="conn__weight">
+          <label className="conn__weight" title="Schwächere Verbindungen ausblenden">
             <span className="conn__weight-name">Mindeststärke</span>
             <input type="range" min={0} max={10} step={0.5} value={s.min} onChange={(e) => set({ min: Number(e.target.value) })} />
             <b className="num conn__weight-val">{s.min === 0 ? "alle" : `ab ${dec.format(s.min)} P.`}</b>
-            <span className="muted conn__weight-unit">schwächere Verbindungen ausblenden</span>
           </label>
           <div className="conn__row">
             <span className="conn__weight-name">Spieler</span>
@@ -211,30 +212,41 @@ export function ConnectionExplorer({ nodes, edges }: { nodes: GraphNode[]; edges
             <i style={{ background: "var(--diamond)" }} /> vor allem geteilter Chat
           </li>
           <li>
+            <i style={{ background: "var(--grass)" }} /> vor allem Stream-Titel
+          </li>
+          <li>
             <i style={{ background: "var(--gold)" }} /> vor allem Chat-Nachrichten
           </li>
           <li>
             <i style={{ background: "var(--grass)" }} /> gerade im geteilten Chat
           </li>
-          <li>Lila Rahmen: live · grünes Kästchen: auf dem Server · Name beim Überfahren (Touch: einmal antippen, zweimal fürs Profil) · Kopf ziehen zum Verschieben, anklicken fürs Profil</li>
+          <li>
+            <Explain label="Bedienung">
+              Lila Rahmen: live · grünes Kästchen: auf dem Server · Name beim Überfahren (Touch: einmal antippen, zweimal fürs Profil) · Kopf ziehen zum
+              Verschieben, anklicken fürs Profil
+            </Explain>
+          </li>
         </ul>
+      </div>
       </div>
 
       {focus && (
         <>
-          <div className="section-head" style={{ marginTop: 48 }}>
-            <h2 className="t-2">Wie nah steht {name(focus)} den anderen?</h2>
-            <p className="muted">
-              Über den kürzesten Weg im Netz. Raids und Chat-Nachrichten zählen nur in ihre Richtung, geteilter Chat in beide. Nähe 50 % = direkt mit
-              1 Punkt verbunden; über Umwege sinkt sie.
-            </p>
-          </div>
-          <div className="gb__seg" role="group" aria-label="Richtung" style={{ marginBottom: 16 }}>
-            {DIRECTIONS.map((d) => (
-              <button key={d.key} type="button" aria-pressed={s.dir === d.key} title={d.hint} onClick={() => set({ dir: d.key })}>
-                {d.label}
-              </button>
-            ))}
+          <div className="section-head" style={{ marginTop: 32 }}>
+            <h2 className="t-2">
+              Wie nah steht {name(focus)} den anderen?{" "}
+              <Explain>
+                Über den kürzesten Weg im Netz. Raids, Titel und Chat-Nachrichten zählen nur in ihre Richtung, geteilter Chat in beide. Nähe 50 % = direkt mit 1
+                Punkt verbunden; über Umwege sinkt sie.
+              </Explain>
+            </h2>
+            <div className="gb__seg" role="group" aria-label="Richtung">
+              {DIRECTIONS.map((d) => (
+                <button key={d.key} type="button" aria-pressed={s.dir === d.key} title={d.hint} onClick={() => set({ dir: d.key })}>
+                  {d.label}
+                </button>
+              ))}
+            </div>
           </div>
           {reach.length === 0 ? (
             <p className="muted">In dieser Richtung ist niemand verbunden.</p>
@@ -274,14 +286,16 @@ export function ConnectionExplorer({ nodes, edges }: { nodes: GraphNode[]; edges
         </>
       )}
 
-      <div className="section-head" style={{ marginTop: 48 }}>
-        <h2 className="t-2">{focus ? `Verbindungen von ${name(focus)}` : "Stärkste Verbindungen"}</h2>
-        <p className="muted">Punkte nach der eingestellten Gewichtung</p>
+      <div className="section-head" style={{ marginTop: 32 }}>
+        <h2 className="t-2">
+          {focus ? `Verbindungen von ${name(focus)}` : "Stärkste Verbindungen"} <Explain>Punkte nach der eingestellten Gewichtung (Regler neben dem Netz).</Explain>
+        </h2>
       </div>
       {top.length === 0 ? (
         <p className="muted">Mit diesen Einstellungen gibt es keine Verbindungen.</p>
       ) : (
         <div className="box" data-tone="white">
+          <ShowMore height={720} label="Verbindungen">
           <div className="tbl-wrap">
             <table className="tbl">
               <thead>
@@ -339,6 +353,7 @@ export function ConnectionExplorer({ nodes, edges }: { nodes: GraphNode[]; edges
               </tbody>
             </table>
           </div>
+          </ShowMore>
         </div>
       )}
     </>

@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { Fold } from "./Fold";
+import { Explain } from "./Explain";
 import type { PlayerState } from "@/lib/types";
 import { EVENT_META } from "@/lib/events";
 import { distance, duration, num, time } from "@/lib/format";
@@ -74,16 +76,17 @@ export function DayHighlights({
   return (
     <section className="block block--tight" data-tone="paper" id="highlights" aria-labelledby="highlights-h">
       <div className="wrap">
-        <div className="section-head">
-          <div className="stack" style={{ "--stack": "8px" } as React.CSSProperties}>
-            <h2 className="t-2" id="highlights-h">
-              Tageshighlights
-            </h2>
-            <p className="muted">Die Momente, von denen {name} an diesem Tag erzählen würde.</p>
-          </div>
-        </div>
+        <Fold
+          id="profil.highlights"
+          titleId="highlights-h"
+          title={
+            <>
+              Tageshighlights <Explain>Die Momente, von denen {name} an diesem Tag erzählen würde.</Explain>
+            </>
+          }
+        >
         {days.length > 1 && (
-          <ul className="filters" aria-label="Tag wählen">
+          <ul className="filters filters--scroll" aria-label="Tag wählen">
             {days.map((d) => (
               <li key={d}>
                 <Link className="tag" data-tone="white" aria-current={d === day ? "true" : undefined} href={href(d)} scroll={false}>
@@ -142,6 +145,7 @@ export function DayHighlights({
             })}
           </ol>
         )}
+        </Fold>
       </div>
     </section>
   );

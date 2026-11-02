@@ -1,5 +1,6 @@
 "use client";
 
+import { Explain } from "./Explain";
 import { useEffect, useMemo, useState } from "react";
 import { DEFAULT_WEIGHTS, KIND_INFO, LINK_KINDS, WEIGHT_PRESETS, weigh, type LinkCounts, type Weights } from "@/lib/connectionWeights";
 import { analyzeGroups, resolutionForCount, type GroupAnalysis } from "@/lib/groups";
@@ -95,7 +96,7 @@ export function useGroupSettings(edges: LinkCounts[]) {
         {LINK_KINDS.map((k) => {
           const w = s.weights[k];
           return (
-            <label key={k} className="conn__weight" title={KIND[k].hint}>
+            <label key={k} className="conn__weight" title={`${KIND[k].hint} · ${w === 0 ? "zählt nicht" : KIND[k].unit(w)}`}>
               <span className="conn__weight-name">
                 <i style={{ background: KIND[k].color }} aria-hidden="true" /> {KIND[k].label}
               </span>
@@ -109,7 +110,6 @@ export function useGroupSettings(edges: LinkCounts[]) {
                 aria-valuetext={w === 0 ? "aus" : `Faktor ${dec.format(w)}`}
               />
               <b className="num conn__weight-val">{w === 0 ? "aus" : `×${dec.format(w)}`}</b>
-              <span className="muted conn__weight-unit">{w === 0 ? "zählt nicht" : KIND[k].unit(w)}</span>
             </label>
           );
         })}
@@ -125,8 +125,12 @@ export function useGroupSettings(edges: LinkCounts[]) {
           </button>
         </div>
         <p className="muted">
-          {num(mutualEdges.length)} von {num(activeCount)} Verbindungen gehen in beide Richtungen. Einseitig: nur einer raidet oder schreibt beim anderen.
-          {s.mutual && " Gruppen, Anführer, Kern und Rand werden nur aus den gegenseitigen gebildet."}
+          {num(mutualEdges.length)} von {num(activeCount)} gegenseitig{" "}
+          <Explain>
+            Gegenseitig: beide tun etwas für den anderen (raiden sich, schreiben beieinander, nennen sich im Titel oder teilen einen Chat). Einseitig: nur
+            einer raidet, schreibt oder nennt den anderen.
+            {s.mutual && " Gruppen, Anführer, Kern und Rand werden nur aus den gegenseitigen gebildet."}
+          </Explain>
         </p>
       </fieldset>
       <fieldset className="conn__group">
@@ -140,18 +144,16 @@ export function useGroupSettings(edges: LinkCounts[]) {
           </button>
         </div>
         {s.mode === "feinheit" ? (
-          <label className="conn__weight">
+          <label className="conn__weight" title="Höher = mehr, kleinere Gruppen">
             <span className="conn__weight-name">Feinheit</span>
             <input type="range" min={0} max={RES_STEPS} step={1} value={stepOfRes(s.resolution)} onChange={(e) => set({ resolution: resOfStep(Number(e.target.value)) })} aria-valuetext={dec.format(s.resolution)} />
             <b className="num conn__weight-val">{dec.format(s.resolution)}</b>
-            <span className="muted conn__weight-unit">höher = mehr, kleinere Gruppen</span>
           </label>
         ) : (
-          <label className="conn__weight">
+          <label className="conn__weight" title={`Gewünschte Zahl, so nah wie möglich (Feinheit ${dec.format(resolution)})`}>
             <span className="conn__weight-name">Gruppen</span>
             <input type="range" min={2} max={40} step={1} value={s.count} onChange={(e) => set({ count: Number(e.target.value) })} />
             <b className="num conn__weight-val">{num(s.count)}</b>
-            <span className="muted conn__weight-unit">gewünscht, so nah wie möglich (Feinheit {dec.format(resolution)})</span>
           </label>
         )}
         <p className="muted">

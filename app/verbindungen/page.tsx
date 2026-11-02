@@ -55,7 +55,7 @@ async function Connections({ searchParams }: { searchParams: PageProps<"/verbind
               </li>
             ))}
           </ul>
-          <dl className="grid st-figs">
+          <dl className="grid st-figs st-figs--6">
             <div className="box st-fig" data-tone="twitch">
               <dt>Raids</dt>
               <FigValue>{num(raids)}</FigValue>

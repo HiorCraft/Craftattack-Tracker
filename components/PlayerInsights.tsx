@@ -1,4 +1,5 @@
 import type { PlayerPoint, PlayerState, TrackerEvent } from "@/lib/types";
+import { Fold } from "./Fold";
 import type { StoredSession } from "@/lib/store";
 import { RATE_KEYS, type PlayerRates, type RateKey } from "@/lib/analytics";
 import { distance, duration, num, dateTime } from "@/lib/format";
@@ -109,9 +110,7 @@ export function PlayerInsights({
   return (
     <section className="block block--tight" data-tone="paper" aria-labelledby="ins-h">
       <div className="wrap">
-        <h2 className="sr-only" id="ins-h">
-          Auswertung
-        </h2>
+        <Fold id="profil.auswertung" titleId="ins-h" title="Auswertung">
         <div className="grid" style={{ "--min": "300px", "--gap": "24px" } as React.CSSProperties}>
           {/* Raten */}
           <div className="box" data-tone="white">
@@ -248,6 +247,7 @@ export function PlayerInsights({
             )}
           </div>
         </div>
+        </Fold>
       </div>
     </section>
   );

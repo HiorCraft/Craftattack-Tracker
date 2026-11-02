@@ -1,4 +1,7 @@
 import { connection } from "next/server";
+import { Fold } from "@/components/Fold";
+import { Explain } from "@/components/Explain";
+import { ShowMore } from "@/components/ShowMore";
 import Link from "next/link";
 import { Suspense } from "react";
 import { PageSkeleton } from "@/components/Skeletons";
@@ -183,17 +186,16 @@ async function Dashboard() {
 
       <section className="block" data-tone="paper" aria-labelledby="feed-h">
         <div className="wrap">
-          <div className="section-head">
-            <div className="stack" style={{ "--stack": "8px" } as React.CSSProperties}>
-              <h2 className="t-2" id="feed-h">
-                Zuletzt passiert
-              </h2>
-              <p className="lead">Was, wer, wo, wann. Neuestes oben.</p>
-            </div>
-            <Link className="btn btn--small" data-tone="white" href="/ereignisse">
-              Alle Ereignisse
-            </Link>
-          </div>
+          <Fold
+            id="start.feed"
+            titleId="feed-h"
+            title="Zuletzt passiert"
+            aside={
+              <Link className="btn btn--small" data-tone="white" href="/ereignisse">
+                Alle Ereignisse
+              </Link>
+            }
+          >
           <div className="box trend-card" data-tone="white" style={{ marginBottom: 24 }}>
             <div className="spark-card__head">
               <span className="eyebrow">Verlauf</span>
@@ -203,8 +205,8 @@ async function Dashboard() {
               Im Graph öffnen →
             </Link>
           </div>
-          <div className="grid" style={{ "--min": "300px", "--gap": "24px" } as React.CSSProperties}>
-            <div style={{ gridColumn: "span 2" }} className="feed-col">
+          <div className="tl-grid">
+            <div className="feed-col">
               <ul className="filters" style={{ marginBottom: 12 }} aria-label="Nur eine Kategorie zeigen">
                 {EVENT_GROUPS.map((grp) => (
                   <li key={grp.key}>
@@ -215,7 +217,9 @@ async function Dashboard() {
                   </li>
                 ))}
               </ul>
-              <EventFeed events={recent} isShown={isShown} />
+              <ShowMore height={1300} label="Ereignisse">
+                <EventFeed events={recent} isShown={isShown} />
+              </ShowMore>
             </div>
             <aside className="stack" style={{ "--stack": "16px" } as React.CSSProperties}>
               <div className="box spark-card" data-tone="white">
@@ -272,19 +276,22 @@ async function Dashboard() {
               </div>
             </aside>
           </div>
+          </Fold>
         </div>
       </section>
 
       <section className="block" data-tone="paper" aria-labelledby="boards-h" style={{ paddingTop: 0 }}>
         <div className="wrap">
-          <div className="section-head">
-            <h2 className="t-2" id="boards-h">
-              Bestenlisten
-            </h2>
-            <Link className="btn btn--small" data-tone="white" href="/bestenlisten">
-              Mehr als Top 10
-            </Link>
-          </div>
+          <Fold
+            id="start.boards"
+            titleId="boards-h"
+            title="Bestenlisten"
+            aside={
+              <Link className="btn btn--small" data-tone="white" href="/bestenlisten">
+                Mehr als Top 10
+              </Link>
+            }
+          >
           <div className="grid st-boards">
             {BOARD_KEYS.map((key) => {
               const b = BOARDS[key];
@@ -403,6 +410,7 @@ async function Dashboard() {
             </section>
           </div>
           <HowLink section="bestenlisten" />
+          </Fold>
         </div>
       </section>
     </div>
@@ -422,18 +430,22 @@ async function TopClips() {
   return (
     <section className="block block--tight" data-tone="paper" aria-labelledby="clips-h">
       <div className="wrap">
-        <div className="section-head">
-          <div className="stack" style={{ "--stack": "8px" } as React.CSSProperties}>
-            <h2 className="t-2" id="clips-h">
-              Top-Clips
-            </h2>
-            <p className="lead">Die meistgesehenen Clips {range}, höchstens zwei je Kanal.</p>
-          </div>
-          <Link className="btn btn--small" data-tone="white" href="/ereignisse?t=clip">
-            Alle Clips
-          </Link>
-        </div>
-        <ClipGrid clips={clips} />
+        <Fold
+          id="start.clips"
+          titleId="clips-h"
+          title={
+            <>
+              Top-Clips <Explain>Die meistgesehenen Clips {range}, höchstens zwei je Kanal.</Explain>
+            </>
+          }
+          aside={
+            <Link className="btn btn--small" data-tone="white" href="/ereignisse?t=clip">
+              Alle Clips
+            </Link>
+          }
+        >
+          <ClipGrid clips={clips} />
+        </Fold>
       </div>
     </section>
   );

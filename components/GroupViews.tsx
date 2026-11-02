@@ -1,5 +1,6 @@
 "use client";
 
+import { Explain } from "./Explain";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ConnectionGraph, type GraphEdge, type GraphNode } from "./ConnectionGraph";
@@ -38,7 +39,9 @@ export function GroupsOverview({ nodes, edges, base }: { nodes: GraphNode[]; edg
 
   return (
     <>
-      {controls}
+      <div className="conn__layout">
+      <div className="conn__side">{controls}</div>
+      <div className="conn__main">
       <div className="grp__find">
         <span className="eyebrow">In welcher Gruppe ist …</span>
         <PlayerSearch players={nodes} value={find} onChange={setFind} label="Spieler finden" empty={{ label: "Spieler wählen" }} />
@@ -50,7 +53,15 @@ export function GroupsOverview({ nodes, edges, base }: { nodes: GraphNode[]; edg
       </div>
       <div className="box conn__box" data-tone="white">
         <ConnectionGraph nodes={mapNodes} edges={mapEdges} territoryOf={colorOf} hrefOf={hrefOf} />
-        <p className="muted conn__legend">Ein Kopf je Gruppe (ihr Anführer), Größe = Stärke der Gruppe, Linien = Verbindungen zwischen den Gruppen (Raids, Nachrichten, geteilte Chats aller Mitglieder). Name beim Überfahren, anklicken öffnet die Gruppe.</p>
+        <p className="muted conn__legend">
+          Ein Kopf je Gruppe{" "}
+          <Explain label="Was zeigt das Netz?">
+            Ein Kopf je Gruppe (ihr Anführer), Größe = Stärke der Gruppe, Linien = Verbindungen zwischen den Gruppen (Raids, Titel, Nachrichten, geteilte
+            Chats aller Mitglieder). Name beim Überfahren, anklicken öffnet die Gruppe.
+          </Explain>
+        </p>
+      </div>
+      </div>
       </div>
       <ul className="grp__cards">
         {analysis.groups.map((g) => {
@@ -258,69 +269,9 @@ export function GroupView({ nodes, edges, member, base }: { nodes: GraphNode[]; 
         </div>
       </section>
 
-      {controls}
-
-      <section className="box grp__explain" data-tone="white" aria-labelledby="warum-h" style={{ "--grp": `var(${g.color})` } as React.CSSProperties}>
-        <h3 className="t-3" id="warum-h">
-          Warum das eine Gruppe ist
-        </h3>
-        <ul>
-          {explainGroup(g, analysis, groupEdges, weights, name).points.map((p) => (
-            <li key={p.text} onMouseEnter={() => p.ids?.[0] && setHover(p.ids[0])} onMouseLeave={() => setHover(null)}>
-              {p.text}
-            </li>
-          ))}
-        </ul>
-        <p className="muted">Erkannt nach Louvain: Die Aufteilung, bei der möglichst viel Verbindungsstärke innerhalb der Gruppen liegt, verglichen mit Zufall.</p>
-      </section>
-
-      <div className="grp__grid">
-        <section className="box grp__leader" data-tone="white" aria-labelledby="anf-h">
-          <h3 className="t-3" id="anf-h">
-            Warum {name(g.leader)} der Anführer ist
-          </h3>
-          <ul>
-            <li>
-              Bekommt <b>{pct(receivedTotal ? leader.received / receivedTotal : 0)}</b> der Aufmerksamkeit in der Gruppe: Raids, Nachrichten im eigenen Chat,
-              geteilte Chats.
-            </li>
-            <li>
-              Direkt verbunden mit <b>{num(leader.links)}</b> von {num(g.members.length - 1)} Mitgliedern.
-            </li>
-            {supporters.length > 0 && (
-              <li>
-                Am meisten von <Names ids={supporters.slice(0, 3).map((s) => s.id)} name={name} />.
-              </li>
-            )}
-            {runnerUp && (
-              <li className="muted">
-                Dahinter: {name(runnerUp.id)} ({pct(runnerUp.rank / Math.max(1e-9, leader.rank))} von {name(g.leader)}s Wert).
-              </li>
-            )}
-          </ul>
-          <p className="muted">Gemessen wie PageRank: Aufmerksamkeit von gut vernetzten Mitgliedern zählt mehr als von Randfiguren.</p>
-        </section>
-        <section className="box grp__roles" data-tone="white" aria-label="Rollen">
-          {ROLE_ORDER.map((r) => (
-            <p key={r}>
-              <span className="tag" data-tone={ROLE_TONE[r]}>
-                {ROLE_LABEL[r]}
-              </span>{" "}
-              <b className="num">{num(counts[r])}</b>{" "}
-              <span className="muted">
-                {r === "anfuehrer"
-                  ? "die meiste Aufmerksamkeit"
-                  : r === "kern"
-                    ? "stark verbunden, fast nur hier"
-                    : r === "mitglied"
-                      ? "klar dabei"
-                      : "kaum verbunden oder fast genauso mit einer anderen Gruppe"}
-              </span>
-            </p>
-          ))}
-        </section>
-      </div>
-
+      <div className="conn__layout">
+        <div className="conn__side">{controls}</div>
+        <div className="conn__main">
       <div className="box conn__box" data-tone="white">
         <div className="gb__seg" role="group" aria-label="Umfeld" style={{ marginBottom: 12 }}>
           {(
@@ -353,6 +304,73 @@ export function GroupView({ nodes, edges, member, base }: { nodes: GraphNode[]; 
             · Name beim Überfahren
           </li>
         </ul>
+      </div>
+        </div>
+      </div>
+
+      <section className="box grp__explain" data-tone="white" aria-labelledby="warum-h" style={{ "--grp": `var(${g.color})` } as React.CSSProperties}>
+        <h3 className="t-3" id="warum-h">
+          Warum das eine Gruppe ist
+        </h3>
+        <ul>
+          {explainGroup(g, analysis, groupEdges, weights, name).points.map((p) => (
+            <li key={p.text} onMouseEnter={() => p.ids?.[0] && setHover(p.ids[0])} onMouseLeave={() => setHover(null)}>
+              {p.text}
+            </li>
+          ))}
+        </ul>
+        <p className="muted">
+          Erkannt nach Louvain <Explain>Die Aufteilung, bei der möglichst viel Verbindungsstärke innerhalb der Gruppen liegt, verglichen mit Zufall.</Explain>
+        </p>
+      </section>
+
+      <div className="grp__grid">
+        <section className="box grp__leader" data-tone="white" aria-labelledby="anf-h">
+          <h3 className="t-3" id="anf-h">
+            Warum {name(g.leader)} der Anführer ist
+          </h3>
+          <ul>
+            <li>
+              Bekommt <b>{pct(receivedTotal ? leader.received / receivedTotal : 0)}</b> der Aufmerksamkeit in der Gruppe: Raids, Nachrichten im eigenen Chat,
+              geteilte Chats.
+            </li>
+            <li>
+              Direkt verbunden mit <b>{num(leader.links)}</b> von {num(g.members.length - 1)} Mitgliedern.
+            </li>
+            {supporters.length > 0 && (
+              <li>
+                Am meisten von <Names ids={supporters.slice(0, 3).map((s) => s.id)} name={name} />.
+              </li>
+            )}
+            {runnerUp && (
+              <li className="muted">
+                Dahinter: {name(runnerUp.id)} ({pct(runnerUp.rank / Math.max(1e-9, leader.rank))} von {name(g.leader)}s Wert).
+              </li>
+            )}
+          </ul>
+          <p className="muted">
+            Gemessen wie PageRank <Explain>Aufmerksamkeit von gut vernetzten Mitgliedern zählt mehr als von Randfiguren.</Explain>
+          </p>
+        </section>
+        <section className="box grp__roles" data-tone="white" aria-label="Rollen">
+          {ROLE_ORDER.map((r) => (
+            <p key={r}>
+              <span className="tag" data-tone={ROLE_TONE[r]}>
+                {ROLE_LABEL[r]}
+              </span>{" "}
+              <b className="num">{num(counts[r])}</b>{" "}
+              <span className="muted">
+                {r === "anfuehrer"
+                  ? "die meiste Aufmerksamkeit"
+                  : r === "kern"
+                    ? "stark verbunden, fast nur hier"
+                    : r === "mitglied"
+                      ? "klar dabei"
+                      : "kaum verbunden oder fast genauso mit einer anderen Gruppe"}
+              </span>
+            </p>
+          ))}
+        </section>
       </div>
 
       <div className="section-head" style={{ marginTop: 40 }}>
