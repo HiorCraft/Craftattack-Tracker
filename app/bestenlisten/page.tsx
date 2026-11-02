@@ -8,6 +8,8 @@ import { getAfkBoard, getAfkRanksBefore, getBoardRanksBefore, getExtraRanksBefor
 import { BOARD_KEYS, type AfkKind, type BoardKey } from "@/lib/types";
 import { ago, boardValue, duration, num } from "@/lib/format";
 import { BoardValue } from "@/components/BoardValue";
+import { BoardMove } from "@/components/BoardMove";
+import { getBoardRows, passedPlayers } from "@/lib/boardRows";
 import { Icon } from "@/components/Icons";
 import { playtimeOf } from "@/lib/playtime";
 import { Head } from "@/components/Head";
@@ -101,13 +103,7 @@ async function Boards(props: PageProps<"/bestenlisten">) {
   let rows: Row[];
   let fmt: (v: number) => string = num;
   if (key === "playtimeSeconds") {
-    rows = players
-      .map((p) => {
-        const playtime = playtimeOf(p, now);
-        return { id: p.id, name: p.name, uuid: p.uuid, value: playtime.seconds, at: null, online: p.online, playtimeSource: playtime.source };
-      })
-      .filter((p) => p.value > 0)
-      .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, "de"));
+    rows = await getBoardRows("playtimeSeconds", state, now);
     fmt = (v) => boardValue("playtimeSeconds", v);
   } else if (isAfkKey(key)) {
     rows = (await getAfkBoard(afkKindOf(key))).map((r) => ({ ...r, at: null }));
@@ -130,7 +126,7 @@ async function Boards(props: PageProps<"/bestenlisten">) {
   } else if (key === "followers") {
     rows = await getFullBoard("followers");
   } else if (isBoardKey(key)) {
-    rows = await getFullBoard(key);
+    rows = await getBoardRows(key, state, now);
     fmt = (v) => boardValue(key, v);
   } else if (isExtraKey(key)) {
     // Zusatzwerte: letzter Stand aus /api/player für jeden Spieler, den der Tracker je abgefragt hat
@@ -283,24 +279,17 @@ async function Boards(props: PageProps<"/bestenlisten">) {
                         </span>
                         <span className="st-board__meta">{meta(e)}</span>
                         <span className="st-board__val num">{key === "damageDealt" ? <BoardValue k={key} v={e.value} /> : fmt(e.value)}</span>
-                        {!hasMovement ? (
-                          <span className="st-board__mv" aria-hidden="true" />
-                        ) : diff === null ? (
-                          <span className="st-board__mv st-board__mv--new" title={`Vor ${SPANS[span].label} noch nicht erfasst`}>
-                            neu
-                          </span>
-                        ) : diff > 0 ? (
-                          <span className="st-board__mv st-board__mv--up num" title={title}>
-                            ▲{diff}
-                          </span>
-                        ) : diff < 0 ? (
-                          <span className="st-board__mv st-board__mv--down num" title={title}>
-                            ▼{-diff}
-                          </span>
-                        ) : (
-                          <span className="st-board__mv" aria-hidden="true" />
-                        )}
+                        {/* Platzhalter: der Pfeil liegt als eigener Link darüber */}
+                        <span className="st-board__mv" aria-hidden="true" />
                       </Link>
+                      {hasMovement && (
+                        <BoardMove
+                          diff={diff}
+                          title={title}
+                          newTitle={`Vor ${SPANS[span].label} noch nicht erfasst`}
+                          href={graphMetric ? graphHref(graphMetric, [e.id, ...passedPlayers(rows, i, ranksBefore)], span) : null}
+                        />
+                      )}
                     </li>
                   );
                 })

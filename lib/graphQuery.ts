@@ -184,6 +184,7 @@ export type { ItemOptions } from "./leaderboards";
 export const RANGES: { key: string; label: string; ms: number | null }[] = [
   { key: "1h", label: "1 Std", ms: 3600_000 },
   { key: "6h", label: "6 Std", ms: 6 * 3600_000 },
+  { key: "12h", label: "12 Std", ms: 12 * 3600_000 },
   { key: "24h", label: "24 Std", ms: 24 * 3600_000 },
   { key: "3d", label: "3 Tage", ms: 3 * 24 * 3600_000 },
   { key: "7d", label: "7 Tage", ms: 7 * 24 * 3600_000 },
