@@ -5356,3 +5356,23 @@ a.st-board__mvlink:focus-visible {
   gap: 3px;
   font-size: 0.85rem;
 }
+/* Legende der Rollen im Gruppen-Netz (Rahmenform statt Farbe) */
+.gx-role {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  vertical-align: middle;
+  background: var(--paper);
+  border: 2px solid var(--line);
+}
+.gx-role--anfuehrer,
+.gx-role--kern {
+  border-width: 3px;
+}
+.gx-role--anfuehrer {
+  box-shadow: 0 -5px 0 -2px var(--gold);
+}
+.gx-role--rand {
+  border-style: dashed;
+  opacity: 0.8;
+}

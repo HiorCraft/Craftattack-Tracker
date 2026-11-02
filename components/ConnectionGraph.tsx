@@ -72,6 +72,8 @@ export function ConnectionGraph({
   focus = null,
   colorOf = null,
   hrefOf = null,
+  territoryOf = null,
+  roleOf = null,
 }: {
   nodes: GraphNode[];
   edges: GraphEdge[];
@@ -80,6 +82,10 @@ export function ConnectionGraph({
   colorOf?: ((id: string) => string | null) | null;
   /** Ziel beim Anklicken (Standard: Profil des Spielers) */
   hrefOf?: ((id: string) => string) | null;
+  /** Gebiet: weiche Fläche in dieser Farbe (CSS-Variable) hinter dem Kopf; Köpfe derselben Farbe verschmelzen zu einem Gebiet */
+  territoryOf?: ((id: string) => string | null) | null;
+  /** Rolle in der Gruppe als Rahmenform (Anführer mit Krone, Kern dick, Rand gestrichelt) */
+  roleOf?: ((id: string) => "anfuehrer" | "kern" | "mitglied" | "rand" | null) | null;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   /** Positionen über Änderungen der Einstellungen hinweg: Das Netz ordnet sich nur neu, statt neu zu beginnen */
@@ -91,10 +97,14 @@ export function ConnectionGraph({
   }, [focus]);
   const colorRef = useRef(colorOf);
   const hrefRef = useRef(hrefOf);
+  const territoryRef = useRef(territoryOf);
+  const roleRef = useRef(roleOf);
   useEffect(() => {
     colorRef.current = colorOf;
     hrefRef.current = hrefOf;
-  }, [colorOf, hrefOf]);
+    territoryRef.current = territoryOf;
+    roleRef.current = roleOf;
+  }, [colorOf, hrefOf, territoryOf, roleOf]);
   const router = useRouter();
   const [tip, setTip] = useState<Tip | null>(null);
 
@@ -182,6 +192,8 @@ export function ConnectionGraph({
     const sr = (n: Node) => Math.max(4.5, n.r * Math.min(1, view.s * 1.3));
 
     let drag: Node | null = null;
+    /** Hilfsfläche für die Gebiete */
+    let off: HTMLCanvasElement | null = null;
     let hover: Node | null = null;
     /** Zuletzt angetippter Kopf (Touch) */
     let tapped: Node | null = null;
@@ -266,6 +278,40 @@ export function ConnectionGraph({
       const base = es.length > 150 ? 0.4 : 0.55;
       // Überfahrener Kopf, sonst der im Auswahlfeld hervorgehobene Spieler
       const hl = hover ?? (focusRef.current ? (byId.get(focusRef.current) ?? null) : null);
+      // Gebiete: je Farbe alle Kreise deckend auf eine eigene Fläche, dann halbdurchsichtig drüber. So verschmelzen
+      // nahe Köpfe einer Gruppe zu einer gleichmäßigen Fläche, statt sich zu dunklen Flecken zu stapeln.
+      const territory = territoryRef.current;
+      if (territory) {
+        const byColor = new Map<string, Node[]>();
+        for (const n of ns) {
+          const c = territory(n.id);
+          if (c) (byColor.get(c) ?? byColor.set(c, []).get(c)!).push(n);
+        }
+        if (!off || off.width !== canvas.width || off.height !== canvas.height) {
+          off = document.createElement("canvas");
+          off.width = canvas.width;
+          off.height = canvas.height;
+        }
+        const octx = off.getContext("2d");
+        if (octx) {
+          for (const [c, list] of byColor) {
+            octx.setTransform(1, 0, 0, 1, 0, 0);
+            octx.clearRect(0, 0, off.width, off.height);
+            octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            octx.fillStyle = color(c);
+            for (const n of list) {
+              octx.beginPath();
+              octx.arc(sx(n), sy(n), sr(n) * 2.4 + 16, 0, Math.PI * 2);
+              octx.fill();
+            }
+            ctx.globalAlpha = 0.26;
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.drawImage(off, 0, 0);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          }
+          ctx.globalAlpha = 1;
+        }
+      }
       for (const e of es) {
         const active = hl && (e.A === hl || e.B === hl);
         ctx.strokeStyle = e.now ? color("--grass") : kindColor[e.kind];
@@ -285,16 +331,37 @@ export function ConnectionGraph({
         const x = sx(n);
         const y = sy(n);
         const r = sr(n);
-        ctx.globalAlpha = dim ? 0.2 : 1;
+        const role = roleRef.current?.(n.id) ?? null;
+        ctx.globalAlpha = dim ? 0.2 : role === "rand" ? 0.8 : 1;
         // Rahmen: lila, wenn gerade live
         const own = colorRef.current?.(n.id);
         ctx.fillStyle = own ? color(own) : n.live ? color("--twitch") : paper;
-        // Gruppenfarbe als breiterer Rahmen, damit sie auch bei kleinen Köpfen erkennbar ist
-        const f = own ? 5 : 3;
+        // Gruppenfarbe als breiterer Rahmen, damit sie auch bei kleinen Köpfen erkennbar ist; Rolle als Rahmenform
+        const f = own ? 5 : role === "anfuehrer" || role === "kern" ? 4 : 3;
         ctx.fillRect(x - r - f, y - r - f, r * 2 + f * 2, r * 2 + f * 2);
         ctx.strokeStyle = line;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = role === "anfuehrer" || role === "kern" ? 4 : 2;
+        if (role === "rand") ctx.setLineDash([4, 3]);
         ctx.strokeRect(x - r - f, y - r - f, r * 2 + f * 2, r * 2 + f * 2);
+        ctx.setLineDash([]);
+        if (role === "anfuehrer") {
+          // Krone über dem Kopf
+          const w = Math.max(8, r * 0.9);
+          const top = y - r - f - 4;
+          ctx.fillStyle = color("--gold");
+          ctx.beginPath();
+          ctx.moveTo(x - w, top);
+          ctx.lineTo(x - w, top - w * 0.7);
+          ctx.lineTo(x - w / 2, top - w * 0.35);
+          ctx.lineTo(x, top - w * 0.85);
+          ctx.lineTo(x + w / 2, top - w * 0.35);
+          ctx.lineTo(x + w, top - w * 0.7);
+          ctx.lineTo(x + w, top);
+          ctx.closePath();
+          ctx.fill();
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
         ctx.imageSmoothingEnabled = false;
         if (n.img.complete && n.img.naturalWidth) ctx.drawImage(n.img, x - r, y - r, r * 2, r * 2);
         else {
