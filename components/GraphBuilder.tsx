@@ -32,6 +32,7 @@ import {
 import { LEADERBOARDS, type TopCategory } from "@/lib/leaderboards";
 import { STAT_GROUPS } from "@/lib/playerStats";
 import { Head } from "./Head";
+import { GraphExplain, type ExplainTarget } from "./GraphExplain";
 import { ItemPicker } from "./ItemPicker";
 
 /** Reiter der Kennzahl-Auswahl: Server, die Spieler-Rubriken, Ränge und einzelne Blöcke/Mobs */
@@ -239,6 +240,7 @@ function MultiChart({
   dataKey,
   percent,
   onZoom,
+  onPick,
 }: {
   lines: Line[];
   hidden: Set<string>;
@@ -246,6 +248,8 @@ function MultiChart({
   percent: boolean;
   /** Ziehen im Graphen wählt einen Zeitraum (ms) */
   onZoom?: (from: number, to: number) => void;
+  /** Klick (ohne Ziehen) oder Klick auf eine markierte Veränderung: diesen Zeitraum erklären */
+  onPick?: (at: number, window?: { from: number; to: number }) => void;
 }) {
   const W = 1000;
   const H = 300;
@@ -320,8 +324,19 @@ function MultiChart({
   };
   const onUp = () => {
     if (drag && onZoom && Math.abs(x(drag.b) - x(drag.a)) > 12) onZoom(Math.min(drag.a, drag.b), Math.max(drag.a, drag.b));
+    else if (drag && onPick) onPick(drag.a);
     setDrag(null);
   };
+  // Größte Sprünge der sichtbaren Linien markieren (gemessen an der Spanne der Linie), höchstens drei
+  const jumps = visible
+    .flatMap((l) => {
+      const vs = l.points.map((p) => p.v);
+      const range = Math.max(1e-9, Math.max(...vs) - Math.min(...vs));
+      return l.points.slice(1).map((p, i) => ({ line: l, prev: l.points[i], p, rel: Math.abs(p.v - l.points[i].v) / range }));
+    })
+    .filter((j) => j.rel >= 0.12)
+    .sort((a, b) => b.rel - a.rel)
+    .slice(0, 3);
 
   // Werte je Linie zum Hover-Zeitpunkt (nächster Messpunkt)
   const tip =
@@ -390,6 +405,21 @@ function MultiChart({
               />
             ))}
           </g>
+          {onPick &&
+            jumps.map((j) => (
+              <g
+                key={`${j.line.id}:${j.p.at}`}
+                className="gb-chart__jump"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => onPick(Date.parse(j.p.at), { from: Date.parse(j.prev.at), to: Date.parse(j.p.at) })}
+              >
+                <title>Größere Veränderung: anklicken für die Erklärung</title>
+                <circle cx={x(Date.parse(j.p.at))} cy={y(j.line, j.p.v)} r={9} />
+                <text x={x(Date.parse(j.p.at))} y={y(j.line, j.p.v) + 4}>
+                  ?
+                </text>
+              </g>
+            ))}
           {tip && tipT !== null && (
             <>
               <line x1={x(tipT)} x2={x(tipT)} y1={0} y2={H} className="spark__cursor" vectorEffect="non-scaling-stroke" />
@@ -619,6 +649,19 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
     const end = Math.min(nowMs(), b + ((b - a) / 2) * dir);
     goRange(end - (b - a), end);
   };
+  /* Erklärung einer Veränderung: Klick in den Graphen erklärt das Bündel unter dem Zeiger, markierte Sprünge ihren Abschnitt */
+  const [explain, setExplain] = useState<ExplainTarget | null>(null);
+  const pick = (at: number, window?: { from: number; to: number }) => {
+    if (window) return setExplain(window);
+    const bucket = Math.max(1, view?.bucketMinutes || 5) * 60_000;
+    const from = Math.floor(at / bucket) * bucket;
+    setExplain({ from, to: from + bucket });
+  };
+  const explainMetrics = q.metrics.map((m) => {
+    const base = valueOfRank(m) ?? m;
+    const line = lines.find((l) => l.metric === m);
+    return { metric: m, label: meta(m).label, format: meta(base).format, color: line?.color ?? "var(--ink)" };
+  });
   const back = () => {
     const prev = pastRanges[pastRanges.length - 1];
     if (!prev) return;
@@ -989,9 +1032,13 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
                   ↩ zurück
                 </button>
               )}
-              <span className="muted gb-zoom__hint">Im Graphen ziehen zum Vergrößern</span>
+              <button type="button" className="tag" onClick={() => setExplain({ from: currentRange()[0], to: currentRange()[1] })} title="Wer hat im gezeigten Zeitraum am meisten beigetragen?">
+                ? Zeitraum erklären
+              </button>
+              <span className="muted gb-zoom__hint">Ziehen vergrößert · Klicken erklärt die Stelle · ? markiert große Sprünge</span>
             </div>
-            <MultiChart lines={lines} hidden={hidden} dataKey={view.key} percent={q.achse === "prozent"} onZoom={goRange} />
+            <MultiChart lines={lines} hidden={hidden} dataKey={view.key} percent={q.achse === "prozent"} onZoom={goRange} onPick={pick} />
+            {explain && <GraphExplain target={explain} metrics={explainMetrics} players={q.spieler} onClose={() => setExplain(null)} />}
           </>
         ) : (
           <p className="chart__empty">{error ? `Fehler: ${error}` : "Lädt …"}</p>

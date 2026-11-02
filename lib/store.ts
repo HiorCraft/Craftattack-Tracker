@@ -2149,3 +2149,128 @@ export async function getItemSeries(q: {
   });
   return { series, bucketMinutes: minutes };
 }
+
+/* ---------- Graph: Wer steckt hinter einer Veränderung? ---------- */
+
+export interface ExplainResult {
+  from: string;
+  to: string;
+  /** Beiträge je Spieler zur Veränderung im Zeitraum (größte zuerst) */
+  contributions: { id: string; name: string; uuid: string; delta: number }[];
+  /** Passende Ereignisse im Zeitraum (wichtigste zuerst) */
+  events: TrackerEvent[];
+}
+
+/** Welche Ereignisse eine Veränderung einer Kennzahl erklären */
+const EXPLAIN_EVENTS: Partial<Record<string, string[]>> = {
+  onlineCount: ["join", "first_join", "leave"],
+  online: ["join", "first_join", "leave"],
+  liveCount: ["stream_start", "stream_end", "raid"],
+  viewers: ["stream_start", "stream_end", "raid"],
+  playtimeSeconds: ["join", "first_join", "leave", "milestone"],
+  deaths: ["death"],
+  diamonds: ["diamonds", "milestone"],
+  blocksBroken: ["blocksBroken", "milestone", "afk_blocks_start"],
+  mobsKilled: ["mobsKilled", "milestone", "afk_mobs_start"],
+  distance: ["distance", "milestone"],
+  damageDealt: ["damageDealt", "milestone"],
+  totemsUsed: ["totemsUsed", "death"],
+  foodEaten: ["foodEaten"],
+  followers: ["follower_burst", "raid", "stream_start"],
+  twitchSubs: ["subscription", "subscription_gift"],
+  twitchBits: ["cheer"],
+  twitchEarnings: ["subscription", "subscription_gift", "cheer"],
+  afkSeconds: ["afk_start", "afk_end"],
+  afkMobsSeconds: ["afk_mobs_start", "afk_mobs_end"],
+  afkBlocksSeconds: ["afk_blocks_start", "afk_blocks_end"],
+  // Zusatzwerte: Ereignistyp heißt wie der Wert (lib/extraEvents.ts)
+  ...Object.fromEntries(EXTRA_METRICS.map((m) => [m, [EXTRA_KEY_OF_METRIC[m], "milestone"]])),
+};
+
+/**
+ * Erklärt die Veränderung einer Kennzahl zwischen `from` und `to`: wer wie viel dazu beigetragen hat und was in der
+ * Zeit passiert ist. Bei Zählern Zuwachs je Spieler (Stand bei `to` minus Stand bei `from`), bei Zuschauern die
+ * Änderung je Stream, bei Online/Live die Joins und Leaves bzw. Stream-Starts, bei Abos und Bits die Summe.
+ */
+export async function explainChange(q: { metric: string; from: number; to: number; players: string[] }): Promise<ExplainResult> {
+  await ensureLoaded();
+  const db = await getDb();
+  const players = g().state?.players ?? {};
+  const from = new Date(q.from);
+  const to = new Date(q.to);
+  const only = q.players.length ? q.players : null;
+  // Platz in einer Liste: erklärt wird über den Wert dahinter
+  const metric = q.metric.startsWith("rank:") ? (q.metric.slice(5) in PLAYER_COL ? q.metric.slice(5) : (EXTRA_METRICS.find((m) => EXTRA_KEY_OF_METRIC[m] === q.metric.slice(5)) ?? q.metric)) : q.metric;
+  let contrib: { id: string; delta: number }[] = [];
+  const col = PLAYER_COL[metric as SeriesMetric];
+  if (metric === "viewers") {
+    contrib = (
+      await db.query<{ id: string; va: number | null; vb: number | null }>(
+        `SELECT p.id, a.v AS va, b.v AS vb FROM players p
+           LEFT JOIN LATERAL (SELECT CASE WHEN online THEN coalesce(viewers, 0) ELSE 0 END AS v FROM player_history WHERE player = p.id AND at <= $1 AND at > $1 - interval '3 minutes' ORDER BY at DESC LIMIT 1) a ON true
+           LEFT JOIN LATERAL (SELECT CASE WHEN online THEN coalesce(viewers, 0) ELSE 0 END AS v FROM player_history WHERE player = p.id AND at <= $2 AND at > $2 - interval '3 minutes' ORDER BY at DESC LIMIT 1) b ON true
+          WHERE ($3::text[] IS NULL OR p.id = ANY($3))`,
+        [from, to, only],
+      )
+    ).rows.map((r) => ({ id: r.id, delta: Number(r.vb ?? 0) - Number(r.va ?? 0) }));
+  } else if (metric === "onlineCount" || metric === "online" || metric === "liveCount") {
+    const [plus, minus] = metric === "liveCount" ? ["stream_start", "stream_end"] : ["join", "leave"];
+    contrib = (
+      await db.query<{ id: string; d: string }>(
+        `SELECT player AS id, sum(CASE WHEN type = $4 OR type = 'first_join' THEN 1 ELSE -1 END) AS d FROM events
+          WHERE at > $1 AND at <= $2 AND type IN ($4, $5, 'first_join') AND player IS NOT NULL AND ($3::text[] IS NULL OR player = ANY($3))
+          GROUP BY 1`,
+        [from, to, only, plus, minus],
+      )
+    ).rows.map((r) => ({ id: r.id, delta: Number(r.d) }));
+  } else if (metric === "twitchSubs" || metric === "twitchEarnings") {
+    contrib = (
+      await db.query<{ id: string; d: string }>(
+        `SELECT player AS id, sum(delta) AS d FROM events
+          WHERE at > $1 AND at <= $2 AND type IN ('subscription', 'subscription_gift') AND meta->>'serverOnline' = 'true'
+            AND player IS NOT NULL AND ($3::text[] IS NULL OR player = ANY($3))
+          GROUP BY 1`,
+        [from, to, only],
+      )
+    ).rows.map((r) => ({ id: r.id, delta: Number(r.d) }));
+  } else if (metric === "twitchBits") {
+    contrib = (
+      await db.query<{ id: string; d: string }>(
+        `SELECT channel_id AS id, sum(bits) AS d FROM twitch_cheers WHERE at > $1 AND at <= $2 AND on_server AND ($3::text[] IS NULL OR channel_id = ANY($3)) GROUP BY 1`,
+        [from, to, only],
+      )
+    ).rows.map((r) => ({ id: r.id, delta: Number(r.d) }));
+  } else if (col) {
+    // Zähler: Stand je Spieler am Ende minus Stand am Anfang (jeweils letzter bekannter Wert, über den Index)
+    contrib = (
+      await db.query<{ id: string; va: number | string | null; vb: number | string | null }>(
+        `SELECT p.id, a.v AS va, b.v AS vb FROM players p
+           LEFT JOIN LATERAL (SELECT ${col} AS v FROM player_history WHERE player = p.id AND at <= $1 AND ${col} IS NOT NULL ORDER BY at DESC LIMIT 1) a ON true
+           LEFT JOIN LATERAL (SELECT ${col} AS v FROM player_history WHERE player = p.id AND at <= $2 AND at > $1 AND ${col} IS NOT NULL ORDER BY at DESC LIMIT 1) b ON true
+          WHERE b.v IS NOT NULL AND a.v IS NOT NULL AND ($3::text[] IS NULL OR p.id = ANY($3))`,
+        [from, to, only],
+      )
+    ).rows.map((r) => ({ id: r.id, delta: Number(r.vb) - Number(r.va) }));
+  }
+  const contributions = contrib
+    .filter((c) => c.delta !== 0)
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+    .slice(0, 10)
+    .map((c) => ({ ...c, name: players[c.id]?.name ?? c.id, uuid: players[c.id]?.uuid ?? "" }));
+  const types = EXPLAIN_EVENTS[metric] ?? [];
+  const events = types.length
+    ? (
+        await db.query<EventRow>(
+          `SELECT * FROM events
+            WHERE at > $1 AND at <= $2 AND type = ANY($3) AND coalesce(meta->>'catchUp', '') <> 'true'
+              AND ($4::text[] IS NULL OR player = ANY($4) OR meta->>'raidTargetPlayerId' = ANY($4))
+              AND (type <> 'subscription' OR meta->>'serverOnline' = 'true')
+              AND (type <> 'milestone' OR meta->>'board' = $5 OR meta->>'board' = ANY($6))
+            ORDER BY abs(coalesce(delta, value, 0)) DESC, at DESC
+            LIMIT 12`,
+          [from, to, types, only, metric, [EXTRA_KEY_OF_METRIC[metric as ExtraMetric] ?? ""]],
+        )
+      ).rows.map(rowToEvent)
+    : [];
+  return { from: from.toISOString(), to: to.toISOString(), contributions, events };
+}
