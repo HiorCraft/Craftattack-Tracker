@@ -40,6 +40,13 @@ type PickerTab = (typeof PICKER_TABS)[number]["key"];
 
 /** `datetime-local`-Wert (lokale Zeit des Browsers) → Millisekunden */
 const localMs = (s: string) => (s ? Date.parse(s) : NaN);
+/** Millisekunden → `datetime-local`-Wert in lokaler Zeit (minutengenau) */
+/** Jetzt (nur in Klick-Handlern aufrufen, nicht beim Rendern) */
+const nowMs = () => Date.now();
+const toLocalInput = (ms: number) => {
+  const d = new Date(ms);
+  return new Date(ms - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+};
 
 /**
  * Raster für die Abfrage: Im Tagesverlauf braucht ein Tag genug Abschnitte, „Auto“ wählt dort 15 Min
@@ -226,11 +233,26 @@ function niceStep(max: number, ticks: number) {
  * Y-Achse in dieser Einheit; Ränge stehen dabei umgedreht (Platz 1 oben). Bei verschiedenen Einheiten oder auf
  * Wunsch (`percent`) wird jede Kennzahl auf ihr eigenes Maximum skaliert (0–100 %). Echte Werte zeigen Tooltip und Legende.
  */
-function MultiChart({ lines, hidden, dataKey, percent }: { lines: Line[]; hidden: Set<string>; dataKey: string; percent: boolean }) {
+function MultiChart({
+  lines,
+  hidden,
+  dataKey,
+  percent,
+  onZoom,
+}: {
+  lines: Line[];
+  hidden: Set<string>;
+  dataKey: string;
+  percent: boolean;
+  /** Ziehen im Graphen wählt einen Zeitraum (ms) */
+  onZoom?: (from: number, to: number) => void;
+}) {
   const W = 1000;
   const H = 300;
   const ref = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<number | null>(null); // Zeitpunkt (ms)
+  /** Laufende Auswahl beim Ziehen (Zeitpunkte in ms) */
+  const [drag, setDrag] = useState<{ a: number; b: number } | null>(null);
   const zones = useEstimateGaps();
 
   const visible = lines.filter((l) => !hidden.has(l.id) && l.points.length > 0);
@@ -278,10 +300,27 @@ function MultiChart({ lines, hidden, dataKey, percent }: { lines: Line[]; hidden
   const multiDay = span > 36e5 * 20;
   const xLabel = (t: number) => (multiDay ? `${df.format(t)} ${tf.format(t)}` : tf.format(t));
 
-  const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
+  const timeAt = (clientX: number) => {
     const rect = ref.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0) return;
-    setHover(t0 + ((e.clientX - rect.left) / rect.width) * span);
+    if (!rect || rect.width === 0) return null;
+    return t0 + (Math.min(rect.width, Math.max(0, clientX - rect.left)) / rect.width) * span;
+  };
+  const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const t = timeAt(e.clientX);
+    if (t === null) return;
+    setHover(t);
+    if (drag) setDrag({ ...drag, b: t });
+  };
+  const onDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!onZoom || e.button !== 0) return;
+    const t = timeAt(e.clientX);
+    if (t === null) return;
+    ref.current?.setPointerCapture(e.pointerId);
+    setDrag({ a: t, b: t });
+  };
+  const onUp = () => {
+    if (drag && onZoom && Math.abs(x(drag.b) - x(drag.a)) > 12) onZoom(Math.min(drag.a, drag.b), Math.max(drag.a, drag.b));
+    setDrag(null);
   };
 
   // Werte je Linie zum Hover-Zeitpunkt (nächster Messpunkt)
@@ -322,9 +361,15 @@ function MultiChart({ lines, hidden, dataKey, percent }: { lines: Line[]; hidden
           role="img"
           aria-label="Graph"
           onPointerMove={onMove}
-          onPointerLeave={() => setHover(null)}
+          onPointerDown={onDown}
+          onPointerUp={onUp}
+          onPointerCancel={() => setDrag(null)}
+          onPointerLeave={() => !drag && setHover(null)}
         >
           <EstimateRects zones={zones} x={x} t0={t0} t1={t1} height={H} />
+          {drag && Math.abs(x(drag.b) - x(drag.a)) > 2 && (
+            <rect x={x(Math.min(drag.a, drag.b))} y={0} width={Math.abs(x(drag.b) - x(drag.a))} height={H} className="gb-chart__zoom" />
+          )}
           {yTicks.map((v) => (
             <line key={v} x1={0} x2={W} y1={yOf(v)} y2={yOf(v)} className="gb-chart__grid" vectorEffect="non-scaling-stroke" />
           ))}
@@ -501,10 +546,12 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
       const delta = (vq.modus === "zuwachs" || dayView) && m.counter;
       // Zähler stehen offline auf dem letzten Stand: Linie bis zur Abfrage fortführen (eigener Zeitraum hat ein festes Ende)
       const loadedAt = Math.min(...entries.map((e) => e.at));
+      // Beim eigenen Zeitraum bis zu dessen Ende (höchstens bis jetzt)
+      const holdTo = vq.zeit === "eigen" && Number.isFinite(localMs(vq.bis)) ? Math.min(localMs(vq.bis), loadedAt) : loadedAt;
       const holdUntil = (points: ApiLine["points"]) => {
         const last = points[points.length - 1];
-        if (!m.counter || vq.zeit === "eigen" || !last || loadedAt - Date.parse(last.at) < 60_000) return points;
-        return [...points, { at: new Date(loadedAt).toISOString(), v: last.v }];
+        if (!m.counter || !last || holdTo - Date.parse(last.at) < 60_000) return points;
+        return [...points, { at: new Date(holdTo).toISOString(), v: last.v }];
       };
       for (const s of series) {
         lines.push({
@@ -530,11 +577,53 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
     return { q: vq, lines, bucketMinutes, key: toSearch(vq).toString(), rangeFrom, rangeTo };
   }, [viewQ, q.achse, q.modus, q.ansicht, cache, meta]);
   const lines = view?.lines ?? [];
+  /** Spätester Messpunkt: bis dahin reicht „später →“ */
+  const latestPoint = Math.max(0, ...lines.flatMap((l) => l.points.slice(-1).map((p) => Date.parse(p.at))));
 
   const set = (patch: Partial<GraphQuery>) => {
     // Das aktuelle Bild bleibt stehen, bis die neue Auswahl geladen ist
     if (ready) setShownQ(q);
     setQ({ ...q, ...patch });
+  };
+  /* Zeitraum im Graphen ändern: Ziehen vergrößert, Knöpfe zoomen heraus, verschieben, gehen zurück */
+  const [pastRanges, setPastRanges] = useState<Pick<GraphQuery, "zeit" | "von" | "bis">[]>([]);
+  const currentRange = (): [number, number] => {
+    const now = nowMs();
+    if (q.zeit === "eigen") {
+      const a = localMs(q.von);
+      const b = localMs(q.bis);
+      return [Number.isFinite(a) ? a : now - 24 * 3600_000, Number.isFinite(b) ? Math.min(b, now) : now];
+    }
+    const r = RANGES.find((x) => x.key === q.zeit);
+    if (r?.ms) return [now - r.ms, now];
+    const first = Math.min(...lines.flatMap((l) => l.points.map((p) => Date.parse(p.at))));
+    return [Number.isFinite(first) ? first : now - 7 * 24 * 3600_000, now];
+  };
+  const goRange = (from: number, to: number) => {
+    const now = nowMs();
+    let a = from;
+    const b = Math.min(to, now);
+    // Mindestens 10 Minuten, nichts in der Zukunft
+    if (b - a < 10 * 60_000) a = b - 10 * 60_000;
+    setPastRanges((p) => [...p, { zeit: q.zeit, von: q.von, bis: q.bis }].slice(-20));
+    set({ zeit: "eigen", von: toLocalInput(a), bis: toLocalInput(b) });
+  };
+  const zoomOut = () => {
+    const [a, b] = currentRange();
+    const len = (b - a) * 2;
+    const end = Math.min(nowMs(), (a + b) / 2 + len / 2);
+    goRange(end - len, end);
+  };
+  const pan = (dir: -1 | 1) => {
+    const [a, b] = currentRange();
+    const end = Math.min(nowMs(), b + ((b - a) / 2) * dir);
+    goRange(end - (b - a), end);
+  };
+  const back = () => {
+    const prev = pastRanges[pastRanges.length - 1];
+    if (!prev) return;
+    setPastRanges((p) => p.slice(0, -1));
+    set(prev);
   };
   const toggleMetric = (m: Metric) => {
     if (q.metrics.includes(m)) {
@@ -699,7 +788,18 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
           </div>
           <div className="gb__seg" role="group" aria-label="Zeitraum">
             {RANGES.map((r) => (
-              <button key={r.key} type="button" aria-pressed={q.zeit === r.key} onClick={() => set({ zeit: r.key })}>
+              <button
+                key={r.key}
+                type="button"
+                aria-pressed={q.zeit === r.key}
+                onClick={() => {
+                  // Eigener Zeitraum ohne Angaben: mit dem gerade gezeigten beginnen
+                  if (r.key === "eigen" && (!q.von || !q.bis)) {
+                    const [a, b] = currentRange();
+                    set({ zeit: "eigen", von: toLocalInput(a), bis: toLocalInput(b) });
+                  } else set({ zeit: r.key });
+                }}
+              >
                 {r.label}
               </button>
             ))}
@@ -873,7 +973,26 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
             />
           )
         ) : view ? (
-          <MultiChart lines={lines} hidden={hidden} dataKey={view.key} percent={q.achse === "prozent"} />
+          <>
+            <div className="gb-zoom" role="toolbar" aria-label="Zeitraum im Graphen">
+              <button type="button" className="tag" onClick={() => pan(-1)} title="Halben Zeitraum früher">
+                ← früher
+              </button>
+              <button type="button" className="tag" onClick={zoomOut} title="Doppelten Zeitraum zeigen">
+                − herauszoomen
+              </button>
+              <button type="button" className="tag" onClick={() => pan(1)} disabled={q.zeit !== "eigen" || localMs(q.bis) >= latestPoint - 60_000} title="Halben Zeitraum später">
+                später →
+              </button>
+              {pastRanges.length > 0 && (
+                <button type="button" className="tag" onClick={back} title="Vorigen Zeitraum wiederherstellen">
+                  ↩ zurück
+                </button>
+              )}
+              <span className="muted gb-zoom__hint">Im Graphen ziehen zum Vergrößern</span>
+            </div>
+            <MultiChart lines={lines} hidden={hidden} dataKey={view.key} percent={q.achse === "prozent"} onZoom={goRange} />
+          </>
         ) : (
           <p className="chart__empty">{error ? `Fehler: ${error}` : "Lädt …"}</p>
         )}
