@@ -5240,3 +5240,25 @@ a.st-board__mvlink:focus-visible {
   font-size: 0.8em;
   opacity: 0.6;
 }
+
+/* Zeitraum im Graphen: Ziehen zum Vergrößern, Knöpfe zum Verschieben */
+.gb-zoom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-bottom: 8px;
+}
+.gb-zoom .tag[disabled] {
+  opacity: 0.4;
+  cursor: default;
+}
+.gb-zoom__hint {
+  font-size: 0.8rem;
+}
+.gb-chart__zoom {
+  fill: color-mix(in srgb, var(--gold) 35%, transparent);
+  stroke: var(--line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}

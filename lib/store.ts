@@ -2036,6 +2036,26 @@ export async function getSeries(q: SeriesQuery): Promise<{ series: SeriesLine[];
       if (r.v === null) continue;
       byPlayer.get(r.player)?.points.push({ at: iso(r.at)!, v: Number(r.v) });
     }
+    // Zähler ändern sich offline nicht: Wer zu Beginn des Zeitraums nicht online war, hat dort trotzdem einen Stand
+    // (den letzten davor). Ohne diesen Startpunkt begänne seine Linie erst mitten im Graphen.
+    if (q.metric !== "online") {
+      const before = (
+        await db.query<{ player: string; v: number | string }>(
+          `SELECT p.id AS player, h.v FROM unnest($1::text[]) AS p(id)
+             CROSS JOIN LATERAL (
+               SELECT ${col} AS v FROM player_history
+                WHERE player = p.id AND at < $2 AND ${col} IS NOT NULL
+                ORDER BY at DESC LIMIT 1
+             ) h`,
+          [q.players, from],
+        )
+      ).rows;
+      for (const b of before) {
+        const line = byPlayer.get(b.player);
+        if (!line) continue;
+        if (!line.points.length || Date.parse(line.points[0].at) > from.getTime()) line.points.unshift({ at: from.toISOString(), v: Number(b.v) });
+      }
+    }
     return finish([...byPlayer.values()]);
   }
 
