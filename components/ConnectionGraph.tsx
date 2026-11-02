@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { Delaunay } from "d3-delaunay";
 import { useEffect, useRef, useState } from "react";
 import { duration, headUrl, num } from "@/lib/format";
 import type { LinkCounts, LinkKind } from "@/lib/connectionWeights";
@@ -58,8 +59,6 @@ function describe(e: GraphEdge, self: string) {
 /** Rand um das Netz im Canvas (Platz für Namen über den Köpfen) */
 const PAD = 36;
 const MAX_SCALE = 1.6;
-/** Rastergröße der Gebiete in Bildschirm-Pixeln */
-const CELL = 6;
 /** Reichweite eines Kopfs für sein Gebiet (Bildschirm-Pixel): weit genug, dass nahe Köpfe ohne Lücke verbinden */
 const REACH = 80;
 /** Reichweite der Abstoßung in Weltkoordinaten */
@@ -196,119 +195,78 @@ export function ConnectionGraph({
     const sr = (n: Node) => Math.max(4.5, n.r * Math.min(1, view.s * 1.3));
 
     let drag: Node | null = null;
-    /** Gebiete als kleines Raster-Bild (eine Zelle = CELL px) */
-    let terr: HTMLCanvasElement | null = null;
+    /** Gebiete: Flächen (halbdurchsichtig drübergelegt) und Grenzlinien, je als eigene Ebene, nur nach Bewegung neu */
+    let fillLayer: HTMLCanvasElement | null = null;
+    let lineLayer: HTMLCanvasElement | null = null;
     let frame = 0;
     let terrSum = NaN;
-    /** CSS-Farbe → [r, g, b] (über ein 1×1-Canvas, das jede Farbangabe normalisiert) */
-    const rgbCache = new Map<string, [number, number, number]>();
-    const probe = document.createElement("canvas").getContext("2d");
-    const rgb = (c: string): [number, number, number] => {
-      let v = rgbCache.get(c);
-      if (!v) {
-        v = [128, 128, 128];
-        if (probe) {
-          probe.fillStyle = "#000";
-          probe.fillStyle = c;
-          probe.fillRect(0, 0, 1, 1);
-          const d = probe.getImageData(0, 0, 1, 1).data;
-          v = [d[0], d[1], d[2]];
-        }
-        rgbCache.set(c, v);
-      }
-      return v;
-    };
-    const paintTerritories = (territory: (id: string) => string | null, color: (n: string) => string): HTMLCanvasElement | null => {
-      const cols = Math.ceil(W() / CELL);
-      const rows = Math.ceil(H() / CELL);
-      if (!cols || !rows) return null;
-      const pts = ns
-        .map((n) => {
-          const c = territory(n.id);
-          return c ? { x: sx(n), y: sy(n), key: c } : null;
-        })
-        .filter((p): p is NonNullable<typeof p> => p !== null);
-      // Je Zelle: Gruppe des nächsten Kopfs (-1 = keiner in Reichweite). Nächster-Nachbar-Suche in Kacheln von
-      // REACH Pixeln: je Kachel einmal die Köpfe der 3×3 Kacheln drumherum sammeln, dann nur diese prüfen.
-      const keys = [...new Set(pts.map((p) => p.key))];
-      const group = Int16Array.from(pts, (p) => keys.indexOf(p.key));
-      const xs = Float64Array.from(pts, (p) => p.x);
-      const ys = Float64Array.from(pts, (p) => p.y);
-      const bw = Math.ceil(W() / REACH);
-      const bh = Math.ceil(H() / REACH);
-      const tiles: number[][] = Array.from({ length: bw * bh }, () => []);
-      pts.forEach((p, q) => {
-        const bx = Math.min(bw - 1, Math.max(0, Math.floor(p.x / REACH)));
-        const by = Math.min(bh - 1, Math.max(0, Math.floor(p.y / REACH)));
-        tiles[by * bw + bx].push(q);
-      });
-      const owner = new Int16Array(cols * rows).fill(-1);
-      const per = REACH / CELL;
-      for (let by = 0; by < bh; by++) {
-        for (let bx = 0; bx < bw; bx++) {
-          const cand: number[] = [];
-          for (let oy = -1; oy <= 1; oy++)
-            for (let ox = -1; ox <= 1; ox++) {
-              const tx = bx + ox;
-              const ty = by + oy;
-              if (tx >= 0 && ty >= 0 && tx < bw && ty < bh) cand.push(...tiles[ty * bw + tx]);
-            }
-          if (!cand.length) continue;
-          const i0 = Math.floor(bx * per);
-          const i1 = Math.min(cols, Math.floor((bx + 1) * per));
-          const j0 = Math.floor(by * per);
-          const j1 = Math.min(rows, Math.floor((by + 1) * per));
-          for (let j = j0; j < j1; j++) {
-            const cy = (j + 0.5) * CELL;
-            for (let i = i0; i < i1; i++) {
-              const cx = (i + 0.5) * CELL;
-              let best = -1;
-              let bestD = REACH * REACH;
-              for (const q of cand) {
-                const dx = cx - xs[q];
-                const dy = cy - ys[q];
-                const d = dx * dx + dy * dy;
-                if (d < bestD) {
-                  bestD = d;
-                  best = group[q];
-                }
-              }
-              owner[j * cols + i] = best;
-            }
-          }
-        }
-      }
-      const cv = terr && terr.width === cols && terr.height === rows ? terr : document.createElement("canvas");
-      cv.width = cols;
-      cv.height = rows;
-      const c2 = cv.getContext("2d");
-      if (!c2) return null;
-      const img = c2.createImageData(cols, rows);
-      const ink = rgb(color("--line"));
-      const colorsOf = keys.map((k) => rgb(color(k)));
-      for (let j = 0; j < rows; j++) {
-        for (let i = 0; i < cols; i++) {
-          const o = owner[j * cols + i];
-          if (o < 0) continue;
-          // Grenze: ein Nachbar gehört zu einer anderen Gruppe
-          const other = (di: number, dj: number) => {
-            const ii = i + di;
-            const jj = j + dj;
-            if (ii < 0 || jj < 0 || ii >= cols || jj >= rows) return false;
-            const n = owner[jj * cols + ii];
-            return n >= 0 && n !== o;
-          };
-          const border = other(1, 0) || other(-1, 0) || other(0, 1) || other(0, -1);
-          const [r, g, b] = border ? ink : colorsOf[o];
-          const k = (j * cols + i) * 4;
-          img.data[k] = r;
-          img.data[k + 1] = g;
-          img.data[k + 2] = b;
-          img.data[k + 3] = border ? 150 : 62;
-        }
-      }
-      c2.putImageData(img, 0, 0);
+    const layer = (c: HTMLCanvasElement | null) => {
+      const cv = c && c.width === canvas.width && c.height === canvas.height ? c : document.createElement("canvas");
+      cv.width = canvas.width;
+      cv.height = canvas.height;
       return cv;
+    };
+    /**
+     * Voronoi-Gebiete: jeder Kopf bekommt die Fläche, die ihm näher ist als jedem anderen, begrenzt auf einen Kreis
+     * von REACH Pixeln (weich auslaufend). Flächen einer Gruppe verschmelzen; zwischen verschiedenen Gruppen eine
+     * dünne Grenzlinie. Vektorgrafik, also glatt statt pixelig.
+     */
+    const paintTerritories = (territory: (id: string) => string | null, color: (n: string) => string) => {
+      const pts = ns.map((n) => ({ x: sx(n), y: sy(n), key: territory(n.id) })).filter((p): p is { x: number; y: number; key: string } => p.key !== null);
+      fillLayer = layer(fillLayer);
+      lineLayer = layer(lineLayer);
+      const f = fillLayer.getContext("2d");
+      const l = lineLayer.getContext("2d");
+      if (!f || !l) return;
+      for (const c of [f, l]) {
+        c.setTransform(1, 0, 0, 1, 0, 0);
+        c.clearRect(0, 0, canvas.width, canvas.height);
+        c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+      if (pts.length === 0) return;
+      const vor = Delaunay.from(pts, (p) => p.x, (p) => p.y).voronoi([-REACH, -REACH, W() + REACH, H() + REACH]);
+      // Flächen deckend zeichnen (die Ebene wird später halbdurchsichtig gelegt, so entstehen keine Nähte)
+      pts.forEach((p, i) => {
+        f.save();
+        f.beginPath();
+        vor.renderCell(i, f);
+        f.clip();
+        const g = f.createRadialGradient(p.x, p.y, 0, p.x, p.y, REACH);
+        const c = color(p.key);
+        g.addColorStop(0, c);
+        g.addColorStop(0.7, c);
+        g.addColorStop(1, "rgba(0,0,0,0)");
+        f.fillStyle = g;
+        f.beginPath();
+        f.arc(p.x, p.y, REACH, 0, Math.PI * 2);
+        f.fill();
+        f.restore();
+      });
+      // Grenzen: gemeinsame Kante zweier Zellen verschiedener Gruppen, nur soweit eine der Flächen reicht
+      l.strokeStyle = color("--line");
+      l.globalAlpha = 0.35;
+      l.lineWidth = 1.2;
+      const poly = pts.map((_, i) => vor.cellPolygon(i));
+      const keyOf = (pt: number[]) => `${Math.round(pt[0] * 100)}|${Math.round(pt[1] * 100)}`;
+      for (let i = 0; i < pts.length; i++) {
+        for (const j of vor.delaunay.neighbors(i)) {
+          if (j <= i || pts[i].key === pts[j].key || !poly[i] || !poly[j]) continue;
+          const mine = new Set(poly[j].map(keyOf));
+          const shared = poly[i].slice(0, -1).filter((pt) => mine.has(keyOf(pt)));
+          if (shared.length < 2) continue;
+          l.save();
+          l.beginPath();
+          l.arc(pts[i].x, pts[i].y, REACH * 0.92, 0, Math.PI * 2);
+          l.moveTo(pts[j].x + REACH * 0.92, pts[j].y);
+          l.arc(pts[j].x, pts[j].y, REACH * 0.92, 0, Math.PI * 2);
+          l.clip();
+          l.beginPath();
+          l.moveTo(shared[0][0], shared[0][1]);
+          l.lineTo(shared[1][0], shared[1][1]);
+          l.stroke();
+          l.restore();
+        }
+      }
     };
     let hover: Node | null = null;
     /** Zuletzt angetippter Kopf (Touch) */
@@ -394,23 +352,24 @@ export function ConnectionGraph({
       const base = es.length > 150 ? 0.4 : 0.55;
       // Überfahrener Kopf, sonst der im Auswahlfeld hervorgehobene Spieler
       const hl = hover ?? (focusRef.current ? (byId.get(focusRef.current) ?? null) : null);
-      // Gebiete: Jede Stelle gehört zum nächsten Kopf (bis REACH Pixel), wie Länder auf einer Karte. Keine
-      // Überlappung, keine Lücken zwischen nahen Köpfen; wo zwei Gruppen aneinandergrenzen, entsteht eine
-      // Grenzlinie. Grobes Raster (CELL px), nur nach Bewegung und höchstens jedes sechste Bild, weich hochskaliert.
+      // Gebiete (siehe paintTerritories): nur nach Bewegung neu, höchstens jedes zweite Bild; sonst die fertigen Ebenen
       const territory = territoryRef.current;
       if (territory) {
         frame++;
-        // Nur neu rechnen, wenn sich Köpfe bewegt haben (Prüfsumme der Positionen), dann höchstens jedes vierte Bild
         let sum = 0;
-        for (const n of ns) sum += Math.round(sx(n)) * 7 + Math.round(sy(n)) * 13 + Math.round(sr(n));
-        const stale = !terr || terr.width !== Math.ceil(W() / CELL) || terr.height !== Math.ceil(H() / CELL);
-        if (stale || (sum !== terrSum && frame % 6 === 0)) {
-          terr = paintTerritories(territory, color);
+        for (const n of ns) sum += Math.round(sx(n)) * 7 + Math.round(sy(n)) * 13;
+        const stale = !fillLayer || fillLayer.width !== canvas.width || fillLayer.height !== canvas.height;
+        if (stale || (sum !== terrSum && frame % 2 === 0)) {
+          paintTerritories(territory, color);
           terrSum = sum;
         }
-        if (terr) {
-          ctx.imageSmoothingEnabled = true;
-          ctx.drawImage(terr, 0, 0, terr.width * CELL, terr.height * CELL);
+        if (fillLayer && lineLayer) {
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.globalAlpha = 0.24;
+          ctx.drawImage(fillLayer, 0, 0);
+          ctx.globalAlpha = 1;
+          ctx.drawImage(lineLayer, 0, 0);
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
       }
       for (const e of es) {
