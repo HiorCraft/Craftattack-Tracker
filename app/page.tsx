@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { PageSkeleton } from "@/components/Skeletons";
 import { loadTracker } from "@/lib/data";
 import { getHistoryAll, getTwitchSubscriptionBoard } from "@/lib/store";
-import { BOARD_KEYS } from "@/lib/types";
+import { BOARD_KEYS, type BoardKey } from "@/lib/types";
 import { boardValue, num, duration, dateTime } from "@/lib/format";
 import { StatusLine } from "@/components/StatusLine";
 import { EventFeed } from "@/components/EventFeed";
@@ -16,6 +16,9 @@ import { getBoardRanksBefore, getHistoryRange } from "@/lib/analytics";
 import { EVENT_GROUPS } from "@/lib/events";
 import { getFeedFilter } from "@/lib/feedThresholds";
 import { getTopClips } from "@/lib/clips";
+import { getBoardRows, passedPlayers, type BoardRow } from "@/lib/boardRows";
+import { BoardMove } from "@/components/BoardMove";
+import { boardHref } from "@/lib/leaderboards";
 import { ClipGrid } from "@/components/ClipGrid";
 import { BOARD_STYLE } from "@/lib/boards";
 import { BoardValue } from "@/components/BoardValue";
@@ -39,11 +42,13 @@ export default function Home() {
 
 async function Dashboard() {
   const { state, events, now } = await loadTracker();
-  const [histAll, trend, ranksBefore, subscriptionBoard] = await Promise.all([
+  const [histAll, trend, ranksBefore, subscriptionBoard, boardRows] = await Promise.all([
     getHistoryAll(),
     getHistoryRange(72),
     getBoardRanksBefore(24),
     getTwitchSubscriptionBoard(),
+    // Dieselben Listen wie auf /bestenlisten (alle Spieler), hier die ersten zehn
+    Promise.all(BOARD_KEYS.map((k) => getBoardRows(k, state, now))).then((lists) => Object.fromEntries(BOARD_KEYS.map((k, i) => [k, lists[i]])) as Record<BoardKey, BoardRow[]>),
   ]);
   const s = state.latest;
   const liveList = s ? [...(s.live ?? [])].sort((a, b) => b.viewers - a.viewers) : [];
@@ -284,7 +289,7 @@ async function Dashboard() {
             {BOARD_KEYS.map((key) => {
               const b = BOARDS[key];
               const IconCmp = Icon[BOARD_ICON[key]];
-              const list = s?.boards?.[key] ?? [];
+              const list = boardRows[key] ?? [];
               return (
                 <section className="box st-board" data-tone={b.tone} key={key} aria-labelledby={`b-${key}`}>
                   <header className="st-board__head">
@@ -293,7 +298,9 @@ async function Dashboard() {
                     </span>
                     <div>
                       <h3 className="t-3" id={`b-${key}`}>
-                        {b.title}
+                        <Link className="st-board__titlelink" href={boardHref(key)} title={`Ganze Liste „${b.title}“ öffnen`}>
+                          {b.title} <span aria-hidden="true">↗</span>
+                        </Link>
                       </h3>
                       <p className="st-board__sub">{b.sub}</p>
                     </div>
@@ -314,22 +321,15 @@ async function Dashboard() {
                               <span className="st-board__val num" title={boardValue(key, e.value)}>
                                 <BoardValue k={key} v={e.value} />
                               </span>
-                              {diff === null ? (
-                                <span className="st-board__mv st-board__mv--new" title="Vor 24 Stunden noch nicht erfasst">
-                                  neu
-                                </span>
-                              ) : diff > 0 ? (
-                                <span className="st-board__mv st-board__mv--up num" title={`Vor 24 Stunden Platz ${before}`}>
-                                  ▲{diff}
-                                </span>
-                              ) : diff < 0 ? (
-                                <span className="st-board__mv st-board__mv--down num" title={`Vor 24 Stunden Platz ${before}`}>
-                                  ▼{-diff}
-                                </span>
-                              ) : (
-                                <span className="st-board__mv" aria-hidden="true" />
-                              )}
+                              {/* Platzhalter: der Pfeil liegt als eigener Link (Graph) darüber */}
+                              <span className="st-board__mv" aria-hidden="true" />
                             </Link>
+                            <BoardMove
+                              diff={diff}
+                              title={`Vor 24 Stunden Platz ${before}`}
+                              newTitle="Vor 24 Stunden noch nicht erfasst"
+                              href={graphHref(key, [e.id, ...passedPlayers(list, i, ranksBefore[key] ?? {})], "24h")}
+                            />
                           </li>
                         );
                       })
@@ -345,7 +345,9 @@ async function Dashboard() {
                 </span>
                 <div>
                   <h3 className="t-3" id="b-twitch-subs">
-                    Sub-Stars
+                    <Link className="st-board__titlelink" href={boardHref("twitchSubs")} title="Ganze Liste „Sub-Stars“ öffnen">
+                      Sub-Stars <span aria-hidden="true">↗</span>
+                    </Link>
                   </h3>
                   <p className="st-board__sub">Twitch-Abos, während die Spieler auf dem Server online waren</p>
                 </div>
@@ -375,7 +377,9 @@ async function Dashboard() {
                 </span>
                 <div>
                   <h3 className="t-3" id="b-tracked">
-                    Dauergäste
+                    <Link className="st-board__titlelink" href={boardHref("tracked")} title="Ganze Liste „Dauergäste“ öffnen">
+                      Dauergäste <span aria-hidden="true">↗</span>
+                    </Link>
                   </h3>
                   <p className="st-board__sub">Online-Zeit laut Tracker, alle Spieler</p>
                 </div>

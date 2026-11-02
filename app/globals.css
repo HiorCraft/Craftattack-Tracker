@@ -5208,3 +5208,35 @@ button.conn__person {
   color: inherit;
   font-weight: 600;
 }
+
+/* ▲/▼ als eigener Link über der Zeile (die Zeile führt zum Profil) */
+.st-board__list > li {
+  position: relative;
+}
+.st-board__mvlink {
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 2.4rem;
+  text-decoration: none;
+}
+a.st-board__mvlink:hover,
+a.st-board__mvlink:focus-visible {
+  text-decoration: underline;
+}
+.st-board__titlelink {
+  color: inherit;
+  text-decoration: none;
+}
+.st-board__titlelink:hover,
+.st-board__titlelink:focus-visible {
+  text-decoration: underline;
+}
+.st-board__titlelink span {
+  font-size: 0.8em;
+  opacity: 0.6;
+}
