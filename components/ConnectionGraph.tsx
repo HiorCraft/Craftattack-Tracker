@@ -60,6 +60,17 @@ function describe(e: GraphEdge, self: string) {
   return parts.join(" · ");
 }
 
+interface Layers {
+  areas: boolean;
+  links: boolean;
+  nodes: boolean;
+}
+const LAYERS: [keyof Layers, string][] = [
+  ["areas", "Gebiete"],
+  ["links", "Linien"],
+  ["nodes", "Köpfe"],
+];
+
 /** Rand um das Netz im Canvas (Platz für Namen über den Köpfen) */
 const PAD = 36;
 const MAX_SCALE = 1.6;
@@ -114,6 +125,12 @@ export function ConnectionGraph({
   }, [colorOf, hrefOf, territoryOf, roleOf]);
   const router = useRouter();
   const [tip, setTip] = useState<Tip | null>(null);
+  /** Ebenen ein-/ausblenden (nur mit Gebieten angeboten), z. B. um die Fläche darunter zu sehen */
+  const [layers, setLayers] = useState<Layers>({ areas: true, links: true, nodes: true });
+  const layersRef = useRef(layers);
+  useEffect(() => {
+    layersRef.current = layers;
+  }, [layers]);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -357,8 +374,9 @@ export function ConnectionGraph({
       // Überfahrener Kopf, sonst der im Auswahlfeld hervorgehobene Spieler
       const hl = hover ?? (focusRef.current ? (byId.get(focusRef.current) ?? null) : null);
       // Gebiete (siehe paintTerritories): nur nach Bewegung neu, höchstens jedes zweite Bild; sonst die fertigen Ebenen
+      const show = layersRef.current;
       const territory = territoryRef.current;
-      if (territory) {
+      if (territory && show.areas) {
         frame++;
         let sum = 0;
         for (const n of ns) sum += Math.round(sx(n)) * 7 + Math.round(sy(n)) * 13;
@@ -378,6 +396,8 @@ export function ConnectionGraph({
       }
       for (const e of es) {
         const active = hl && (e.A === hl || e.B === hl);
+        // Ausgeblendet: nur die Linien des überfahrenen Kopfs
+        if (!show.links && !active) continue;
         ctx.strokeStyle = e.now ? color("--grass") : kindColor[e.kind];
         ctx.globalAlpha = hl ? (active ? 0.95 : 0.05) : base;
         ctx.lineWidth = 1.2 + Math.sqrt(e.weight / maxW) * 7;
@@ -391,6 +411,10 @@ export function ConnectionGraph({
       ctx.textAlign = "center";
       const labels: Node[] = [];
       for (const n of ns) {
+        if (!show.nodes) {
+          if (n === hl) labels.push(n);
+          continue;
+        }
         const dim = hl && n !== hl && !neighbours.get(hl)?.has(n);
         const x = sx(n);
         const y = sy(n);
@@ -552,8 +576,18 @@ export function ConnectionGraph({
       <canvas
         ref={ref}
         className="conn__canvas"
-        aria-label="Netz der Spieler: Raids, geteilte Chats und Nachrichten im Chat des anderen"
+        aria-label="Netz der Spieler: Raids, geteilte Chats, Namen im Titel und Nachrichten im Chat des anderen"
       />
+      {territoryOf && (
+        <div className="conn__layers" role="group" aria-label="Ebenen anzeigen">
+          {LAYERS.map(([k, label]) => (
+            <button key={k} type="button" aria-pressed={layers[k]} onClick={() => setLayers((l) => ({ ...l, [k]: !l[k] }))}>
+              <span className="conn__layers-box" aria-hidden="true" />
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
       {tip && (
         <div className="conn__tip" style={{ left: tip.x, top: tip.y }} role="status">
           <b>
