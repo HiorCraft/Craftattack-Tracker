@@ -4,6 +4,9 @@ import { createSwrCache } from "./swrCache";
 import { vodsBetween } from "./twitch";
 import { computeFlows, type FlowResult } from "./viewerFlowCore";
 import { loadChatMoves } from "./chatMoves";
+import { getNetwork } from "./connections";
+import { adjacency } from "./network";
+import { DEFAULT_WEIGHTS } from "./connectionWeights";
 
 /**
  * Zuschauer: Basisdaten (Zuschauerverlauf je Streamer, Starts, Raids, Titel, geteilte Chats, Server-Termine), die
@@ -419,6 +422,17 @@ export interface Anomaly {
   /** gleichzeitige Änderung aller anderen Streams (Anteil, Median) */
   market: number;
   kind: "dip" | "hype";
+  /** mögliche Erklärungen (leer = ungeklärt, vermutlich der Stream selbst) */
+  reasons: { kind: ChartMarker["kind"] | "competition"; other?: string; viewers?: number; text?: string }[];
+}
+
+export interface Competition {
+  /** ms */
+  at: number;
+  /** andere CraftAttack-Streams live */
+  n: number;
+  /** deren Zuschauer zusammen */
+  viewers: number;
 }
 
 export interface VodSpan {
@@ -435,6 +449,11 @@ export interface PlayerDay {
   day: string;
   /** [ms, Zuschauer] */
   points: [number, number][];
+  /** Trend je Punkt (gleitender Median), null = nicht bestimmbar */
+  trend: (number | null)[];
+  /** übliche Abweichung vom Trend an diesem Tag (robust) */
+  noise: number;
+  competition: Competition[];
   markers: ChartMarker[];
   anomalies: Anomaly[];
   vods: VodSpan[];
@@ -444,11 +463,16 @@ export interface PlayerDay {
 
 /** Zugewanderte Zuschauer erscheinen im Verlauf ab so vielen */
 const CAUSE_MIN_ABS = 30;
-/** Ungeklärte Änderung: mindestens so viele Zuschauer bzw. dieser Anteil */
-const ANOMALY_MIN_SHARE = 0.05;
-/** Ungeklärt: 10-Minuten-Änderung mindestens so viele Standardabweichungen vom Üblichen dieses Streams */
-const ANOMALY_Z = 3;
 const ANOMALY_WIN = 10;
+/** Trend: gleitender Median über ± so viele Minuten */
+const TREND_HALF = 12;
+/** Hype/Absturz: Niveau 30–45 Min danach gegen 15 Min davor; bleibt es 60–80 Min danach? */
+const SHIFT_AFTER = [30, 45] as const;
+const SHIFT_LATER = [60, 80] as const;
+/** übliche Änderung je ~7,5 Min auf ~37,5 Min hochgerechnet */
+const SHIFT_SCALE = 5;
+const SHIFT_MIN_REL = 0.1;
+const SHIFT_Z = 2.5;
 
 /** Verlauf eines Spielers an einem Tag; ohne (gültigen) Tag der letzte Tag, an dem er live war */
 function medianIn(s: Series, a: number, b: number): number | null {
@@ -610,9 +634,8 @@ export async function getPlayerDay(id: string, wanted?: string): Promise<PlayerD
     else seen.add(k);
   }
 
-  // Ungeklärte Einbrüche/Hypes. Erwartet wird, was dieser Stream sonst bei diesem Streamalter (inkl. Aufwärmphase)
-  // und dieser Tageszeit tut, plus was gleichzeitig mit allen anderen Streams passiert (Abendandrang, Server-Event).
-  // Ungeklärt ist nur, was deutlich darüber hinausgeht und kein Ereignis in der Nähe hat.
+  // Erwartete Änderung: was dieser Stream sonst bei diesem Streamalter (inkl. Anlauf) und dieser Tageszeit tut, plus
+  // was gleichzeitig mit allen anderen Streams passiert (Abendandrang, Einschlafen, Server-Event)
   const myStarts = base.startsBy.get(id);
   const usualMap = new Map<string, number[]>();
   for (let i = 0; i < s.t.length; i += 2) {
@@ -625,7 +648,6 @@ export async function getPlayerDay(id: string, wanted?: string): Promise<PlayerD
       else usualMap.set(k, [rel]);
     }
   }
-  // Eigenes Muster, wenn genug eigene Daten; sonst das aller Streams (gleiches Streamalter, gleiche Tageszeit)
   const everyone = globalUsual(base);
   // Mediane einmal bilden (je Aufruf sortieren dauerte bei langen Streams über eine Minute)
   const usualMed = new Map([...usualMap].filter(([, l]) => l.length >= 20).map(([k, l]) => [k, median(l)]));
@@ -638,43 +660,98 @@ export async function getPlayerDay(id: string, wanted?: string): Promise<PlayerD
     }
     return 0;
   };
-  // Streuung der Abweichung vom Erwarteten über die ganze Staffel dieses Streams
-  const resids: number[] = [];
-  for (let i = 0; i < s.t.length; i += 6) {
-    const st = medianStep(s, s.t[i], myStarts);
-    if (!st || fineAge(st.age) < 0) continue;
-    resids.push((st.after - st.before) / st.before - usualAt(st.age, s.t[i]) - (marketAt(base, s.t[i]) ?? 0));
+
+  // Trend: gleitender Median über ±12 Min derselben Sitzung. Was nur kurz davon abweicht, ist ein Ausschlag.
+  const trend: (number | null)[] = points.map(([ms]) => {
+    const t = ms / 60_000;
+    const k = pointAt(s, t);
+    if (k < 0) return null;
+    const m = medianIn(s, Math.max(s.sess[k], t - TREND_HALF), Math.min(s.send[k], t + TREND_HALF));
+    return m === null ? null : Math.round(m);
+  });
+  const devs = points.map(([, v], i) => (trend[i] === null ? null : Math.abs(v - trend[i]!))).filter((x): x is number => x !== null);
+  const noise = devs.length ? median(devs) * 1.4826 : 0;
+
+  // Konkurrenz je 5 Min: andere CraftAttack-Streams live und ihre Zuschauer zusammen
+  const competition: Competition[] = [];
+  for (let t = t0; t < t1; t += 5) {
+    let n = 0;
+    let viewers = 0;
+    for (const [p, sp] of base.series) {
+      if (p === id) continue;
+      const k = pointAt(sp, t);
+      if (k < 0 || t - sp.t[k] > 6) continue;
+      n++;
+      viewers += sp.v[k];
+    }
+    competition.push({ at: t * 60_000, n, viewers: Math.round(viewers) });
   }
-  const mu = resids.length ? median(resids) : 0;
-  const sd = resids.length ? Math.sqrt(mean(resids.map((x) => (x - mu) ** 2))) || 1 : 1;
-  const near = (x: number) => markers.some((m) => m.at >= (x - 10) * 60_000 && m.at <= (x + ANOMALY_WIN + 5) * 60_000);
+  const compAt = (t: number) => competition[Math.max(0, Math.min(competition.length - 1, Math.round((t - t0) / 5)))]?.n ?? 0;
+
+  // Hype / Absturz: anhaltende Änderung des Niveaus (Median der 15 Min davor gegen 30–45 Min danach), deutlich über
+  // dem Erwarteten, und eine Stunde später nicht wieder weg (sonst war es nur ein Ausschlag)
+  const shiftAt = (t: number) => {
+    const k = pointAt(s, t);
+    if (k < 0 || s.send[k] < t + SHIFT_AFTER[1]) return null;
+    const before = medianIn(s, Math.max(s.sess[k], t - 15), t);
+    const after = medianIn(s, t + SHIFT_AFTER[0], t + SHIFT_AFTER[1]);
+    if (before === null || after === null || before < MIN_VIEWERS) return null;
+    const age = streamAge(s, k, t, myStarts);
+    if (fineAge(age) < 0) return null;
+    const expectedRel = (usualAt(age, t) + (marketAt(base, t) ?? 0)) * SHIFT_SCALE;
+    const later = s.send[k] >= t + SHIFT_LATER[1] ? medianIn(s, t + SHIFT_LATER[0], t + SHIFT_LATER[1]) : null;
+    return { before, after, later, age, expectedRel, excess: (after - before) / before - expectedRel };
+  };
+  // Übliche Streuung dieser Abweichung über die Staffel (jede halbe Stunde eine Probe)
+  const ex: number[] = [];
+  for (let i = 0; i < s.t.length; i += 30) {
+    const sh = shiftAt(s.t[i]);
+    if (sh) ex.push(sh.excess);
+  }
+  const exMid = ex.length ? median(ex) : 0;
+  const exSd = ex.length ? median(ex.map((x) => Math.abs(x - exMid))) * 1.4826 || 0.05 : 0.05;
   const anomalies: Anomaly[] = [];
-  for (let i = lowerBound(s.t, t0); i < s.t.length && s.t[i] < t1; i++) {
-    const t = s.t[i];
-    const st = medianStep(s, t, myStarts);
-    if (!st || fineAge(st.age) < 0) continue;
-    const rel = (st.after - st.before) / st.before;
-    const market = marketAt(base, t) ?? 0;
-    const expectedRel = usualAt(st.age, t) + market;
-    const resid = rel - expectedRel;
-    const residAbs = resid * st.before;
-    if (Math.abs(resid - mu) < ANOMALY_Z * sd || Math.abs(residAbs) < Math.max(CAUSE_MIN_ABS, ANOMALY_MIN_SHARE * st.before)) continue;
-    if (!covered(base, t, st.end) || near(t)) continue;
-    const kind = resid > mu ? "hype" : "dip";
-    // Anstieg in der ersten Stunde nach dem Start ist das Hereinströmen – wie steil, hängt vor allem an der Größe
-    // des Streamers, nicht an etwas Besonderem im Stream
-    if (kind === "hype" && st.age < 60) continue;
-    const change = st.after - st.before;
-    const expected = expectedRel * st.before;
+  for (let t = Math.ceil(t0 / 5) * 5; t < t1; t += 5) {
+    const sh = shiftAt(t);
+    if (!sh) continue;
+    const ch = sh.after - sh.before;
+    const exAbs = sh.excess * sh.before;
+    if (Math.abs(sh.excess - exMid) < Math.max(SHIFT_MIN_REL, SHIFT_Z * exSd) || Math.abs(exAbs) < CAUSE_MIN_ABS) continue;
+    const kind = sh.excess > exMid ? "hype" : "dip";
+    // In der Anlaufphase schwankt das Wachstum stark von Start zu Start: dort weder Hype noch Absturz
+    if (sh.age < 45) continue;
+    // Bleibt es? Eine Stunde später muss noch mindestens die Hälfte der Änderung da sein
+    if (sh.later !== null) {
+      const kept = (sh.later - sh.before) / sh.before - sh.expectedRel * (SHIFT_LATER[1] / SHIFT_AFTER[1]);
+      if (Math.sign(kept) !== Math.sign(sh.excess) || Math.abs(kept) < Math.abs(sh.excess) / 2) continue;
+    }
+    const from = t * 60_000;
+    const to = (t + SHIFT_AFTER[1]) * 60_000;
     const last = anomalies[anomalies.length - 1];
-    if (last && last.kind === kind && t * 60_000 <= last.to) {
-      last.to = Math.max(last.to, st.end * 60_000);
-      if (kind === "dip" ? change < last.change : change > last.change) {
-        last.change = Math.round(change);
-        last.expected = Math.round(expected);
-        last.market = market;
+    if (last && last.kind === kind && from <= last.to) {
+      last.to = Math.max(last.to, to);
+      if (Math.abs(ch) > Math.abs(last.change)) {
+        last.change = Math.round(ch);
+        last.expected = Math.round(sh.expectedRel * sh.before);
       }
-    } else anomalies.push({ from: t * 60_000, to: st.end * 60_000, change: Math.round(change), expected: Math.round(expected), market, kind });
+      continue;
+    }
+    anomalies.push({ from, to, change: Math.round(ch), expected: Math.round(sh.expectedRel * sh.before), market: marketAt(base, t) ?? 0, kind, reasons: [] });
+  }
+  // Erklärungen: Ereignisse im Zeitraum, Konkurrenz, die dazukam oder wegfiel
+  for (const an of anomalies) {
+    const a0 = an.from - 10 * 60_000;
+    const a1 = an.to;
+    for (const m of markers) {
+      if (m.at < a0 || m.at > a1 || m.kind === "own_start") continue;
+      const fits =
+        an.kind === "hype"
+          ? ["raid_in", "flow_in", "title", "shared_start", "server_event"].includes(m.kind)
+          : ["raid_out", "start_loss", "own_drop", "title", "shared_end", "own_end", "server_event"].includes(m.kind);
+      if (fits) an.reasons.push({ kind: m.kind, other: m.other, viewers: m.viewers, text: m.text });
+    }
+    const dn = compAt(an.to / 60_000) - compAt(an.from / 60_000);
+    if ((an.kind === "dip" && dn >= 2) || (an.kind === "hype" && dn <= -2)) an.reasons.push({ kind: "competition", viewers: dn });
   }
 
   // Alle VODs des Tages mit echtem Beginn und Ende (Twitch-API): Ein Klick nimmt das VOD, das seinen Zeitpunkt abdeckt
@@ -683,7 +760,7 @@ export async function getPlayerDay(id: string, wanted?: string): Promise<PlayerD
     ? (await Promise.race([vodsBetween(login, a, b).catch(() => []), new Promise<[]>((r) => setTimeout(() => r([]), 4000))])).map((v) => ({ from: v.start, to: v.end, vodId: v.id, vodStart: v.start }))
     : [];
   const shown = markers.filter((m) => m.at >= a && m.at < b);
-  return { id, day, points, markers: shown, anomalies, vods, days };
+  return { id, day, points, trend, noise: Math.round(noise), competition, markers: shown, anomalies, vods, days };
 }
 
 /* ------------------------------------------------------------------ Zwischenspeicher */
@@ -705,8 +782,28 @@ function berlinHourOf(min: number) {
 }
 
 async function computeAll(): Promise<FlowAnalysis> {
-  const [base, chatMoves] = await Promise.all([getBase(), loadChatMoves()]);
-  const flows = computeFlows({ series: base.series, cover: base.cover, startsBy: base.startsBy, raids: base.raids, hourOf: berlinHourOf, chatMoves });
+  const [base, chatMoves, net] = await Promise.all([getBase(), loadChatMoves(), getNetwork(null).catch(() => null)]);
+  // Nähe im Netz (beide Richtungen zusammen), je Streamer auf Summe 1
+  const affinity = new Map<string, Map<string, number>>();
+  if (net) {
+    const out = adjacency(net.edges, DEFAULT_WEIGHTS);
+    for (const [a, m] of out) {
+      for (const [b, w] of m) {
+        for (const [x, y] of [
+          [a, b],
+          [b, a],
+        ]) {
+          const row = affinity.get(x) ?? affinity.set(x, new Map()).get(x)!;
+          row.set(y, (row.get(y) ?? 0) + w);
+        }
+      }
+    }
+    for (const row of affinity.values()) {
+      const sum = [...row.values()].reduce((p, q) => p + q, 0);
+      if (sum > 0) for (const [k, v] of row) row.set(k, v / sum);
+    }
+  }
+  const flows = computeFlows({ series: base.series, cover: base.cover, startsBy: base.startsBy, raids: base.raids, hourOf: berlinHourOf, chatMoves, affinity });
   return {
     ...flows,
     raidRetention: computeRaidRetention(base),
@@ -724,4 +821,177 @@ export interface FlowAnalysis extends FlowResult {
 /** Wanderung über die ganze Staffel, eine halbe Stunde zwischengespeichert (Rechnung ~6 s) */
 export function getFlows(): Promise<FlowAnalysis> {
   return swr("viewer-flows", ANALYSIS_CACHE_MS, computeAll);
+}
+
+/* ------------------------------------------------------------------ Staffel je Streamer */
+
+/** Zuschauer aller CraftAttack-Streams zusammen je 5-Minuten-Abschnitt (Abschnitt = Minute / 5), einmal je Basisdaten */
+const totalCache = new WeakMap<Base, Map<number, number>>();
+function totals(base: Base): Map<number, number> {
+  let m = totalCache.get(base);
+  if (m) return m;
+  m = new Map();
+  for (const sp of base.series) {
+    const s = sp[1];
+    const sum = new Map<number, { v: number; n: number }>();
+    for (let i = 0; i < s.t.length; i++) {
+      const k = Math.floor(s.t[i] / 5);
+      const c = sum.get(k) ?? { v: 0, n: 0 };
+      c.v += s.v[i];
+      c.n++;
+      sum.set(k, c);
+    }
+    for (const [k, c] of sum) m.set(k, (m.get(k) ?? 0) + c.v / c.n);
+  }
+  totalCache.set(base, m);
+  return m;
+}
+
+export interface SeasonDay {
+  day: string;
+  /** Ø Zuschauer, solange live (ohne die erste halbe Stunde) */
+  avg: number;
+  hours: number;
+  /** Ø Zuschauer aller CraftAttack-Streams zusammen am Abend (18–23 Uhr) */
+  market: number;
+  /** Anteil am gesamten CraftAttack-Publikum, solange er live war */
+  share: number;
+  /** Ø andere CraftAttack-Streams live, solange er live war */
+  others: number;
+  /** Raid-Zuschauer, die an diesem Tag kamen */
+  raidsIn: number;
+  /** Ausreißer gegenüber den Tagen davor und danach (gemessen am Anteil, also unabhängig vom allgemeinen Rückgang) */
+  outlier: "hype" | "dip" | null;
+  reasons: string[];
+}
+
+export interface StreamerSeason {
+  days: SeasonDay[];
+  /** Wie stark das ganze CraftAttack seit den ersten drei Tagen geschrumpft ist (Anteil, z. B. −0,4) */
+  marketChange: number | null;
+  /** und dieser Streamer im selben Zeitraum */
+  ownChange: number | null;
+  /** Mehr Zuschauer bei halb so viel Konkurrenz (Anteil), aus dem Vergleich der Tage; null = zu wenige Tage */
+  lessCompetition: number | null;
+}
+
+const hourFmtSeason = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hourCycle: "h23", timeZone: "Europe/Berlin" });
+
+export async function getStreamerSeason(id: string): Promise<StreamerSeason | null> {
+  const base = await getBase();
+  const s = base.series.get(id);
+  if (!s || !s.t.length) return null;
+  const tot = totals(base);
+  // Markt je Tag: Ø Zuschauer aller Streams 18–23 Uhr
+  const marketDay = new Map<string, { sum: number; n: number }>();
+  for (const [k, v] of tot) {
+    const ms = k * 5 * 60_000;
+    const h = Number(hourFmtSeason.formatToParts(ms).find((p) => p.type === "hour")?.value ?? 0);
+    if (h < 18 || h > 22) continue;
+    const d = dayOf(ms);
+    const c = marketDay.get(d) ?? { sum: 0, n: 0 };
+    c.sum += v;
+    c.n++;
+    marketDay.set(d, c);
+  }
+  const raidsIn = new Map<string, number>();
+  for (const r of base.raids) if (r.to === id) raidsIn.set(dayOf(r.t * 60_000), (raidsIn.get(dayOf(r.t * 60_000)) ?? 0) + r.viewers);
+  const serverDays = new Set(base.markers.filter((m) => m.type === "server_event").map((m) => dayOf(m.t * 60_000)));
+  const per = new Map<string, { v: number; n: number; share: number; others: number; first: number; last: number }>();
+  for (let i = 0; i < s.t.length; i++) {
+    if (s.t[i] - s.sess[i] < 30) continue;
+    const d = dayOf(s.t[i] * 60_000);
+    const k = Math.floor(s.t[i] / 5);
+    const total = tot.get(k) ?? 0;
+    const c = per.get(d) ?? { v: 0, n: 0, share: 0, others: 0, first: s.t[i], last: s.t[i] };
+    c.v += s.v[i];
+    c.n++;
+    c.share += total > 0 ? s.v[i] / total : 0;
+    c.last = s.t[i];
+    per.set(d, c);
+  }
+  // Andere live: je Tag einmal je 5 Min aus der Gesamtzahl der Streams mit Punkt im Abschnitt
+  const liveCount = new Map<number, number>();
+  for (const sp of base.series.values()) {
+    let lastK = -1;
+    for (let i = 0; i < sp.t.length; i++) {
+      const k = Math.floor(sp.t[i] / 5);
+      if (k !== lastK) liveCount.set(k, (liveCount.get(k) ?? 0) + 1);
+      lastK = k;
+    }
+  }
+  for (const [d, c] of per) {
+    let sum = 0;
+    let n = 0;
+    for (let k = Math.floor(c.first / 5); k <= Math.floor(c.last / 5); k++) {
+      const x = liveCount.get(k);
+      if (x !== undefined) {
+        sum += x - 1;
+        n++;
+      }
+    }
+    c.others = n ? sum / n : 0;
+    per.set(d, c);
+  }
+  const days: SeasonDay[] = [...per]
+    .filter(([, c]) => c.n >= 20)
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([day, c]) => {
+      const m = marketDay.get(day);
+      return {
+        day,
+        avg: Math.round(c.v / c.n),
+        hours: Math.round(((c.last - c.first) / 60) * 10) / 10,
+        market: m ? Math.round(m.sum / m.n) : 0,
+        share: c.share / c.n,
+        others: Math.round(c.others * 10) / 10,
+        raidsIn: raidsIn.get(day) ?? 0,
+        outlier: null,
+        reasons: [],
+      };
+    });
+  // Ausreißer: Anteil am Publikum gegen den Median der Nachbartage (±4 Tage), robust gestreut
+  const logs = days.map((d) => Math.log(Math.max(1e-6, d.share)));
+  const res = logs.map((x, i) => {
+    const nb = logs.filter((_, j) => j !== i && Math.abs(j - i) <= 4);
+    return nb.length >= 3 ? x - median(nb) : 0;
+  });
+  const sd = median(res.map((x) => Math.abs(x))) * 1.4826 || 0.15;
+  const medOthers = median(days.map((d) => d.others));
+  const medAvg = median(days.map((d) => d.avg));
+  days.forEach((d, i) => {
+    const z = res[i] / sd;
+    if (Math.abs(z) < 2 || Math.abs(res[i]) < 0.15) return;
+    d.outlier = z > 0 ? "hype" : "dip";
+    if (d.raidsIn > 0.3 * medAvg) d.reasons.push(`Raids brachten ${d.raidsIn.toLocaleString("de-DE")} Zuschauer`);
+    if (d.others < medOthers * 0.7) d.reasons.push(`wenig Konkurrenz (Ø ${d.others.toLocaleString("de-DE")} andere live, sonst ${medOthers.toLocaleString("de-DE")})`);
+    if (d.others > medOthers * 1.3) d.reasons.push(`viel Konkurrenz (Ø ${d.others.toLocaleString("de-DE")} andere live, sonst ${medOthers.toLocaleString("de-DE")})`);
+    if (d.hours < 1.5) d.reasons.push("kurzer Stream");
+    if (serverDays.has(d.day)) d.reasons.push("Server-Event an diesem Tag");
+  });
+  const first = days.slice(0, 3);
+  const lastDays = days.slice(-3);
+  const mean3 = (l: SeasonDay[], f: (d: SeasonDay) => number) => (l.length ? l.reduce((a, d) => a + f(d), 0) / l.length : 0);
+  const mk0 = mean3(first.filter((d) => d.market > 0), (d) => d.market);
+  const mk1 = mean3(lastDays.filter((d) => d.market > 0), (d) => d.market);
+  const own0 = mean3(first, (d) => d.avg);
+  const own1 = mean3(lastDays, (d) => d.avg);
+  // Konkurrenz: log(Zuschauer / Markt) gegen log(andere live) über die Tage
+  const pts = days.filter((d) => d.market > 0 && d.others > 0).map((d) => [Math.log(d.others), Math.log(d.avg / d.market)] as const);
+  let lessCompetition: number | null = null;
+  if (pts.length >= 8) {
+    const mx = mean(pts.map((p) => p[0]));
+    const my = mean(pts.map((p) => p[1]));
+    const sxx = pts.reduce((a, p) => a + (p[0] - mx) ** 2, 0);
+    if (sxx > 0.05) {
+      const slope = pts.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0) / sxx;
+      lessCompetition = Math.max(-0.9, Math.min(3, 0.5 ** slope - 1));
+    }
+  }
+  return {
+    days,
+    marketChange: days.length >= 6 && mk0 > 0 ? mk1 / mk0 - 1 : null,
+    ownChange: days.length >= 6 && own0 > 0 ? own1 / own0 - 1 : null,
+    lessCompetition,
+  };
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { headUrl } from "@/lib/format";
 
 /**
  * Interaktive Diagramme der Zuschauer-Seite: Tagesverteilung als gestapelte Fläche und der
@@ -26,6 +27,7 @@ function niceTicks(max: number, count = 4): number[] {
   return out;
 }
 
+const dayShortFmt = new Intl.DateTimeFormat("de-DE", { day: "numeric", month: "short", timeZone: "UTC" });
 const short = (v: number) => (v >= 10_000 ? `${nf.format(Math.round(v / 1000))} Tsd.` : nf.format(Math.round(v)));
 
 /** Zeigerposition im SVG-Koordinatensystem (viewBox) */
@@ -146,7 +148,7 @@ export function DayStackChart({ times, covered, series }: { times: number[]; cov
   );
 }
 
-/* ------------------------------------------------------------------ Spielerverlauf */
+/* ------------------------------------------------------------------ Streamer an einem Tag */
 
 export interface ViewMarker {
   at: number;
@@ -154,6 +156,10 @@ export interface ViewMarker {
   tone: "loss" | "gain" | "own";
   /** kurzer Text für Tooltip und Tabelle */
   label: string;
+  /** Symbol am Kopf der Linie */
+  icon: string;
+  /** beteiligter anderer Streamer: Kopf an der Linie, Klick führt zu seinem Tag */
+  other?: { id: string; name: string; uuid?: string; href: string };
 }
 
 export interface ViewBand {
@@ -161,6 +167,7 @@ export interface ViewBand {
   to: number;
   kind: "dip" | "hype";
   label: string;
+  reasons: string[];
 }
 
 export interface ViewVod {
@@ -168,6 +175,12 @@ export interface ViewVod {
   to: number;
   vodId: string;
   vodStart: number;
+}
+
+export interface ViewCompetition {
+  at: number;
+  n: number;
+  viewers: number;
 }
 
 /** Ab hier im VOD einsteigen: etwas vor dem geklickten Zeitpunkt */
@@ -192,112 +205,162 @@ function vodUrl(v: ViewVod, at: number) {
   return `https://www.twitch.tv/videos/${encodeURIComponent(v.vodId)}?t=${Math.floor(o / 3600)}h${Math.floor((o % 3600) / 60)}m${o % 60}s`;
 }
 
-export function PlayerViewerChart({
+const LAYERS = [
+  { key: "trend", label: "Trend", hint: "Gleitender Median über 25 Min: das eigentliche Niveau ohne kurze Ausschläge" },
+  { key: "bumps", label: "Ausschläge", hint: "Kurz über (grün) oder unter (rot) dem Trend, kommt gleich wieder zurück" },
+  { key: "shifts", label: "Hypes & Abstürze", hint: "Anhaltende Änderung des Niveaus, deutlich mehr als sonst um diese Zeit und bei diesem Streamalter" },
+  { key: "events", label: "Ereignisse", hint: "Raids, Starts und Enden anderer, Titel, geteilter Chat; Klick auf einen Kopf öffnet dessen Tag" },
+  { key: "comp", label: "Konkurrenz", hint: "Wie viele andere CraftAttack-Streams gerade live sind (dunkler = mehr)" },
+] as const;
+type Layer = (typeof LAYERS)[number]["key"];
+
+export function StreamerDayChart({
   points,
+  trend,
+  noise,
   markers,
   bands,
+  competition,
   vods,
   from,
   to,
 }: {
   points: [number, number][];
+  trend: (number | null)[];
+  noise: number;
   markers: ViewMarker[];
   bands: ViewBand[];
+  competition: ViewCompetition[];
   vods: ViewVod[];
   from: number;
   to: number;
 }) {
   const ref = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<number | null>(null);
+  const [on, setOn] = useState<Record<Layer, boolean>>({ trend: true, bumps: true, shifts: true, events: true, comp: false });
   const W = 900;
-  const H = 300;
+  const H = 340;
   const L = 56;
   const R = 12;
-  const T = 22;
-  const B = 28;
+  const T = on.events ? 44 : 14;
+  const STRIP = on.comp ? 16 : 0;
+  const B = 28 + STRIP;
   const ticks = niceTicks(Math.max(10, ...points.map((p) => p[1])));
   const yMax = ticks[ticks.length - 1];
   const x = (t: number) => L + ((t - from) / (to - from)) * (W - L - R);
   const y = (v: number) => T + (1 - v / yMax) * (H - T - B);
-  // Linie mit Lücken, wo keine Daten sind (Stream aus oder Tracker-Ausfall)
-  const segs: string[] = [];
-  let cur: string[] = [];
-  points.forEach(([t, v], i) => {
-    if (i > 0 && t - points[i - 1][0] > 15 * 60_000) {
-      if (cur.length) segs.push(cur.join(" "));
-      cur = [];
-    }
-    cur.push(`${x(t).toFixed(1)},${y(v).toFixed(1)}`);
-  });
-  if (cur.length) segs.push(cur.join(" "));
+  const gap = (i: number) => i > 0 && points[i][0] - points[i - 1][0] > 15 * 60_000;
+  // Linien mit Lücken (Stream aus oder Tracker-Ausfall)
+  const lineOf = (vals: (number | null)[]) => {
+    const segs: string[] = [];
+    let cur: string[] = [];
+    vals.forEach((v, i) => {
+      if (v === null || gap(i)) {
+        if (cur.length > 1) segs.push(cur.join(" "));
+        cur = [];
+      }
+      if (v !== null) cur.push(`${x(points[i][0]).toFixed(1)},${y(v).toFixed(1)}`);
+    });
+    if (cur.length > 1) segs.push(cur.join(" "));
+    return segs;
+  };
+  const actual = lineOf(points.map((p) => p[1]));
+  const trendSegs = lineOf(trend);
+  // Ausschläge: Flächen zwischen Verlauf und Trend, wo die Abweichung über dem Rauschen liegt
+  const bumps: { d: string; up: boolean }[] = [];
+  if (on.bumps) {
+    let run: number[] = [];
+    let up = false;
+    const flush = () => {
+      if (run.length >= 2) {
+        const top = run.map((i) => `${x(points[i][0]).toFixed(1)},${y(points[i][1]).toFixed(1)}`);
+        const bottom = [...run].reverse().map((i) => `${x(points[i][0]).toFixed(1)},${y(trend[i]!).toFixed(1)}`);
+        bumps.push({ d: `M${top.join("L")}L${bottom.join("L")}Z`, up });
+      }
+      run = [];
+    };
+    points.forEach(([, v], i) => {
+      const tr = trend[i];
+      if (tr === null || gap(i)) {
+        flush();
+        return;
+      }
+      const thr = Math.max(3 * noise, 0.04 * tr, 15);
+      const dev = v - tr;
+      if (Math.abs(dev) > thr) {
+        if (run.length && dev > 0 !== up) flush();
+        up = dev > 0;
+        run.push(i);
+      } else flush();
+    });
+    flush();
+  }
+  const maxN = Math.max(1, ...competition.map((c) => c.n));
 
   const timeAt = (clientX: number) => {
     if (!ref.current) return null;
     const px = svgX(ref.current, clientX, W);
     return from + ((px - L) / (W - L - R)) * (to - from);
   };
-  const nearest = (t: number) => {
-    let best: [number, number] | null = null;
-    for (const p of points) if (!best || Math.abs(p[0] - t) < Math.abs(best[0] - t)) best = p;
-    return best && Math.abs(best[0] - t) <= 10 * 60_000 ? best : null;
+  const nearestIdx = (t: number) => {
+    let best = -1;
+    for (let i = 0; i < points.length; i++) if (best < 0 || Math.abs(points[i][0] - t) < Math.abs(points[best][0] - t)) best = i;
+    return best >= 0 && Math.abs(points[best][0] - t) <= 10 * 60_000 ? best : -1;
   };
-  // VOD, das den Zeitpunkt abdeckt; überlappen mehrere (Mini-VODs an 48-h-Grenzen), das längste
-  const vodFor = (t: number) =>
-    vods.filter((v) => t >= v.from && t <= v.to).sort((x, y) => y.to - y.from - (x.to - x.from))[0] ?? null;
+  const vodFor = (t: number) => vods.filter((v) => t >= v.from && t <= v.to).sort((p, q) => q.to - q.from - (p.to - p.from))[0] ?? null;
   const ht = hover;
-  const hp = ht !== null ? nearest(ht) : null;
-  const hm = ht !== null ? markers.filter((m) => Math.abs(m.at - ht) <= 6 * 60_000) : [];
-  const hb = ht !== null ? bands.find((b) => ht >= b.from && ht <= b.to) : undefined;
+  const hi = ht !== null ? nearestIdx(ht) : -1;
+  const hm = ht !== null && on.events ? markers.filter((m) => Math.abs(m.at - ht) <= 6 * 60_000) : [];
+  const hb = ht !== null && on.shifts ? bands.find((b) => ht >= b.from && ht <= b.to) : undefined;
+  const hc = ht !== null && on.comp ? competition.find((c) => ht >= c.at && ht < c.at + 5 * 60_000) : undefined;
   const hv = ht !== null ? vodFor(ht) : null;
-  // Volle Stunden (Berlin hat ganze Stunden Versatz zu UTC); Schritt nach Spannweite
   const spanH = (to - from) / 3_600_000;
   const stepH = spanH <= 8 ? 1 : spanH <= 16 ? 2 : 3;
   const hourTicks: number[] = [];
-  for (let t = Math.ceil(from / 3_600_000) * 3_600_000; t <= to; t += 3_600_000) {
-    if (hourOf(t) % stepH === 0) hourTicks.push(t);
-  }
+  for (let t = Math.ceil(from / 3_600_000) * 3_600_000; t <= to; t += 3_600_000) if (hourOf(t) % stepH === 0) hourTicks.push(t);
+  // Köpfe nah beieinander übereinander staffeln
+  const lane: number[] = [];
+  markers.forEach((m, i) => {
+    let l = 0;
+    for (let j = 0; j < i; j++) if (Math.abs(x(markers[j].at) - x(m.at)) < 18 && lane[j] === l) l++;
+    lane.push(Math.min(l, 1));
+  });
 
   return (
     <div className="mig__chart">
-      <ul className="mig__keys" aria-label="Legende">
-        <li>
-          <i className="mig__c1" aria-hidden="true" /> Zuschauer
-        </li>
-        <li>
-          <i className="mig__mk-loss" aria-hidden="true" /> kostete Zuschauer
-        </li>
-        <li>
-          <i className="mig__mk-gain" aria-hidden="true" /> brachte Zuschauer
-        </li>
-        <li>
-          <i className="mig__mk-own" aria-hidden="true" /> eigenes Ereignis
-        </li>
-        <li>
-          <i className="mig__bd-dip" aria-hidden="true" /> ungeklärter Einbruch
-        </li>
-        <li>
-          <i className="mig__bd-hype" aria-hidden="true" /> ungeklärter Anstieg
-        </li>
-      </ul>
+      <div className="gb__seg vf__layers" role="group" aria-label="Anzeigen">
+        {LAYERS.map((l) => (
+          <button key={l.key} type="button" aria-pressed={on[l.key]} title={l.hint} onClick={() => setOn((o) => ({ ...o, [l.key]: !o[l.key] }))}>
+            {l.label}
+          </button>
+        ))}
+      </div>
       <div className="mig__plot">
         <svg
           ref={ref}
           viewBox={`0 0 ${W} ${H}`}
           width="100%"
           role="img"
-          aria-label="Zuschauerverlauf mit Ereignissen; Klick öffnet das VOD an dieser Stelle"
+          aria-label="Zuschauerverlauf mit Trend, Ausschlägen und Ereignissen; Klick öffnet das VOD an dieser Stelle"
           className={hv ? "mig__clickable" : undefined}
           onPointerMove={(e) => setHover(timeAt(e.clientX))}
           onPointerLeave={() => setHover(null)}
           onClick={(e) => {
+            if ((e.target as Element).closest("a")) return;
             const t = timeAt(e.clientX);
             const v = t !== null ? vodFor(t) : null;
             if (t !== null && v) openTab(vodUrl(v, t));
           }}
         >
-          {bands.map((b) => (
-            <rect key={`${b.from}-${b.kind}`} x={x(b.from)} y={T} width={Math.max(3, x(b.to) - x(b.from))} height={H - T - B} className={b.kind === "dip" ? "mig__bd-dip" : "mig__bd-hype"} />
-          ))}
+          {on.shifts &&
+            bands.map((b) => (
+              <g key={`${b.from}-${b.kind}`}>
+                <rect x={x(b.from)} y={T} width={Math.max(3, x(b.to) - x(b.from))} height={H - T - B} className={b.kind === "dip" ? "mig__bd-dip" : "mig__bd-hype"} />
+                <text x={x(b.from) + 4} y={T + 14} className={`vf__bandlabel vf__bandlabel--${b.kind}`}>
+                  {b.kind === "dip" ? "▼ Absturz" : "▲ Hype"}
+                </text>
+              </g>
+            ))}
           {ticks.map((v) => (
             <g key={v}>
               <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} className="mig__grid" />
@@ -311,31 +374,164 @@ export function PlayerViewerChart({
               {hourOf(t)} Uhr
             </text>
           ))}
-          {markers.map((m, i) => (
-            <g key={`${m.at}-${i}`} className={`mig__mk mig__mk-${m.tone}`}>
-              <line x1={x(m.at)} x2={x(m.at)} y1={T - 6} y2={H - B} />
-              <circle cx={x(m.at)} cy={T - 10} r={4} />
-            </g>
+          {on.comp &&
+            competition.map((c) => (
+              <rect key={c.at} x={x(c.at)} y={H - B + 6} width={Math.max(1, x(c.at + 5 * 60_000) - x(c.at))} height={STRIP - 6} className="vf__comp" opacity={0.1 + (0.9 * c.n) / maxN} />
+            ))}
+          {bumps.map((b, i) => (
+            <path key={i} d={b.d} className={b.up ? "vf__bump-up" : "vf__bump-down"} />
           ))}
-          {segs.map((d, i) => (
-            <polyline key={i} points={d} className="mig__line mig__l1" />
+          {actual.map((d, i) => (
+            <polyline key={i} points={d} className={`mig__line mig__l1${on.trend ? " vf__raw" : ""}`} />
           ))}
+          {on.trend && trendSegs.map((d, i) => <polyline key={i} points={d} className="vf__trend" />)}
+          {on.events &&
+            markers.map((m, i) => {
+              const cx = x(m.at);
+              const top = 4 + lane[i] * 20;
+              return (
+                <g key={`${m.at}-${i}`} className={`mig__mk mig__mk-${m.tone}`}>
+                  <line x1={cx} x2={cx} y1={top + 18} y2={H - B} />
+                  {m.other ? (
+                    <a href={m.other.href} aria-label={`${m.label}: ${m.other.name} an diesem Tag ansehen`}>
+                      <title>{`${m.label} · Klick: ${m.other.name} an diesem Tag`}</title>
+                      <rect x={cx - 9} y={top - 1} width={18} height={18} className="vf__headbox" />
+                      <image href={headUrl(m.other.uuid, 32, m.other.id)} x={cx - 8} y={top} width={16} height={16} style={{ imageRendering: "pixelated" }} />
+                      <text x={cx + 11} y={top + 12} className="vf__icon">
+                        {m.icon}
+                      </text>
+                    </a>
+                  ) : (
+                    <g>
+                      <title>{m.label}</title>
+                      <circle cx={cx} cy={top + 8} r={8} className="vf__iconbg" />
+                      <text x={cx} y={top + 12} textAnchor="middle" className="vf__icon">
+                        {m.icon}
+                      </text>
+                    </g>
+                  )}
+                </g>
+              );
+            })}
           {ht !== null && ht >= from && ht <= to && <line x1={x(ht)} x2={x(ht)} y1={T} y2={H - B} className="mig__cross" />}
-          {hp && <circle cx={x(hp[0])} cy={y(hp[1])} r={4.5} className="mig__dot mig__l1" />}
+          {hi >= 0 && <circle cx={x(points[hi][0])} cy={y(points[hi][1])} r={4.5} className="mig__dot mig__l1" />}
         </svg>
         {ht !== null && ht >= from && ht <= to && (
           <div className="mig__tip" style={{ left: `${(x(ht) / W) * 100}%` }} role="status">
             <b>
               {timeFmt.format(ht)}
-              {hp ? ` · ${nf.format(hp[1])} Zuschauer` : " · offline"}
+              {hi >= 0 ? ` · ${nf.format(points[hi][1])} Zuschauer` : " · offline"}
             </b>
+            {hi >= 0 && on.trend && trend[hi] !== null && <span className="muted">Trend {nf.format(trend[hi]!)}</span>}
             {hm.map((m, i) => (
               <span key={i}>
-                <i className={`mig__mk-${m.tone}`} aria-hidden="true" /> {timeFmt.format(m.at)} {m.label}
+                <i className={`mig__mk-${m.tone}`} aria-hidden="true" /> {m.icon} {timeFmt.format(m.at)} {m.label}
               </span>
             ))}
-            {hb && <span>{hb.label}</span>}
+            {hb && (
+              <span>
+                {hb.label}
+                {hb.reasons.length ? ` · ${hb.reasons.join(" · ")}` : " · ungeklärt, vermutlich der Stream selbst"}
+              </span>
+            )}
+            {hc && <span className="muted">{hc.n} andere CraftAttack-Streams live ({nf.format(hc.viewers)} Zuschauer)</span>}
             {hv && <span className="muted">Klick: VOD ab {timeFmt.format(Math.max(hv.vodStart, ht - VOD_LEAD_S * 1000))}</span>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Staffel eines Streamers: Ø Zuschauer je Tag und das ganze CraftAttack, beide in % der ersten drei Tage */
+export function SeasonChart({
+  days,
+  label,
+  hrefPrefix,
+}: {
+  days: { day: string; avg: number; market: number; outlier: "hype" | "dip" | null; reasons: string[]; share: number; others: number }[];
+  label: string;
+  /** Link zu einem Tag: Präfix + "YYYY-MM-DD" */
+  hrefPrefix: string;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const W = 900;
+  const H = 260;
+  const L = 48;
+  const R = 12;
+  const T = 14;
+  const B = 26;
+  const base = (f: (d: (typeof days)[number]) => number) => {
+    const l = days.slice(0, 3).map(f).filter((v) => v > 0);
+    return l.length ? l.reduce((a, b) => a + b, 0) / l.length : 1;
+  };
+  const own0 = base((d) => d.avg);
+  const mk0 = base((d) => d.market);
+  const own = days.map((d) => d.avg / own0);
+  const mk = days.map((d) => (d.market > 0 ? d.market / mk0 : null));
+  const yMax = Math.max(1.2, ...own, ...mk.filter((v): v is number => v !== null)) * 1.05;
+  const n = Math.max(1, days.length - 1);
+  const x = (i: number) => L + (i / n) * (W - L - R);
+  const y = (v: number) => T + (1 - v / yMax) * (H - T - B);
+  const line = (vals: (number | null)[]) =>
+    vals
+      .map((v, i) => (v === null ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`))
+      .filter(Boolean)
+      .join(" ");
+  const dayLbl = (d: string) => dayShortFmt.format(Date.parse(`${d}T12:00:00Z`));
+  const hd = hover !== null ? days[hover] : null;
+  return (
+    <div className="mig__chart">
+      <ul className="mig__keys" aria-label="Legende">
+        <li>
+          <i className="mig__c1" aria-hidden="true" /> {label} (Ø je Tag)
+        </li>
+        <li>
+          <i className="mig__c0" aria-hidden="true" /> ganzes CraftAttack (abends)
+        </li>
+        <li>
+          <i className="mig__bd-hype" aria-hidden="true" /> besser als sonst
+        </li>
+        <li>
+          <i className="mig__bd-dip" aria-hidden="true" /> schwächer als sonst
+        </li>
+      </ul>
+      <div className="mig__plot">
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Zuschauer je Tag im Vergleich zum ganzen CraftAttack" onPointerLeave={() => setHover(null)}>
+          {[0, 0.5, 1, 1.5, 2].filter((v) => v <= yMax).map((v) => (
+            <g key={v}>
+              <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} className={v === 1 ? "mig__ref" : "mig__grid"} />
+              <text x={L - 6} y={y(v) + 4} textAnchor="end" className="mig__tick">
+                {pctFmt.format(v * 100)} %
+              </text>
+            </g>
+          ))}
+          {days.map((d, i) =>
+            i % Math.ceil(days.length / 8) === 0 ? (
+              <text key={d.day} x={x(i)} y={H - 6} textAnchor="middle" className="mig__tick">
+                {dayLbl(d.day)}
+              </text>
+            ) : null,
+          )}
+          <polyline points={line(mk)} className="mig__line mig__c0line" />
+          <polyline points={line(own)} className="mig__line mig__l1" />
+          {days.map((d, i) => (
+            <a key={d.day} href={hrefPrefix + d.day} onPointerEnter={() => setHover(i)} aria-label={`${dayLbl(d.day)} ansehen`}>
+              <rect x={x(i) - (W - L - R) / n / 2} y={T} width={(W - L - R) / n} height={H - T - B} fill="transparent" />
+              <circle cx={x(i)} cy={y(own[i])} r={d.outlier ? 6 : 3} className={d.outlier === "hype" ? "vf__dot-hype" : d.outlier === "dip" ? "vf__dot-dip" : "mig__c1"} />
+            </a>
+          ))}
+        </svg>
+        {hd && hover !== null && (
+          <div className="mig__tip" style={{ left: `${(x(hover) / W) * 100}%` }} role="status">
+            <b>
+              {dayLbl(hd.day)}: Ø {nf.format(hd.avg)} Zuschauer
+            </b>
+            <span>
+              {pctFmt.format(hd.share * 100)} % des CraftAttack-Publikums · {hd.others.toLocaleString("de-DE")} andere live
+            </span>
+            {hd.outlier && <span>{hd.outlier === "hype" ? "Besser als an den Tagen davor und danach" : "Schwächer als an den Tagen davor und danach"}{hd.reasons.length ? `: ${hd.reasons.join(" · ")}` : ""}</span>}
+            <span className="muted">Klick: diesen Tag ansehen</span>
           </div>
         )}
       </div>

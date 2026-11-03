@@ -38,6 +38,8 @@ const RIDGE = 0.3;
 const MAX_BETA = 0.5;
 /** Mindestens so viele frei gewordene Zuschauer einer Quelle, während das Ziel live war, für ein Muster */
 const MIN_RELEASED = 2000;
+/** Vorwissen aus dem Netz: so viel der frei gewordenen Zuschauer gingen an alle Verbundenen zusammen (grob) */
+const PRIOR_SCALE = 0.15;
 /** Raid zählt zu einem Ende, wenn er so nah daran liegt (Minuten) */
 const RAID_END_MIN = 10;
 
@@ -64,6 +66,11 @@ export interface FlowInput {
   raids: FlowRaid[];
   /** Stunde (Berlin, 0–23) einer Minute */
   hourOf: (min: number) => number;
+  /**
+   * Nähe im Netz (Raids, geteilter Chat, Titel, Chat-Nachrichten): je Streamer A der Anteil jedes B an seinen
+   * Verbindungen (Summe 1). Dient als Vorwissen: Ohne Daten bleibt ein Paar nahe PRIOR_SCALE · Anteil statt bei 0.
+   */
+  affinity?: Map<string, Map<string, number>>;
   /** Chat-Spuren: Wechsel von Schreibern von A nach B je 5-Minuten-Abschnitt (Abschnitt = Minute / 5) */
   chatMoves?: { bin: number; from: string; to: string; n: number; stay: number }[];
 }
@@ -174,6 +181,10 @@ function median(l: number[]) {
   const h = v.length >> 1;
   return v.length % 2 ? v[h] : (v[h - 1] + v[h]) / 2;
 }
+function priorOf(aff: FlowInput["affinity"], from: string, to: string) {
+  return PRIOR_SCALE * (aff?.get(from)?.get(to) ?? 0);
+}
+
 function lowerBound(t: Float64Array, x: number) {
   let lo = 0;
   let hi = t.length;
@@ -433,7 +444,8 @@ export function computeFlows(input: FlowInput): FlowResult {
         const { idx, val } = srcs[j];
         let dot = 0;
         for (let i = 0; i < idx.length; i++) dot += val[i] * res[idx[i]];
-        const next = Math.min(MAX_BETA, Math.max(0, (dot + diag[j] * w[j]) / (diag[j] * (1 + RIDGE))));
+        const pr = priorOf(input.affinity, srcs[j].id, b.id);
+        const next = Math.min(MAX_BETA, Math.max(0, (dot + diag[j] * w[j] + RIDGE * diag[j] * pr) / (diag[j] * (1 + RIDGE))));
         const d = next - w[j];
         if (d) {
           for (let i = 0; i < idx.length; i++) res[idx[i]] -= d * val[i];
@@ -519,7 +531,7 @@ export function computeFlows(input: FlowInput): FlowResult {
         const amt = o.kind === "raid" ? Math.max(0, o.pool - (o.raidViewers ?? 0)) : o.pool;
         if (o.from === b.id || amt <= 0) return { mu: 0, tau2: 0 };
         const key = `${o.from}|${b.id}`;
-        const bt = beta.get(key) ?? 0;
+        const bt = beta.get(key) ?? priorOf(input.affinity, o.from, b.id);
         // Unsicherheit des Musters, aber nicht weit über das Muster hinaus: β ≈ 0 heißt über die Staffel kaum Fluss
         const se = Math.min(betaSe.get(key) ?? 0.02, Math.max(0.01, 2 * bt));
         const viaChat = CHAT_VIEWERS * chatIn(o.k, o.from, b.id);
@@ -635,7 +647,8 @@ export function computeFlows(input: FlowInput): FlowResult {
         const { idx, val } = srcs[j];
         let dot = 0;
         for (let i = 0; i < idx.length; i++) dot += val[i] * res[idx[i]];
-        const next = Math.min(MAX_BETA, Math.max(0, (dot + diag[j] * w[j]) / (diag[j] * (1 + RIDGE))));
+        const pr = priorOf(input.affinity, a.id, srcs[j].id);
+        const next = Math.min(MAX_BETA, Math.max(0, (dot + diag[j] * w[j] + RIDGE * diag[j] * pr) / (diag[j] * (1 + RIDGE))));
         const d = next - w[j];
         if (d) {
           for (let i = 0; i < idx.length; i++) res[idx[i]] -= d * val[i];
@@ -672,7 +685,7 @@ export function computeFlows(input: FlowInput): FlowResult {
       const prior = (o: Start) => {
         if (o.b === a.id) return { mu: 0, tau2: 0 };
         const key = `${a.id}|${o.b}`;
-        const g = gamma.get(key) ?? 0;
+        const g = gamma.get(key) ?? priorOf(input.affinity, a.id, o.b);
         const se = Math.min(gammaSe.get(key) ?? 0.02, Math.max(0.01, 2 * g));
         const viaChat = CHAT_VIEWERS * chatIn(o.k, a.id, o.b);
         return { mu: g * o.inflow + viaChat, tau2: (o.inflow * Math.max(se, 0.003)) ** 2 + viaChat ** 2 };

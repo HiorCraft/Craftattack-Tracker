@@ -6088,3 +6088,117 @@ a.st-board__mvlink:focus-visible {
   padding: 3px 10px;
   font-size: 0.8125rem;
 }
+
+/* Streamer-Tag: Trend, Ausschläge, Ereignisse mit Köpfen, Konkurrenz */
+.vf__layers {
+  margin: 0 0 10px;
+}
+.vf__layers button {
+  min-height: 32px;
+  padding: 3px 10px;
+  font-size: 0.8125rem;
+}
+.vf__raw {
+  opacity: 0.45;
+  stroke-width: 1.5;
+}
+.vf__trend {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+.vf__bump-up {
+  fill: color-mix(in srgb, var(--mig-gain) 45%, transparent);
+}
+.vf__bump-down {
+  fill: color-mix(in srgb, var(--mig-loss) 45%, transparent);
+}
+.vf__comp {
+  fill: var(--mig-c0);
+}
+.vf__headbox {
+  fill: var(--white);
+  stroke: var(--line);
+  stroke-width: 1.5;
+}
+.vf__icon {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--ink);
+}
+.vf__iconbg {
+  fill: var(--white);
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.mig__mk a {
+  cursor: pointer;
+}
+.mig__mk a:hover .vf__headbox {
+  stroke-width: 3;
+}
+.vf__bandlabel {
+  font-size: 11px;
+  font-weight: 700;
+}
+.vf__bandlabel--hype {
+  fill: var(--mig-gain);
+}
+.vf__bandlabel--dip {
+  fill: var(--mig-loss);
+}
+.vf__dot-hype {
+  fill: var(--mig-gain);
+  stroke: var(--white);
+  stroke-width: 1.5;
+}
+.vf__dot-dip {
+  fill: var(--mig-loss);
+  stroke: var(--white);
+  stroke-width: 1.5;
+}
+.vf__outliers {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 0.9375rem;
+}
+.vf__up {
+  color: var(--mig-gain);
+  font-weight: 700;
+}
+.vf__down {
+  color: var(--mig-loss);
+  font-weight: 700;
+}
+/* Symbole (▶ ■ ↘ ★ …) gibt es in der Pixelschrift nicht */
+.vf__icon,
+.vf__glyph,
+.vf__bandlabel,
+.vf__up,
+.vf__down,
+.mig__tip {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.vf__glyph {
+  display: inline-block;
+  min-width: 1.1em;
+  text-align: center;
+  font-weight: 700;
+}
+.mig__mk circle.vf__iconbg {
+  fill: var(--white);
+  stroke: currentColor;
+}
+.mig__mk-loss {
+  color: var(--mig-loss);
+}
+.mig__mk-gain {
+  color: var(--mig-gain);
+}
+.mig__mk-own {
+  color: var(--mig-mk-own);
+}

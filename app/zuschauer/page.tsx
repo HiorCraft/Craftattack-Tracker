@@ -8,10 +8,10 @@ import { Explain } from "@/components/Explain";
 import { Fold } from "@/components/Fold";
 import { ShowMore } from "@/components/ShowMore";
 import { PlayerSearch } from "@/components/PlayerSearch";
-import { DayStackChart, PlayerViewerChart, RetentionChart, type ViewBand, type ViewMarker } from "@/components/ViewerCharts";
+import { DayStackChart, RetentionChart, SeasonChart, StreamerDayChart, type ViewBand, type ViewMarker } from "@/components/ViewerCharts";
 import { FlowList, HourlyChart, MethodNote, PairTable, RampChart, SourceTable, StartTable, pct, type Names } from "@/components/ViewerFlow";
 import { loadTracker } from "@/lib/data";
-import { dayBounds, getDays, getDayStack, getFlows, getPlayerDay, getStreamers, type ChartMarker, type FlowAnalysis } from "@/lib/viewerMigration";
+import { dayBounds, getDays, getDayStack, getFlows, getPlayerDay, getStreamerSeason, getStreamers, type ChartMarker, type FlowAnalysis } from "@/lib/viewerMigration";
 import { num } from "@/lib/format";
 
 export const metadata: Metadata = {
@@ -304,32 +304,80 @@ function SeasonView({ flows, names, streamerHref }: { flows: FlowAnalysis; names
 
 /* ------------------------------------------------------------------ Streamer */
 
-function markerView(mk: ChartMarker, names: Names): ViewMarker {
+const ICON: Record<ChartMarker["kind"], string> = {
+  own_start: "▶",
+  own_end: "■",
+  own_drop: "↓",
+  title: "T",
+  raid_in: "R",
+  raid_out: "R",
+  shared_start: "≡",
+  shared_end: "≡",
+  server_event: "★",
+  flow_in: "↘",
+  start_loss: "▶",
+};
+
+function markerView(mk: ChartMarker, names: Names, day: string): ViewMarker {
   const other = mk.other ? (names[mk.other]?.name ?? mk.other) : "";
   const v = mk.viewers ?? 0;
+  const icon = ICON[mk.kind];
+  const o = mk.other ? { id: mk.other, name: other, uuid: names[mk.other]?.uuid, href: href({ ansicht: "streamer", spieler: mk.other, tag: day }) } : undefined;
+  const base = { at: mk.at, icon, other: o };
   switch (mk.kind) {
     case "own_start":
-      return { at: mk.at, tone: "own", label: "Stream startet" };
+      return { ...base, tone: "own", label: "Stream startet" };
     case "own_end":
-      return { at: mk.at, tone: "own", label: "Stream endet" };
+      return { ...base, tone: "own", label: "Stream endet" };
     case "own_drop":
-      return { at: mk.at, tone: "loss", label: `Einbruch: ${signed.format(v)} Zuschauer gegenüber üblich` };
+      return { ...base, tone: "loss", label: `Einbruch: ${signed.format(v)} Zuschauer gegenüber üblich` };
     case "title":
-      return { at: mk.at, tone: "own", label: `Neuer Titel: ${(mk.text ?? "").slice(0, 80)}` };
+      return { ...base, tone: "own", label: `Neuer Titel: ${(mk.text ?? "").slice(0, 80)}` };
     case "raid_in":
-      return { at: mk.at, tone: "gain", label: `Raid von ${other} (${num(v)} Zuschauer)` };
+      return { ...base, tone: "gain", label: `Raid von ${other} (${num(v)} Zuschauer)` };
     case "raid_out":
-      return { at: mk.at, tone: "loss", label: `Raidet ${other} (${num(v)} Zuschauer)` };
+      return { ...base, tone: "loss", label: `Raidet ${other} (${num(v)} Zuschauer)` };
     case "shared_start":
-      return { at: mk.at, tone: "own", label: `Geteilter Chat beginnt${mk.text ? ` (${mk.text})` : ""}` };
+      return { ...base, tone: "own", label: `Geteilter Chat beginnt${mk.text ? ` (${mk.text})` : ""}` };
     case "shared_end":
-      return { at: mk.at, tone: "own", label: "Geteilter Chat endet" };
+      return { ...base, tone: "own", label: "Geteilter Chat endet" };
     case "server_event":
-      return { at: mk.at, tone: "own", label: `Server-Event: ${mk.text ?? ""}` };
+      return { ...base, tone: "own", label: `Server-Event: ${mk.text ?? ""}` };
     case "start_loss":
-      return { at: mk.at, tone: "loss", label: `${signed.format(v)} Zuschauer an ${other} (geht live)` };
+      return { ...base, tone: "loss", label: `${signed.format(v)} Zuschauer an ${other} (geht live)` };
     case "flow_in":
-      return { at: mk.at, tone: "gain", label: `${signed.format(v)} Zuschauer von ${other} (${mk.text === "ende" ? "Stream-Ende" : "Einbruch"})` };
+      return { ...base, tone: "gain", label: `${signed.format(v)} Zuschauer von ${other} (${mk.text === "ende" ? "Stream-Ende" : "Einbruch"})` };
+  }
+}
+
+type Reason = Awaited<ReturnType<typeof getPlayerDay>> extends infer P ? (P extends { anomalies: (infer A)[] } ? (A extends { reasons: (infer R)[] } ? R : never) : never) : never;
+
+function reasonText(r: Reason, names: Names): string {
+  const other = r.other ? (names[r.other]?.name ?? r.other) : "";
+  const v = r.viewers ?? 0;
+  switch (r.kind) {
+    case "competition":
+      return v > 0 ? `${v} weitere CraftAttack-Streams gingen live` : `${-v} andere CraftAttack-Streams gingen offline`;
+    case "raid_in":
+      return `Raid von ${other}`;
+    case "raid_out":
+      return `raidet ${other}`;
+    case "flow_in":
+      return `Zuschauer von ${other}`;
+    case "start_loss":
+      return `${other} ging live`;
+    case "title":
+      return `neuer Titel „${(r.text ?? "").slice(0, 50)}“`;
+    case "shared_start":
+      return "geteilter Chat beginnt";
+    case "shared_end":
+      return "geteilter Chat endet";
+    case "server_event":
+      return `Server-Event: ${r.text ?? ""}`;
+    case "own_end":
+      return "Stream endet";
+    default:
+      return "";
   }
 }
 
@@ -349,7 +397,7 @@ async function StreamerView({
   const streamers = await getStreamers();
   const id = wanted && streamers.includes(wanted) ? wanted : streamers[0];
   if (!id) return <p className="muted">Keine Zuschauerdaten.</p>;
-  const pd = await getPlayerDay(id, wantedDay);
+  const [pd, season] = await Promise.all([getPlayerDay(id, wantedDay), getStreamerSeason(id)]);
   const sorted = [...streamers].sort((a, b) => (names[a]?.name ?? a).localeCompare(names[b]?.name ?? b, "de"));
   const name = names[id]?.name ?? id;
   const src = flows.sources.find((s) => s.id === id);
@@ -404,6 +452,48 @@ async function StreamerView({
         </dl>
       )}
 
+      {pd && <StreamerDay pd={pd} names={names} name={name} dayHref={dayHref} />}
+
+      {season && season.days.length >= 2 && (
+        <Fold id="zuschauer.staffel-streamer" title={`${name} über die Staffel`}>
+          <div className="box" data-tone="white">
+            <p className="muted">
+              {season.marketChange !== null && season.ownChange !== null && (
+                <>
+                  Seit den ersten Tagen: {name} {signed.format(season.ownChange * 100)} %, das ganze CraftAttack {signed.format(season.marketChange * 100)} % (die
+                  ersten Tage waren für alle außergewöhnlich).{" "}
+                </>
+              )}
+              {season.lessCompetition !== null && season.lessCompetition >= 0.05 && (
+                <>
+                  An Tagen mit halb so vielen anderen Streams live: {signed.format(season.lessCompetition * 100)} % Zuschauer.{" "}
+                </>
+              )}
+              <Explain label="Wie gemessen">
+                Ausreißer-Tage werden am Anteil am gesamten CraftAttack-Publikum gemessen, solange {name} live war, und mit den Tagen davor und danach
+                verglichen. So zählt der allgemeine Rückgang seit Staffelstart nicht als Schwäche. Konkurrenz: Vergleich der Tage, an denen mehr oder
+                weniger andere CraftAttack-Streams gleichzeitig liefen (wer online kommt, wählt unter denen, die gerade da sind). Hinweise, keine Beweise.
+              </Explain>
+            </p>
+            <SeasonChart days={season.days} label={name} hrefPrefix={`/zuschauer?ansicht=streamer&spieler=${encodeURIComponent(id)}&tag=`} />
+            {season.days.some((d) => d.outlier) && (
+              <ul className="vf__outliers">
+                {season.days
+                  .filter((d) => d.outlier)
+                  .map((d) => (
+                    <li key={d.day}>
+                      <Link href={dayHref(d.day)} className={d.outlier === "hype" ? "vf__up" : "vf__down"}>
+                        {d.outlier === "hype" ? "▲" : "▼"} {dayLong.format(dayBounds(d.day)[0] + 3_600_000)}
+                      </Link>{" "}
+                      Ø {num(d.avg)} · {pct(d.share)} des Publikums{d.reasons.length ? ` · ${d.reasons.join(" · ")}` : " · ungeklärt"}
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
+        </Fold>
+      )}
+
       <div className="vf__two">
         <div className="box" data-tone="white">
           <h2 className="t-3">Wohin Zuschauer von {name} gehen</h2>
@@ -423,7 +513,6 @@ async function StreamerView({
         </Fold>
       )}
 
-      {pd && <StreamerDay pd={pd} names={names} name={name} dayHref={dayHref} />}
     </>
   );
 }
@@ -434,28 +523,38 @@ function StreamerDay({ pd, names, name, dayHref }: { pd: NonNullable<Awaited<Ret
   const last = pd.points.at(-1)?.[0] ?? dayEnd;
   const from = Math.max(dayStart, first - 30 * 60_000);
   const to = Math.min(dayEnd, Math.max(last + 30 * 60_000, from + 2 * 3_600_000));
-  const markers = pd.markers.map((mk) => markerView(mk, names));
+  const markers = pd.markers.map((mk) => markerView(mk, names, pd.day));
   const bands: ViewBand[] = pd.anomalies.map((a) => ({
     from: a.from,
     to: a.to,
     kind: a.kind,
-    label: `${a.kind === "dip" ? "Ungeklärter Einbruch" : "Ungeklärter Anstieg"}: ${signed.format(a.change)} Zuschauer, erwartet ${signed.format(a.expected)}`,
+    label: `${a.kind === "dip" ? "Absturz" : "Hype"}: ${signed.format(a.change)} Zuschauer, üblich wären ${signed.format(a.expected)}`,
+    reasons: a.reasons.map((r) => reasonText(r, names)).filter(Boolean),
   }));
-  const rows = [...markers.map((mk) => ({ at: mk.at, tone: mk.tone, label: mk.label })), ...bands.map((b) => ({ at: b.from, tone: b.kind === "dip" ? "loss" : "gain", label: b.label }))].sort(
-    (x, y) => x.at - y.at,
-  );
+  const rows = [
+    ...markers.map((mk) => ({ at: mk.at, tone: mk.tone, icon: mk.icon, label: mk.label, href: mk.other?.href })),
+    ...bands.map((b) => ({
+      at: b.from,
+      tone: b.kind === "dip" ? "loss" : "gain",
+      icon: b.kind === "dip" ? "▼" : "▲",
+      label: `${b.label} · ${b.reasons.length ? b.reasons.join(" · ") : "ungeklärt, vermutlich der Stream selbst"}`,
+      href: undefined,
+    })),
+  ].sort((x, y) => x.at - y.at);
   return (
     <Fold id="zuschauer.verlauf" title={`${name} an einem Tag`}>
       <DayNav days={pd.days} current={pd.day} mk={dayHref} />
       <div className="box" data-tone="white">
         <p className="muted">
-          {pd.vods.length > 0 ? "Klick in den Graphen öffnet das VOD an dieser Stelle. " : ""}
-          <Explain label="Was heißt ungeklärt">
-            Ungeklärt: Änderung weit über dem Erwarteten (dem, was dieser Stream sonst bei diesem Streamalter und dieser Tageszeit tut, plus dem, was
-            gleichzeitig mit allen anderen Streams passiert) und kein Ereignis in der Nähe: vermutlich der Stream selbst.
+          {pd.vods.length > 0 ? "Klick in den Graphen öffnet das VOD an dieser Stelle, Klick auf einen Kopf den Tag des anderen. " : "Klick auf einen Kopf öffnet den Tag des anderen. "}
+          <Explain label="Trend, Ausschlag, Hype">
+            Trend: gleitender Median über 25 Minuten. Ausschlag: kurz deutlich über oder unter dem Trend, kommt gleich wieder zurück (oft Twitch-Zählung,
+            Werbepause, Clip). Hype bzw. Absturz: Das Niveau ändert sich in 45 Minuten deutlich stärker als sonst bei diesem Streamalter, um diese Uhrzeit
+            und während das ganze CraftAttack gleichzeitig wächst oder schrumpft, und ist eine Stunde später noch da. Erklärungen sind Ereignisse im
+            selben Zeitraum; ohne Ereignis war es vermutlich der Stream selbst.
           </Explain>
         </p>
-        <PlayerViewerChart points={pd.points} markers={markers} bands={bands} vods={pd.vods} from={from} to={to} />
+        <StreamerDayChart points={pd.points} trend={pd.trend} noise={pd.noise} markers={markers} bands={bands} competition={pd.competition} vods={pd.vods} from={from} to={to} />
       </div>
       <div className="box" data-tone="white">
         <ShowMore height={420}>
@@ -467,7 +566,7 @@ function StreamerDay({ pd, names, name, dayHref }: { pd: NonNullable<Awaited<Ret
                   <tr key={`${r.at}-${i}`}>
                     <td className="num">{time.format(r.at)}</td>
                     <td>
-                      <i className={`mig__key mig__mk-${r.tone}`} aria-hidden="true" /> {r.label}
+                      <i className={`mig__key mig__mk-${r.tone}`} aria-hidden="true" /> <span className="vf__glyph">{r.icon}</span> {r.href ? <Link href={r.href}>{r.label}</Link> : r.label}
                     </td>
                   </tr>
                 ))}
