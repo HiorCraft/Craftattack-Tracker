@@ -6235,3 +6235,193 @@ a.st-board__mvlink:focus-visible {
   margin: 0;
   padding: 0;
 }
+
+/* ---------- Fortschritte (Profil) ---------- */
+.adv {
+  display: grid;
+  gap: 14px;
+}
+.adv__summary {
+  display: grid;
+  gap: 6px;
+}
+.adv__summary p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0;
+}
+.adv__big {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  line-height: 1;
+}
+.adv__legend {
+  margin-left: auto;
+  font-size: 0.875rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.adv__sw {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: 6px;
+}
+.adv__sw--done {
+  background: var(--gold);
+  box-shadow: 0 0 0 2px var(--line);
+}
+.adv__sw--guess {
+  background: repeating-linear-gradient(45deg, var(--gold) 0 3px, transparent 3px 6px);
+  box-shadow: 0 0 0 2px var(--line);
+}
+.adv__bar {
+  display: flex;
+  height: 12px;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  box-shadow: 0 0 0 2px var(--line);
+}
+.adv__bar i {
+  display: block;
+  height: 100%;
+}
+.adv__bar-done {
+  background: var(--gold);
+}
+.adv__bar-guess {
+  background: repeating-linear-gradient(45deg, var(--gold) 0 4px, transparent 4px 8px);
+}
+.adv__controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+.adv__controls .gb__seg {
+  margin: 0;
+}
+.adv__controls .gb__seg button {
+  min-height: 34px;
+  padding: 4px 10px;
+  font-size: 0.8125rem;
+}
+.adv__count {
+  opacity: 0.7;
+  margin-left: 4px;
+}
+.adv__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.adv__card {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--white);
+  color: var(--ink);
+  box-shadow: 0 0 0 2px var(--line);
+}
+.adv__card--guess {
+  box-shadow: none;
+  outline: 2px dashed var(--line);
+  outline-offset: -2px;
+}
+.adv__card--open {
+  background: transparent;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--line) 25%, transparent);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
+}
+.adv__frame {
+  width: 34px;
+  height: 34px;
+}
+.adv__frame rect,
+.adv__frame > path:first-child {
+  fill: color-mix(in srgb, var(--ink) 10%, transparent);
+  stroke: color-mix(in srgb, var(--ink) 35%, transparent);
+  stroke-width: 2;
+}
+.adv__check {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.adv__card--done .adv__frame rect,
+.adv__card--done .adv__frame > path:first-child {
+  fill: var(--gold);
+  stroke: var(--line);
+}
+.adv__card--done.adv__card--challenge .adv__frame > path:first-child {
+  fill: var(--amethyst);
+}
+.adv__card--done .adv__check {
+  stroke: var(--ink);
+}
+.adv__card--guess .adv__frame rect,
+.adv__card--guess .adv__frame > path:first-child {
+  fill: color-mix(in srgb, var(--gold) 35%, transparent);
+  stroke: var(--line);
+  stroke-dasharray: 3 3;
+}
+.adv__card--guess .adv__check {
+  stroke: color-mix(in srgb, var(--ink) 55%, transparent);
+}
+.adv__text {
+  display: grid;
+  min-width: 0;
+}
+.adv__text b {
+  font-weight: 700;
+  line-height: 1.2;
+}
+.adv__desc {
+  font-size: 0.8125rem;
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.adv__meta {
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+.adv__card--guess .adv__meta {
+  font-style: italic;
+}
+.adv__others {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+.adv__onum {
+  font-size: 0.6875rem;
+  font-weight: 400;
+  opacity: 0.7;
+}
+.adv__obar {
+  display: flex;
+  width: 52px;
+  height: 5px;
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.adv__obar i {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+}
+.adv__obar .adv__obar-guess {
+  background: color-mix(in srgb, var(--ink) 40%, transparent);
+}

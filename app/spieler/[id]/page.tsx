@@ -43,6 +43,8 @@ import { DayHighlights } from "@/components/DayHighlights";
 import { HowLink, PresenceLegend } from "@/components/HowLink";
 import { graphHref, type Metric } from "@/lib/graphQuery";
 import { getNetworkSummary } from "@/lib/networkSummary";
+import { getAdvancementBoard } from "@/lib/playerAdvancements";
+import { AdvancementBoard } from "@/components/AdvancementBoard";
 import { closeness, distancesFrom } from "@/lib/network";
 import { ROLE_LABEL } from "@/lib/groups";
 
@@ -96,6 +98,9 @@ export default function Page(props: PageProps<"/spieler/[id]">) {
       </Suspense>
       <Suspense fallback={null}>
         <NetworkSection params={params} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <AdvancementsSection params={params} />
       </Suspense>
       <Suspense fallback={<DetailsSkeleton />}>
         <DetailsSection params={params} />
@@ -930,6 +935,33 @@ async function NetworkSection({ params }: { params: Params }) {
               </div>
             )}
           </div>
+        </Fold>
+      </div>
+    </section>
+  );
+}
+
+/** Fortschritte (Advancements) wie im Spiel, mit Vermutungen für das, was vor dem Tracker passierte */
+async function AdvancementsSection({ params }: { params: Params }) {
+  const { id, state } = await ctxFor(params);
+  const board = await getAdvancementBoard(id, state.players);
+  if (!Object.keys(board.mine).length) return null;
+  return (
+    <section className="block block--tight" data-tone="paper" aria-labelledby="adv-h">
+      <div className="wrap">
+        <Fold
+          id="profil.fortschritte"
+          titleId="adv-h"
+          title="Fortschritte"
+          aside={
+            <Explain label="Woher die Fortschritte kommen">
+              Gemeldet: Der Feed von craftattack.one hat den Fortschritt angezeigt (seit dem 10. Oktober, und nur, was der Tracker mitbekam; vieles davor
+              fehlt). Vermutet (gestrichelt): Ein späterer Fortschritt setzt ihn voraus, oder die Statistik zeigt es (z. B. Diamanten abgebaut,
+              Netherrack abgebaut, Totem benutzt). Prozent: Anteil aller Spieler mit diesem Fortschritt, gemeldet oder vermutet.
+            </Explain>
+          }
+        >
+          <AdvancementBoard mine={board.mine} others={board.others} players={board.players} />
         </Fold>
       </div>
     </section>
