@@ -9,7 +9,7 @@ import { Fold } from "@/components/Fold";
 import { ShowMore } from "@/components/ShowMore";
 import { PlayerSearch } from "@/components/PlayerSearch";
 import { DayStackChart, PlayerViewerChart, RetentionChart, type ViewBand, type ViewMarker } from "@/components/ViewerCharts";
-import { FlowList, HourlyChart, MethodNote, PairTable, RampChart, SourceTable, pct, type Names } from "@/components/ViewerFlow";
+import { FlowList, HourlyChart, MethodNote, PairTable, RampChart, SourceTable, StartTable, pct, type Names } from "@/components/ViewerFlow";
 import { loadTracker } from "@/lib/data";
 import { dayBounds, getDays, getDayStack, getFlows, getPlayerDay, getStreamers, type ChartMarker, type FlowAnalysis } from "@/lib/viewerMigration";
 import { num } from "@/lib/format";
@@ -121,9 +121,12 @@ async function DayView({ flows, names, day: wanted, all }: { flows: FlowAnalysis
   const stack = await getDayStack(d);
   const series = stack.series.map((s) => ({ id: s.id, name: s.id ? (names[s.id]?.name ?? s.id) : "Andere", values: s.values }));
   const events = flows.events.filter((e) => e.at >= a && e.at < b);
-  const free = events.filter((e) => e.kind !== "raid");
+  const free = events.filter((e) => e.kind === "ende" || e.kind === "einbruch");
   const pool = free.reduce((s, e) => s + e.pool, 0);
   const found = free.reduce((s, e) => s + e.found, 0);
+  const starts = events.filter((e) => e.kind === "start");
+  const startIn = starts.reduce((s, e) => s + e.pool, 0);
+  const startFrom = starts.reduce((s, e) => s + e.found, 0);
   const raids = events.filter((e) => e.kind === "raid");
   const raidArrived = raids.reduce((s, e) => s + (e.shares.find((x) => x.to === e.raidTo)?.viewers ?? 0), 0);
   const shown = all ? events : events.filter((e) => e.pool >= MIN_POOL_SHOWN);
@@ -147,6 +150,14 @@ async function DayView({ flows, names, day: wanted, all }: { flows: FlowAnalysis
         <div className="box st-fig" data-tone="white">
           <dt title="Laut Zuschauerzahl beim Ziel angekommen">Per Raid angekommen</dt>
           <FigValue>{num(raidArrived)}</FigValue>
+        </div>
+        <div className="box st-fig" data-tone="white">
+          <dt>Starts</dt>
+          <FigValue>{num(starts.length)}</FigValue>
+        </div>
+        <div className="box st-fig" data-tone="white">
+          <dt title="Anteil des Anlaufs (Zuschauer nach 30 Min), der laufenden CraftAttack-Streams über das Übliche hinaus fehlte">Start-Zuschauer von CA</dt>
+          <FigValue>{startIn ? pct(startFrom / startIn) : "–"}</FigValue>
         </div>
       </dl>
       <div className="box" data-tone="white">
@@ -178,7 +189,9 @@ async function DayView({ flows, names, day: wanted, all }: { flows: FlowAnalysis
 /* ------------------------------------------------------------------ Staffel */
 
 function SeasonView({ flows, names, streamerHref }: { flows: FlowAnalysis; names: Names; streamerHref: (id: string) => string }) {
-  const free = flows.events.filter((e) => e.kind !== "raid");
+  const free = flows.events.filter((e) => e.kind === "ende" || e.kind === "einbruch");
+  const starts = flows.events.filter((e) => e.kind === "start");
+  const startShare = starts.reduce((s, e) => s + e.found, 0) / Math.max(1, starts.reduce((s, e) => s + e.pool, 0));
   const pool = free.reduce((s, e) => s + e.pool, 0);
   const found = free.reduce((s, e) => s + e.found, 0);
   const rr = flows.raidRetention;
@@ -209,6 +222,10 @@ function SeasonView({ flows, names, streamerHref }: { flows: FlowAnalysis; names
         <div className="box st-fig" data-tone="white">
           <dt title="Median der Raids: nach 30 Min noch beim Ziel">Raid bleibt 30 Min</dt>
           <FigValue>{pct(at(30))}</FigValue>
+        </div>
+        <div className="box st-fig" data-tone="white">
+          <dt title="Anteil des Anlaufs neuer Streams, der laufenden CraftAttack-Streams fehlte">Start von CA</dt>
+          <FigValue>{pct(startShare)}</FigValue>
         </div>
         <div className="box st-fig" data-tone="white">
           <dt title="Wechsel von Chat-Schreibern zwischen erfassten Kanälen (seit 3. Nov.)">Chat-Wechsel</dt>
@@ -245,6 +262,26 @@ function SeasonView({ flows, names, streamerHref }: { flows: FlowAnalysis; names
           <ShowMore height={900}>
             <SourceTable rows={flows.sources.filter((s) => s.pool >= 1000)} names={names} streamerHref={streamerHref} />
           </ShowMore>
+        </div>
+      </Fold>
+
+      <Fold id="zuschauer.starts" title="Wer beim Start anderen Zuschauer abzieht">
+        <div className="vf__two">
+          <div className="box" data-tone="white">
+            <h3 className="t-3">
+              Von CraftAttack-Streams, nach Uhrzeit{" "}
+              <Explain>
+                Geht ein Stream live, wächst er zuerst von selbst (Anlauf). Fehlt laufenden Streams in den 30 Minuten danach mehr als sonst um diese Zeit,
+                ist das der Teil, der zum neuen Stream ging. Abends ist das deutlich mehr als morgens, wenn kaum andere laufen.
+              </Explain>
+            </h3>
+            <HourlyChart hourly={flows.hourlyStart} tone="mig__c3" />
+          </div>
+          <div className="box" data-tone="white">
+            <ShowMore height={520}>
+              <StartTable rows={flows.starts.filter((x) => x.inflow >= 1000)} names={names} streamerHref={streamerHref} />
+            </ShowMore>
+          </div>
         </div>
       </Fold>
 
@@ -289,6 +326,8 @@ function markerView(mk: ChartMarker, names: Names): ViewMarker {
       return { at: mk.at, tone: "own", label: "Geteilter Chat endet" };
     case "server_event":
       return { at: mk.at, tone: "own", label: `Server-Event: ${mk.text ?? ""}` };
+    case "start_loss":
+      return { at: mk.at, tone: "loss", label: `${signed.format(v)} Zuschauer an ${other} (geht live)` };
     case "flow_in":
       return { at: mk.at, tone: "gain", label: `${signed.format(v)} Zuschauer von ${other} (${mk.text === "ende" ? "Stream-Ende" : "Einbruch"})` };
   }
@@ -314,6 +353,7 @@ async function StreamerView({
   const sorted = [...streamers].sort((a, b) => (names[a]?.name ?? a).localeCompare(names[b]?.name ?? b, "de"));
   const name = names[id]?.name ?? id;
   const src = flows.sources.find((s) => s.id === id);
+  const st = flows.starts.find((s) => s.id === id);
   const out = flows.pairs.filter((p) => p.from === id && p.viewers > 0).slice(0, 10);
   const inn = flows.pairs.filter((p) => p.to === id && p.viewers > 0).slice(0, 10);
   const usual = flows.usual.get(id);
@@ -349,6 +389,18 @@ async function StreamerView({
             <dt title="Anteil des Zuwachses beim Ziel, der nach 60 Min noch da ist">Bleiben dort</dt>
             <FigValue>{src.stay === null ? "–" : pct(src.stay)}</FigValue>
           </div>
+          {st && (
+            <div className="box st-fig" data-tone="white">
+              <dt title="Zuschauer 30 Min nach dem Start, Durchschnitt">Ø nach Start</dt>
+              <FigValue>{num(st.avg)}</FigValue>
+            </div>
+          )}
+          {st && (
+            <div className="box st-fig" data-tone="white">
+              <dt title="Anteil des Anlaufs, der laufenden CraftAttack-Streams fehlte">Start von CA</dt>
+              <FigValue>{pct(st.pulled / Math.max(1, st.inflow))}</FigValue>
+            </div>
+          )}
         </dl>
       )}
 

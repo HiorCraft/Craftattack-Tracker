@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Head } from "./Head";
 import { Explain } from "./Explain";
-import type { FlowEvent, PairFlow, SourceSummary } from "@/lib/viewerFlowCore";
+import type { FlowEvent, PairFlow, SourceSummary, StartSummary } from "@/lib/viewerFlowCore";
 import { num } from "@/lib/format";
 
 /**
@@ -25,7 +25,7 @@ export function Person({ id, names, size = 22, href }: { id: string; names: Name
   );
 }
 
-const KIND: Record<FlowEvent["kind"], string> = { ende: "beendet den Stream", einbruch: "verliert Zuschauer", raid: "raidet" };
+const KIND: Record<FlowEvent["kind"], string> = { ende: "beendet den Stream", einbruch: "verliert Zuschauer", raid: "raidet", start: "geht live" };
 
 /** Farbe je Ziel innerhalb eines Ereignisses (Plätze 1–7, Rest grau) */
 const slot = (i: number) => `mig__c${(i % 7) + 1}`;
@@ -43,9 +43,12 @@ export function FlowRow({ e, names }: { e: FlowEvent; names: Names }) {
           <span className="muted">{KIND[e.kind]}</span>
           {e.kind === "raid" && e.raidTo && <Person id={e.raidTo} names={names} />}
           <b className="num">{num(e.pool)}</b>
-          <span className="muted">{e.kind === "raid" ? "Zuschauer" : "frei"}</span>
+          <span className="muted">{e.kind === "raid" ? "Zuschauer" : e.kind === "start" ? "Zuschauer nach 30 Min, davon kamen von:" : "frei"}</span>
           {e.overlapping > 0 && (
-            <span className="tag vf__ovl" title="Weitere Streams endeten oder verloren Zuschauer in denselben 15 Minuten; ihr Zuwachs wurde nach dem üblichen Muster aufgeteilt">
+            <span
+              className="tag vf__ovl"
+              title={e.kind === "start" ? "Weitere Streams gingen in denselben 15 Minuten live; Verluste wurden nach dem üblichen Muster aufgeteilt" : "Weitere Streams endeten oder verloren Zuschauer in denselben 15 Minuten; ihr Zuwachs wurde nach dem üblichen Muster aufgeteilt"}
+            >
               +{e.overlapping} gleichzeitig
             </span>
           )}
@@ -67,14 +70,26 @@ export function FlowRow({ e, names }: { e: FlowEvent; names: Names }) {
               <i className={slot(i)} aria-hidden="true" />
               <Person id={s.to} names={names} size={18} />
               <b className="num">{num(s.viewers)}</b>
-              {s.stay !== null && <span className={s.stay < 0.4 ? "vf__leave" : "muted"}>{s.stay < 0.4 ? "gehen schnell wieder" : `bleiben ${pct(s.stay)}`}</span>}
+              {s.stay !== null &&
+                (e.kind === "start" ? (
+                  <span className={s.stay < 0.4 ? "vf__leave" : "muted"}>{s.stay < 0.4 ? "kommen bald zurück" : `bleiben weg ${pct(s.stay)}`}</span>
+                ) : (
+                  <span className={s.stay < 0.4 ? "vf__leave" : "muted"}>{s.stay < 0.4 ? "gehen schnell wieder" : `bleiben ${pct(s.stay)}`}</span>
+                ))}
               {s.chat > 0 && <span className="muted" title="Chat-Schreiber, die von hier nach dort wechselten">· {num(s.chat)} im Chat gesehen</span>}
             </li>
           ))}
-          <li className="muted">
-            <i className="mig__c0" aria-hidden="true" /> {num(rest)} nicht wiedergefunden
-            {e.kind !== "raid" && e.usualFound !== null && <> (um diese Uhrzeit üblich: {pct(1 - e.usualFound)})</>}
-          </li>
+          {e.kind === "start" ? (
+            <li className="muted">
+              <i className="mig__c0" aria-hidden="true" /> {num(rest)} neu oder von anderswo
+              {e.usualFound !== null && <> (um diese Uhrzeit kommen üblich {pct(e.usualFound)} von CraftAttack-Streams)</>}
+            </li>
+          ) : (
+            <li className="muted">
+              <i className="mig__c0" aria-hidden="true" /> {num(rest)} nicht wiedergefunden
+              {e.kind !== "raid" && e.usualFound !== null && <> (um diese Uhrzeit üblich: {pct(1 - e.usualFound)})</>}
+            </li>
+          )}
         </ul>
       </div>
     </li>
@@ -92,7 +107,7 @@ export function FlowList({ events, names }: { events: FlowEvent[]; names: Names 
 }
 
 /** Anteil wiedergefunden je Uhrzeit (Balken je Stunde) */
-export function HourlyChart({ hourly }: { hourly: { hour: number; pool: number; found: number; n: number }[] }) {
+export function HourlyChart({ hourly, tone = "mig__c1" }: { hourly: { hour: number; pool: number; found: number; n: number }[]; tone?: string }) {
   const W = 520;
   const H = 210;
   const L = 40;
@@ -116,8 +131,8 @@ export function HourlyChart({ hourly }: { hourly: { hour: number; pool: number; 
         const v = h.n >= 10 ? h.found / h.pool : 0;
         return (
           <g key={h.hour}>
-            <rect x={L + h.hour * bw + 3} y={y(v)} width={bw - 6} height={H - B - y(v)} className="mig__c1" opacity={h.n >= 10 ? 1 : 0.25}>
-              <title>{`${h.hour}–${h.hour + 1} Uhr: ${h.n >= 10 ? pct(v) : "zu wenige Fälle"} wiedergefunden (${num(h.n)} Ereignisse)`}</title>
+            <rect x={L + h.hour * bw + 3} y={y(v)} width={bw - 6} height={H - B - y(v)} className={tone} opacity={h.n >= 10 ? 1 : 0.25}>
+              <title>{`${h.hour}–${h.hour + 1} Uhr: ${h.n >= 10 ? pct(v) : "zu wenige Fälle"} (${num(h.n)} Ereignisse)`}</title>
             </rect>
             {h.hour % 6 === 0 && (
               <text x={L + h.hour * bw + bw / 2} y={H - 6} textAnchor="middle" className="mig__tick">
@@ -240,8 +255,23 @@ export function SourceTable({ rows, names, streamerHref }: { rows: SourceSummary
 /** Paare eines Streamers: wohin (dir = "von") bzw. woher (dir = "zu") */
 export function PairTable({ rows, names, dir, streamerHref }: { rows: PairFlow[]; names: Names; dir: "von" | "zu"; streamerHref: (id: string) => string }) {
   if (!rows.length) return <p className="muted">Keine deutlichen Wanderungen.</p>;
+  const legend = (
+    <ul className="mig__keys" aria-label="Legende">
+      <li>
+        <i className="mig__c1" aria-hidden="true" /> nach Ende/Einbruch
+      </li>
+      <li>
+        <i className="mig__c4" aria-hidden="true" /> Raid
+      </li>
+      <li>
+        <i className="mig__c3" aria-hidden="true" /> als {dir === "von" ? "der andere" : "dieser"} live ging
+      </li>
+    </ul>
+  );
   const max = Math.max(...rows.map((r) => r.viewers));
   return (
+    <>
+    {legend}
     <ol className="vf__pairs">
       {rows.map((r) => {
         const other = dir === "von" ? r.to : r.from;
@@ -250,19 +280,62 @@ export function PairTable({ rows, names, dir, streamerHref }: { rows: PairFlow[]
           <li key={other}>
             <Person id={other} names={names} href={streamerHref(other)} />
             <span className="vf__pbar" aria-hidden="true">
-              <i style={{ width: `${(100 * (r.viewers - r.raid)) / max}%` }} className="mig__c1" />
+              <i style={{ width: `${(100 * (r.viewers - r.raid - r.start)) / max}%` }} className="mig__c1" />
               <i style={{ width: `${(100 * r.raid) / max}%` }} className="mig__c4" />
+              <i style={{ width: `${(100 * r.start) / max}%` }} className="mig__c3" />
             </span>
             <b className="num">{num(r.viewers)}</b>
             <span className="muted">
               {r.beta > 0 && <>{pct(r.beta)} je Ende{unsure ? " (unsicher)" : ""}</>}
               {r.raid > 0 && <>{r.beta > 0 ? " · " : ""}Raid {num(r.raid)}</>}
+              {r.start > 0 && <>{r.beta > 0 || r.raid > 0 ? " · " : ""}beim Start {num(r.start)}</>}
               {r.stay !== null && <> · bleiben {pct(r.stay)}</>}
             </span>
           </li>
         );
       })}
     </ol>
+    </>
+  );
+}
+
+/** Starts der Staffel: wie viel des Anlaufs von anderen erfassten Streams kam und von wem */
+export function StartTable({ rows, names, streamerHref }: { rows: StartSummary[]; names: Names; streamerHref: (id: string) => string }) {
+  return (
+    <div className="tbl-wrap">
+      <table className="tbl vf__tbl">
+        <thead>
+          <tr>
+            <th>Streamer</th>
+            <th className="num">Starts</th>
+            <th className="num" title="Zuschauer 30 Min nach dem Start, Durchschnitt">Ø nach 30 Min</th>
+            <th className="num" title="Anteil des Anlaufs, der anderen erfassten Streams über das Übliche hinaus fehlte">Von CraftAttack</th>
+            <th>Von wem vor allem</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td>
+                <Person id={r.id} names={names} href={streamerHref(r.id)} />
+              </td>
+              <td className="num">{num(r.starts)}</td>
+              <td className="num">{num(r.avg)}</td>
+              <td className="num">{pct(r.pulled / Math.max(1, r.inflow))}</td>
+              <td>
+                <span className="vf__heads">
+                  {r.top.slice(0, 4).map((p) => (
+                    <Link key={p.from} href={streamerHref(p.from)} title={`${names[p.from]?.name ?? p.from}: ${num(p.start)} Zuschauer über alle Starts`}>
+                      <Head id={p.from} uuid={names[p.from]?.uuid} name={names[p.from]?.name ?? p.from} size={22} decorative />
+                    </Link>
+                  ))}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -271,7 +344,8 @@ export function MethodNote() {
     <Explain label="Wie das gerechnet wird">
       1. Normalverlauf: Für jeden Stream die übliche Änderung je 5 Minuten nach Streamalter (in der ersten Stunde wächst jeder Stream von selbst) und
       Tageszeit. Gezählt wird nur, was davon abweicht. 2. Frei werden Zuschauer, wenn ein Stream endet, deutlich einbricht (und sich nicht gleich wieder
-      erholt; kurze Zählaussetzer von Twitch zählen nicht) oder raidet. 3. Über die ganze Staffel wird geschätzt, welcher Anteil der frei gewordenen
+      erholt; kurze Zählaussetzer von Twitch zählen nicht) oder raidet. Geht ein Stream live, wird geprüft, wie viel laufenden Streams in den 30
+      Minuten danach über das Übliche hinaus fehlt; das ist der Teil seines Anlaufs, der von dort kam. 3. Über die ganze Staffel wird geschätzt, welcher Anteil der frei gewordenen
       Zuschauer von A in den 5–20 Minuten danach bei B zusätzlich auftaucht. Weil verschiedene Streams zu verschiedenen Zeiten zusammen enden, lassen
       sich die Anteile so trennen. 4. An einem Abend teilen sich gleichzeitige Quellen den Zuwachs von B nach diesem Muster; was B ohnehin schwankt,
       wird nicht zugeordnet. Chat-Spuren (wer erst bei A, dann bei B schreibt; nur als Summe gespeichert) gehen als zusätzlicher Beleg ein. 5. Bleiben:

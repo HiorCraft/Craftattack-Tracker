@@ -94,13 +94,13 @@ export function Timelapse({ data }: { data: TimelapseData }) {
           <button type="button" className="btn btn--small" data-tone="ink" onClick={togglePlay} aria-pressed={playing}>
             {playing ? "❚❚ Pause" : i >= frames.length - 1 ? "↻ Nochmal" : "▶ Abspielen"}
           </button>
-          <select className="zr__speed" value={speed} onChange={(e) => setSpeed(Number(e.target.value))} aria-label="Geschwindigkeit">
-            {SPEEDS.map((s, k) => (
-              <option key={s.label} value={k}>
-                {s.label}
-              </option>
+          <span className="gb__seg" role="group" aria-label="Geschwindigkeit">
+            {SPEEDS.map((sp, k) => (
+              <button key={sp.label} type="button" aria-pressed={speed === k} onClick={() => setSpeed(k)}>
+                {sp.label}
+              </button>
             ))}
-          </select>
+          </span>
         </span>
       </div>
       <input

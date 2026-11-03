@@ -68,7 +68,8 @@ export interface FlowInput {
   chatMoves?: { bin: number; from: string; to: string; n: number; stay: number }[];
 }
 
-export type SourceKind = "ende" | "einbruch" | "raid";
+/** „start“: B geht live; `from` ist dann der Starter und `shares` sind die Streams, von denen Zuschauer kamen */
+export type SourceKind = "ende" | "einbruch" | "raid" | "start";
 
 export interface FlowShare {
   to: string;
@@ -112,6 +113,8 @@ export interface PairFlow {
   viewers: number;
   /** davon über Raids */
   raid: number;
+  /** davon, als B live ging (Zuschauer verließen A für B) */
+  start: number;
   stay: number | null;
 }
 
@@ -137,6 +140,20 @@ export interface FlowResult {
   /** Normalverlauf je Streamer für die Streamer-Ansicht */
   usual: Map<string, { ramp: { age: number; median: number; n: number }[]; hourly: { hour: number; change: number; n: number }[] }>;
   chatMovesTotal: number;
+  /** je Stunde (0–23): Zuwachs neuer Streams in den ersten 30 Min und davon von anderen erfassten Streams */
+  hourlyStart: { hour: number; pool: number; found: number; n: number }[];
+  starts: StartSummary[];
+}
+
+export interface StartSummary {
+  id: string;
+  starts: number;
+  /** Ø Zuschauer 30 Min nach dem Start */
+  avg: number;
+  inflow: number;
+  /** davon von anderen erfassten Streams abgezogen */
+  pulled: number;
+  top: PairFlow[];
 }
 
 /* ------------------------------------------------------------------ Hilfen */
@@ -190,7 +207,7 @@ export function computeFlows(input: FlowInput): FlowResult {
     k0 = Math.min(k0, Math.floor(s.t[0] / BIN));
     k1 = Math.max(k1, Math.floor(s.t[s.t.length - 1] / BIN));
   }
-  if (!Number.isFinite(k0)) return { events: [], pairs: [], sources: [], hourly: [], rampUp: [], usual: new Map(), chatMovesTotal: 0 };
+  if (!Number.isFinite(k0)) return { events: [], pairs: [], sources: [], hourly: [], rampUp: [], usual: new Map(), chatMovesTotal: 0, hourlyStart: [], starts: [] };
   const n = k1 - k0 + 1;
   const cov = new Uint8Array(n);
   for (const m of input.cover) {
@@ -556,6 +573,161 @@ export function computeFlows(input: FlowInput): FlowResult {
     e.usualFound = h.pool > 0 && h.n >= 10 ? h.found / h.pool : null;
   }
 
+  // 6. Starts: Geht B live, verlieren laufende Streams A womöglich Zuschauer an B. Zufluss von B je Abschnitt in
+  // den ersten 40 Min; Staffel-Muster γ(A→B) = Anteil davon, der A über das Übliche hinaus fehlt (gleiches Verfahren
+  // wie oben, nur mit dem Verlust von A als Ziel). Einzelne Starts teilen den Verlust von A auf gleichzeitige Starter auf.
+  type Start = { id: string; b: string; k: number; inflow: number };
+  const startList: Start[] = [];
+  const inflowOf = new Map<string, Float64Array>();
+  for (const [b, times] of input.startsBy) {
+    const bb = binned.get(b);
+    if (!bb) continue;
+    let lastK = -Infinity;
+    for (const st of times) {
+      const k = Math.floor(st / BIN) - k0;
+      if (k < 1 || k + 8 >= n || k - lastK < 12) continue;
+      lastK = k;
+      let live = 0;
+      for (let q = k; q <= k + 6; q++) if (!Number.isNaN(bb.v[q])) live++;
+      if (live < 5 || !cov[k - 1] || !cov[k]) continue;
+      const x = inflowOf.get(b) ?? inflowOf.set(b, new Float64Array(n)).get(b)!;
+      let prev = 0;
+      for (let q = k; q <= k + 8; q++) {
+        const v = bb.v[q];
+        if (Number.isNaN(v)) continue;
+        x[q] += Math.max(0, v - prev);
+        prev = v;
+      }
+      const late: number[] = [];
+      for (let q = k + 5; q <= k + 7; q++) if (!Number.isNaN(bb.v[q])) late.push(bb.v[q]);
+      const inflow = median(late);
+      if (inflow >= MIN_POOL) startList.push({ id: `s${b}${k}`, b, k, inflow });
+    }
+  }
+  const gamma = new Map<string, number>();
+  const gammaSe = new Map<string, number>();
+  for (const a of binned.values()) {
+    const rows: number[] = [];
+    const rowOf = new Int32Array(n).fill(-1);
+    for (let k = 1; k < n; k++) if (!Number.isNaN(a.r[k])) rowOf[k] = rows.push(k) - 1;
+    if (rows.length < 50) continue;
+    const srcs: { id: string; idx: Int32Array; val: Float64Array }[] = [];
+    for (const [b, x] of inflowOf) {
+      if (b === a.id) continue;
+      const idx: number[] = [];
+      const val: number[] = [];
+      for (let k = 0; k < n; k++) {
+        if (x[k] > 0 && rowOf[k] >= 0) {
+          idx.push(rowOf[k]);
+          val.push(x[k]);
+        }
+      }
+      if (idx.length && val.reduce((s2, v) => s2 + v, 0) >= MIN_RELEASED) srcs.push({ id: b, idx: Int32Array.from(idx), val: Float64Array.from(val) });
+    }
+    if (!srcs.length) continue;
+    // Ziel: Verlust von A (negativer Rest)
+    const res = Float64Array.from(rows, (k) => -a.r[k]);
+    const diag = srcs.map((c) => c.val.reduce((s2, v) => s2 + v * v, 0));
+    const w = new Float64Array(srcs.length);
+    for (let it = 0; it < 60; it++) {
+      let moved = 0;
+      for (let j = 0; j < srcs.length; j++) {
+        const { idx, val } = srcs[j];
+        let dot = 0;
+        for (let i = 0; i < idx.length; i++) dot += val[i] * res[idx[i]];
+        const next = Math.min(MAX_BETA, Math.max(0, (dot + diag[j] * w[j]) / (diag[j] * (1 + RIDGE))));
+        const d = next - w[j];
+        if (d) {
+          for (let i = 0; i < idx.length; i++) res[idx[i]] -= d * val[i];
+          w[j] = next;
+          moved = Math.max(moved, Math.abs(d));
+        }
+      }
+      if (moved < 1e-4) break;
+    }
+    const sigma = Math.sqrt(res.reduce((s2, v) => s2 + v * v, 0) / Math.max(1, rows.length - srcs.length));
+    srcs.forEach(({ id }, j) => {
+      gamma.set(`${a.id}|${id}`, w[j]);
+      gammaSe.set(`${a.id}|${id}`, diag[j] ? sigma / Math.sqrt(diag[j]) : Infinity);
+    });
+  }
+  const hourlyStart = Array.from({ length: 24 }, (_, hour) => ({ hour, pool: 0, found: 0, n: 0 }));
+  const startPair = new Map<string, number>();
+  const WIN = 6;
+  for (const st of startList) {
+    const overl = startList.filter((o) => o !== st && Math.abs(o.k - st.k) <= 3);
+    const shares: FlowShare[] = [];
+    for (const a of binned.values()) {
+      if (a.id === st.b || raidBins.get(a.id)?.has(st.k + 2)) continue;
+      let loss = 0;
+      let ok = true;
+      for (let q = st.k; q <= st.k + WIN; q++) {
+        if (Number.isNaN(a.r[q])) {
+          ok = false;
+          break;
+        }
+        loss -= a.r[q];
+      }
+      if (!ok) continue;
+      const prior = (o: Start) => {
+        if (o.b === a.id) return { mu: 0, tau2: 0 };
+        const key = `${a.id}|${o.b}`;
+        const g = gamma.get(key) ?? 0;
+        const se = Math.min(gammaSe.get(key) ?? 0.02, Math.max(0.01, 2 * g));
+        const viaChat = CHAT_VIEWERS * chatIn(o.k, a.id, o.b);
+        return { mu: g * o.inflow + viaChat, tau2: (o.inflow * Math.max(se, 0.003)) ** 2 + viaChat ** 2 };
+      };
+      const mine = prior(st);
+      const others = overl.map(prior);
+      const muSum = mine.mu + others.reduce((x, o) => x + o.mu, 0);
+      const varSum = mine.tau2 + others.reduce((x, o) => x + o.tau2, 0) + (WIN + 1) * a.sigma ** 2;
+      const part = Math.max(0, mine.mu + (mine.tau2 / varSum) * (loss - muSum));
+      if (part < 5) continue;
+      // Kommen sie zurück? Rest von A in der Stunde danach, gemessen am Verlust
+      let back: number | null = null;
+      if (loss > 0) {
+        let g = 0;
+        let okB = true;
+        for (let q = st.k + WIN + 1; q <= st.k + WIN + 12; q++) {
+          if (q >= n || Number.isNaN(a.r[q])) {
+            okB = false;
+            break;
+          }
+          g += a.r[q];
+        }
+        if (okB) back = Math.max(0, Math.min(1, g / loss));
+      }
+      // `stay` heißt hier: Anteil, der bei B bleibt (= nicht zu A zurückkommt)
+      shares.push({ to: a.id, viewers: part, stay: back === null ? null : 1 - back, chat: chatIn(st.k, a.id, st.b) });
+    }
+    const sum = shares.reduce((x, y) => x + y.viewers, 0);
+    if (sum > st.inflow) for (const x of shares) x.viewers *= st.inflow / sum;
+    shares.sort((x, y) => y.viewers - x.viewers);
+    const found = shares.reduce((x, y) => x + y.viewers, 0);
+    const h = hourAt[st.k];
+    hourlyStart[h].pool += st.inflow;
+    hourlyStart[h].found += found;
+    hourlyStart[h].n++;
+    for (const x of shares) startPair.set(`${x.to}|${st.b}`, (startPair.get(`${x.to}|${st.b}`) ?? 0) + x.viewers);
+    events.push({
+      id: st.id,
+      kind: "start",
+      from: st.b,
+      at: (st.k + k0) * BIN * 60_000,
+      pool: Math.round(st.inflow),
+      shares: shares.map((x) => ({ ...x, viewers: Math.round(x.viewers) })),
+      found: Math.round(found),
+      usualFound: null,
+      overlapping: overl.length,
+    });
+  }
+  for (const e of events) {
+    if (e.kind !== "start") continue;
+    const h = hourlyStart[input.hourOf(e.at / 60_000)];
+    e.usualFound = h.pool > 0 && h.n >= 10 ? h.found / h.pool : null;
+  }
+  events.sort((x, y) => x.at - y.at);
+
   // Paare: Staffel-Muster + zugeordnete Summe
   // Angekommene Raid-Zuschauer je Paar
   const raidPair = new Map<string, number>();
@@ -580,19 +752,38 @@ export function computeFlows(input: FlowInput): FlowResult {
       .reduce((a, s) => a + s.pool, 0);
     const viewers = Math.round(bt * amt);
     if (viewers <= 0 && !raidPair.has(key)) continue;
-    pairs.push({ from, to, beta: bt, se: betaSe.get(key) ?? Infinity, n: nLive, viewers: viewers + (raidPair.get(key) ?? 0), raid: raidPair.get(key) ?? 0, stay: agg && agg.stays.length >= 3 ? median(agg.stays) : null });
+    pairs.push({ from, to, beta: bt, se: betaSe.get(key) ?? Infinity, n: nLive, viewers: viewers + (raidPair.get(key) ?? 0) + Math.round(startPair.get(key) ?? 0), raid: raidPair.get(key) ?? 0, start: Math.round(startPair.get(key) ?? 0), stay: agg && agg.stays.length >= 3 ? median(agg.stays) : null });
   }
   // Raid-Paare ohne β (ausdrücklich)
   for (const [key, v] of raidPair) {
     if (beta.has(key)) continue;
     const [from, to] = key.split("|");
     const agg = pairAgg.get(key);
-    pairs.push({ from, to, beta: 0, se: Infinity, n: agg?.n ?? 0, viewers: v, raid: v, stay: agg && agg.stays.length >= 3 ? median(agg.stays) : null });
+    pairs.push({ from, to, beta: 0, se: Infinity, n: agg?.n ?? 0, viewers: v + Math.round(startPair.get(key) ?? 0), raid: v, start: Math.round(startPair.get(key) ?? 0), stay: agg && agg.stays.length >= 3 ? median(agg.stays) : null });
+  }
+  // Paare nur über Starts (weder Muster noch Raid)
+  for (const [key, v] of startPair) {
+    if (beta.has(key) || raidPair.has(key) || v < 1) continue;
+    const [from, to] = key.split("|");
+    pairs.push({ from, to, beta: 0, se: Infinity, n: 0, viewers: Math.round(v), raid: 0, start: Math.round(v), stay: null });
   }
   pairs.sort((a, b) => b.viewers - a.viewers);
+  const startSummaries: StartSummary[] = [...new Set(startList.map((x) => x.b))].map((b) => {
+    const evs = events.filter((e) => e.kind === "start" && e.from === b);
+    const inflow = evs.reduce((a, e) => a + e.pool, 0);
+    return {
+      id: b,
+      starts: evs.length,
+      avg: Math.round(inflow / Math.max(1, evs.length)),
+      inflow,
+      pulled: evs.reduce((a, e) => a + e.found, 0),
+      top: pairs.filter((p) => p.to === b && p.start > 0).sort((x, y) => y.start - x.start).slice(0, 5),
+    };
+  });
+  startSummaries.sort((a, b) => b.pulled - a.pulled);
 
   const summaries: SourceSummary[] = [...eventsOf].map(([id, l]) => {
-    const evs = events.filter((e) => e.from === id);
+    const evs = events.filter((e) => e.from === id && e.kind !== "start");
     const stays = evs.flatMap((e) => e.shares.filter((x) => x.stay !== null && x.viewers >= 20).map((x) => x.stay!));
     return {
       id,
@@ -636,5 +827,5 @@ export function computeFlows(input: FlowInput): FlowResult {
     usual.set(b.id, { ramp: rampOf([b]), hourly: hours.map((h) => ({ hour: h.hour, change: h.n ? (h.sum / h.n) * 12 : 0, n: h.n })) });
   }
 
-  return { events, pairs, sources: summaries, hourly, rampUp: rampOf(binned.values()), usual, chatMovesTotal };
+  return { events, pairs, sources: summaries, hourly, rampUp: rampOf(binned.values()), usual, chatMovesTotal, hourlyStart, starts: startSummaries };
 }

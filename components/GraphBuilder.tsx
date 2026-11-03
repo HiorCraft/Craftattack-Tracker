@@ -802,16 +802,13 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
               <input type="datetime-local" value={q.bis} onChange={(e) => set({ bis: e.target.value })} aria-label="Bis" />
             </span>
           )}
-          <label className="gb__select">
-            <span className="eyebrow">Raster</span>
-            <select value={q.raster} onChange={(e) => set({ raster: e.target.value })}>
-              {RASTER.map((r) => (
-                <option key={r.key} value={r.key}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="gb__seg" role="group" aria-label="Raster" title="Raster: wie viel Zeit ein Punkt zusammenfasst">
+            {RASTER.map((r) => (
+              <button key={r.key} type="button" aria-pressed={q.raster === r.key} onClick={() => set({ raster: r.key })}>
+                {r.label}
+              </button>
+            ))}
+          </div>
           {anyCounter && q.ansicht === "zeit" && (
             <div className="gb__seg" role="group" aria-label="Anzeige" title={q.modus === "zuwachs" && multi ? "Zuwachs gilt nur für Zähler, andere Kennzahlen zeigen den Stand" : undefined}>
               <button type="button" aria-pressed={q.modus === "wert"} onClick={() => set({ modus: "wert" })}>

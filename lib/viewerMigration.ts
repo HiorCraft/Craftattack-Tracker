@@ -400,7 +400,7 @@ export async function getDays(): Promise<string[]> {
 export interface ChartMarker {
   /** ms */
   at: number;
-  kind: "own_start" | "own_end" | "own_drop" | "title" | "raid_in" | "raid_out" | "shared_start" | "shared_end" | "server_event" | "flow_in";
+  kind: "own_start" | "own_end" | "own_drop" | "title" | "raid_in" | "raid_out" | "shared_start" | "shared_end" | "server_event" | "flow_in" | "start_loss";
   /** beteiligter anderer Spieler */
   other?: string;
   /** Zuschauer: Raid-Größe bzw. zusätzliche Änderung durch fremden Start/Ende */
@@ -592,7 +592,11 @@ export async function getPlayerDay(id: string, wanted?: string): Promise<PlayerD
     const t = e.at / 60_000;
     if (!inDay(t)) continue;
     if (e.from === id && e.kind === "einbruch") markers.push({ at: e.at, kind: "own_drop", viewers: -e.pool });
-    if (e.from !== id && e.kind !== "raid") {
+    if (e.kind === "start" && e.from !== id) {
+      const sh = e.shares.find((x) => x.to === id);
+      if (sh && sh.viewers >= CAUSE_MIN_ABS) markers.push({ at: e.at, kind: "start_loss", other: e.from, viewers: -sh.viewers });
+    }
+    if (e.from !== id && e.kind !== "raid" && e.kind !== "start") {
       const sh = e.shares.find((x) => x.to === id);
       if (sh && sh.viewers >= CAUSE_MIN_ABS) markers.push({ at: e.at, kind: "flow_in", other: e.from, viewers: sh.viewers, text: e.kind });
     }

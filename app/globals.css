@@ -6016,3 +6016,75 @@ a.st-board__mvlink:focus-visible {
 .mig__c0line {
   stroke: var(--mig-c0);
 }
+
+/* ---------- Spielerauswahl im Stil der Graph-Seite (Chips statt Ausklappliste) ---------- */
+.pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+}
+.pick__chips {
+  display: contents;
+}
+.pick__chips li {
+  list-style: none;
+}
+.pick__field {
+  display: contents;
+}
+.pick__field input {
+  flex: 1 1 11rem;
+  min-width: 9rem;
+  max-width: 20rem;
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  padding: 6px 10px;
+  background: var(--white);
+  color: var(--ink);
+  border: 0;
+  box-shadow: 0 0 0 3px var(--line);
+}
+.pick__field input:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+}
+.pick__list {
+  flex: 1 0 100%;
+  margin: 0;
+  padding: 0;
+}
+.pick__list .gb__chip[aria-selected="true"] {
+  transform: translate(-1px, -1px);
+}
+.pick__list .gb__chip[data-current] {
+  text-decoration: underline;
+}
+.pick__list .dot {
+  margin-left: 2px;
+}
+.gb__chip--head {
+  padding-left: 6px;
+  text-decoration: none;
+}
+.pick__x {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 0 0 4px;
+}
+.conn__group > .pick {
+  align-self: stretch;
+}
+.zr__controls .gb__seg {
+  margin: 0;
+}
+.zr__controls .gb__seg button {
+  min-height: 32px;
+  padding: 3px 10px;
+  font-size: 0.8125rem;
+}
