@@ -22,7 +22,7 @@ import { StatSpark } from "@/components/StatSpark";
 import { ClipGrid } from "@/components/ClipGrid";
 import { getTopClips } from "@/lib/clips";
 import { EstimatePlayer, PlayerEstimateSummary } from "@/components/Estimates";
-import { getAllSessions, getFullBoard, getPlayerHistory, getPlayerSharedChatSessions, getPlayerTopHistory, getPlayerTwitchChat, getTwitchCheerProfile, getTwitchSubscriptionBoard, getTwitchSubscriptionProfile } from "@/lib/store";
+import { getAllSessions, getFullBoard, getPlayerHistory, getPlayerSharedChatSessions, getPlayerTopHistory, getPlayerTwitchChat, getTwitchCheerBoard, getTwitchCheerProfile, getTwitchSubscriptionBoard, getTwitchSubscriptionProfile } from "@/lib/store";
 import { SharedChatList } from "@/components/SharedChatList";
 import { ChatFeed, ChatPartners } from "@/components/ChatFeed";
 import { companionsOf, overlapsFor } from "@/lib/overlap";
@@ -307,10 +307,11 @@ async function StatsSection({ params }: { params: Params }) {
   const { id, state, now, p } = await ctxFor(params);
   if (!p) return null;
   const streamStartedAt = p.live ? p.live.startedAt ?? p.liveSince ?? null : null;
-  const [history, subscriptions, subscriptionBoard, followerBoard, cheers, earnings, streamTotals, followerGains] = await Promise.all([
+  const [history, subscriptions, subscriptionBoard, cheerBoard, followerBoard, cheers, earnings, streamTotals, followerGains] = await Promise.all([
     getPlayerHistory(id),
     getTwitchSubscriptionProfile(id, streamStartedAt),
     getTwitchSubscriptionBoard(),
+    getTwitchCheerBoard(),
     getFullBoard("followers"),
     getTwitchCheerProfile(id, streamStartedAt),
     getPlayerEarnings(id),
@@ -333,6 +334,7 @@ async function StatsSection({ params }: { params: Params }) {
     }),
   ) as Record<BoardKey, { rank: number; of: number | null } | null>;
   const subscriptionRankIndex = subscriptionBoard.findIndex((entry) => entry.id === id);
+  const cheerRankIndex = cheerBoard.findIndex((entry) => entry.id === id);
   const followerRankIndex = followerBoard.findIndex((entry) => entry.id === id);
   const profileStatKeys = [...BOARD_KEYS, "followers", "twitchSubs", "twitchBits", "twitchEarnings"] as const;
   return (
@@ -376,13 +378,26 @@ async function StatsSection({ params }: { params: Params }) {
             }
             if (k === "twitchBits") {
               return (
-                <div key={k} className="box st-fig st-fig--spark" data-tone={METRIC_TONE.twitchSubs}>
+                <div key={k} className="box st-fig st-fig--spark" data-tone={METRIC_TONE.twitchBits}>
                   <dt className="pstat">
                     <Link className="pstat__label pstat__link" href={graphHref(k)} title="Bits aus Cheers im eigenen Kanal, während der Streamer auf dem Server war · im Graphen öffnen">
                       <Icon.bits width={18} height={18} aria-hidden="true" />
                       <span>Twitch Bits</span>
                       <span className="pstat__go" aria-hidden="true">↗</span>
                     </Link>
+                    {cheerRankIndex >= 0 && (
+                      <span className="pstat__meta">
+                        <Link
+                          className="tag"
+                          data-tone="ink"
+                          href={boardHref("twitchBits")}
+                          title={`Platz ${cheerRankIndex + 1} von ${cheerBoard.length} in der Bestenliste „Bit-Regen“`}
+                        >
+                          Platz {cheerRankIndex + 1}
+                          <span className="muted"> / {cheerBoard.length}</span>
+                        </Link>
+                      </span>
+                    )}
                   </dt>
                   <Link className="pstat__val" href={graphHref(k)} tabIndex={-1} aria-hidden="true">
                     <FigValue>{num(cheers.onServer)}</FigValue>
@@ -700,17 +715,12 @@ async function TimelineSection({ params }: { params: Params }) {
                 </div>
               )}
             </div>
-            <section className="box st-board" data-tone={METRIC_TONE.tracked} aria-labelledby="b-with">
-              <header className="st-board__head">
-                <span className="st-board__icon">
-                  <Icon.users aria-hidden="true" />
-                </span>
-                <div>
-                  <h3 className="t-3" id="b-with">
-                    Mitspieler
-                  </h3>
-                  <p className="st-board__sub">Meiste gemeinsame Online-Zeit</p>
-                </div>
+            <section className="box st-board st-board--plain" data-tone="white" aria-labelledby="b-with">
+              <header className="pbox__head">
+                <h3 className="eyebrow" id="b-with">
+                  Mitspieler
+                </h3>
+                <p className="muted">Meiste gemeinsame Online-Zeit</p>
               </header>
               <ol className="st-board__list">
                 {overlaps.length === 0 ? (

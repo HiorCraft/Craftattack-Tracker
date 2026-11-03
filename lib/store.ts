@@ -1,9 +1,10 @@
 import "server-only";
 import { connection } from "next/server";
+import { onServerSql } from "./onServer";
 import { getDb, type Db } from "./db";
 import { playtimeOf } from "./playtime";
 import { createSwrCache } from "./swrCache";
-import { getEarningsSeries } from "./earnings";
+import { getEarningsSeries, getPlayerSubs, getSubsSeries, getSubsTotals } from "./earnings";
 import { runsTracker } from "./mode";
 import { ESTIMATE } from "./estimateMode";
 import { EXTRA_HISTORY_KEYS, EXTRA_KEY_OF_METRIC, EXTRA_METRICS, extraStatSql, type ExtraMetric } from "./playerStats";
@@ -1123,13 +1124,13 @@ export async function getTwitchCheerProfile(id: string, streamStartedAt: string 
   const db = await getDb();
   const [sum, top] = await Promise.all([
     db.query<{ on_server: string | null; total: string | null; count: number; current: string | null }>(
-      `SELECT sum(bits) FILTER (WHERE on_server) AS on_server, sum(bits) AS total, count(*)::int AS count,
+      `SELECT sum(bits) FILTER (WHERE twitch_cheers.on_server AND ${onServerSql("twitch_cheers.channel_id", "twitch_cheers.at")}) AS on_server, sum(bits) AS total, count(*)::int AS count,
               sum(bits) FILTER (WHERE $2::timestamptz IS NOT NULL AND at >= $2) AS current
          FROM twitch_cheers WHERE channel_id = $1`,
       [id, toDate(streamStartedAt)],
     ),
     db.query<{ bits: number; from_name: string; at: Date }>(
-      `SELECT bits, from_name, at FROM twitch_cheers WHERE channel_id = $1 AND on_server ORDER BY bits DESC, at LIMIT 1`,
+      `SELECT bits, from_name, at FROM twitch_cheers WHERE channel_id = $1 AND twitch_cheers.on_server AND ${onServerSql("twitch_cheers.channel_id", "twitch_cheers.at")} ORDER BY bits DESC, at LIMIT 1`,
       [id],
     ),
   ]);
@@ -1139,7 +1140,7 @@ export async function getTwitchCheerProfile(id: string, streamStartedAt: string 
   const hist = (
     await db.query<{ at: Date; v: string }>(
       `SELECT at, SUM(b) OVER (ORDER BY at) AS v FROM (
-         SELECT date_trunc('hour', at) AS at, SUM(bits) AS b FROM twitch_cheers WHERE channel_id = $1 AND on_server GROUP BY 1
+         SELECT date_trunc('hour', at) AS at, SUM(bits) AS b FROM twitch_cheers WHERE channel_id = $1 AND twitch_cheers.on_server AND ${onServerSql("twitch_cheers.channel_id", "twitch_cheers.at")} GROUP BY 1
        ) h ORDER BY at`,
       [id],
     )
@@ -1160,65 +1161,37 @@ interface TwitchSubscriptionProfile {
   history: TwitchSubscriptionPoint[];
 }
 
-/** Twitch-Abos seit Beginn der Erfassung sowie zeitlicher Verlauf und aktueller Stream. */
-export async function getTwitchSubscriptionProfile(
-  player: string,
-  streamStartedAt: string | null,
-): Promise<TwitchSubscriptionProfile> {
-  await ensureLoaded();
-  const db = await getDb();
-  const [buckets, stream] = await Promise.all([
-    db.query<{ at: Date; count: number | string }>(
-      `SELECT date_trunc('minute', at) AS at, SUM(delta) AS count
-         FROM events
-        WHERE type IN ('subscription', 'subscription_gift') AND player = $1 AND meta->>'serverOnline' = 'true'
-        GROUP BY date_trunc('minute', at)
-        ORDER BY date_trunc('minute', at)`,
-      [player],
-    ),
-    streamStartedAt
-      ? db.query<{ count: number | string }>(
-          `SELECT COALESCE(SUM(delta), 0) AS count
-             FROM events
-            WHERE type IN ('subscription', 'subscription_gift') AND player = $1 AND at >= $2
-              AND meta->>'serverOnline' = 'true'`,
-          [player, toDate(streamStartedAt)],
-        )
-      : Promise.resolve({ rows: [{ count: 0 }] }),
-  ]);
-  let total = 0;
-  const history = buckets.rows.map((row) => {
-    total += Number(row.count);
-    return { at: iso(row.at)!, value: total };
-  });
-  return { total, currentStream: Number(stream.rows[0]?.count ?? 0), history };
+/**
+ * Twitch-Abos auf dem Server: Summe, laufender Stream und Verlauf. Gezählt wie die Einnahmen (lib/earnings.ts):
+ * genaue Einträge einzeln, alte Zählung mit gemessenem Faktor (sie zählte Geschenk-Sammelmeldungen doppelt).
+ */
+export async function getTwitchSubscriptionProfile(player: string, streamStartedAt: string | null): Promise<TwitchSubscriptionProfile> {
+  const since = streamStartedAt ? Date.parse(streamStartedAt) : null;
+  return getPlayerSubs(player, Number.isFinite(since) ? since : null);
 }
 
 export async function getTwitchSubscriptionBoard(): Promise<FullBoardEntry[]> {
   await ensureLoaded();
+  const players = g().state?.players ?? {};
+  return [...(await getSubsTotals())]
+    .filter(([id, v]) => players[id] && v.value > 0)
+    .map(([id, v]) => ({ id, name: players[id].name, uuid: players[id].uuid, value: v.value, at: new Date(v.at).toISOString(), online: players[id].online }))
+    .sort((x, y) => y.value - x.value || x.name.localeCompare(y.name, "de"));
+}
+
+/** Bestenliste der Bits auf dem Server (gleiche Regel wie Abos und Einnahmen, lib/onServer.ts) */
+export async function getTwitchCheerBoard(): Promise<FullBoardEntry[]> {
+  await ensureLoaded();
   const db = await getDb();
-  const rows = await db.query<{
-    player: string;
-    name: string;
-    uuid: string;
-    value: number | string;
-    at: Date;
-  }>(
-    `SELECT player, MAX(player_name) AS name, MAX(uuid) AS uuid, SUM(delta) AS value, MAX(at) AS at
-       FROM events
-      WHERE type IN ('subscription', 'subscription_gift') AND player IS NOT NULL AND meta->>'serverOnline' = 'true'
-      GROUP BY player
-      HAVING SUM(delta) > 0
-      ORDER BY SUM(delta) DESC, MAX(player_name)`,
+  const rows = await db.query<{ id: string; value: number | string; at: Date }>(
+    `SELECT channel_id AS id, SUM(bits) AS value, MAX(at) AS at FROM twitch_cheers
+      WHERE twitch_cheers.on_server AND ${onServerSql("twitch_cheers.channel_id", "twitch_cheers.at")}
+      GROUP BY channel_id HAVING SUM(bits) > 0 ORDER BY SUM(bits) DESC`,
   );
-  return rows.rows.map((row) => ({
-    id: row.player,
-    name: row.name,
-    uuid: row.uuid,
-    value: Number(row.value),
-    at: iso(row.at)!,
-    online: g().state?.players[row.player]?.online ?? false,
-  }));
+  const players = g().state?.players ?? {};
+  return rows.rows
+    .filter((r) => players[r.id])
+    .map((r) => ({ id: r.id, name: players[r.id].name, uuid: players[r.id].uuid, value: Number(r.value), at: iso(r.at)!, online: players[r.id].online }));
 }
 
 interface TwitchSubscriptionMinuteRecord {
@@ -1237,7 +1210,7 @@ export async function getTwitchSubscriptionMinuteRecord(): Promise<TwitchSubscri
       `SELECT player, MAX(player_name) AS name, MAX(uuid) AS uuid, SUM(delta) AS value, MAX(at) AS at
          FROM events
         WHERE type IN ('subscription', 'subscription_gift') AND player IS NOT NULL
-          AND meta->>'serverOnline' = 'true' AND meta->>'bucket' = 'minute'
+          AND meta->>'serverOnline' = 'true' AND ${onServerSql("events.player", "events.at")} AND meta->>'bucket' = 'minute'
         GROUP BY player, meta->>'channel', meta->>'streamStartedAt', date_trunc('minute', at)
         ORDER BY SUM(delta) DESC, MAX(at) ASC
         LIMIT 1`,
@@ -1890,9 +1863,9 @@ export async function getSeries(q: SeriesQuery): Promise<{ series: SeriesLine[];
 
   const firstRow = (await db.query<{ at: Date | null }>(
     q.metric === "twitchBits"
-      ? `SELECT min(at) AS at FROM twitch_cheers WHERE on_server`
+      ? `SELECT min(at) AS at FROM twitch_cheers WHERE twitch_cheers.on_server AND ${onServerSql("twitch_cheers.channel_id", "twitch_cheers.at")}`
       : twitch
-        ? `SELECT min(at) AS at FROM events WHERE type IN ('subscription', 'subscription_gift') AND meta->>'serverOnline' = 'true'`
+        ? `SELECT min(at) AS at FROM events WHERE type IN ('subscription', 'subscription_gift') AND meta->>'serverOnline' = 'true' AND ${onServerSql("events.player", "events.at")}`
         : `SELECT min(at) AS at FROM ${table}`,
   )).rows[0];
   const firstAt = firstRow?.at ? new Date(firstRow.at) : null;
@@ -1918,7 +1891,7 @@ export async function getSeries(q: SeriesQuery): Promise<{ series: SeriesLine[];
         `WITH buckets AS (
            SELECT ${ids ? "channel_id" : "'alle'"} AS player, ${bucket} AS at, SUM(bits) AS delta
              FROM twitch_cheers
-            WHERE on_server AND at <= $3 ${ids ? "AND channel_id = ANY($5)" : ""}
+            WHERE twitch_cheers.on_server AND ${onServerSql("twitch_cheers.channel_id", "twitch_cheers.at")} AND at <= $3 ${ids ? "AND channel_id = ANY($5)" : ""}
             GROUP BY 1, 2
          ), cumulative AS (
            SELECT player, at, SUM(delta) OVER (PARTITION BY player ORDER BY at) AS v FROM buckets
@@ -1938,59 +1911,10 @@ export async function getSeries(q: SeriesQuery): Promise<{ series: SeriesLine[];
   }
 
   if (q.metric === "twitchSubs") {
-    if (perPlayer) {
-      const placeholders = q.players.map((_, index) => `$${index + 4}`).join(", ");
-      const rows = (
-        await db.query<{ player: string; at: Date; v: number | string }>(
-          `WITH buckets AS (
-             SELECT player, ${bucket} AS at, SUM(delta) AS delta
-               FROM events
-              WHERE type IN ('subscription', 'subscription_gift') AND meta->>'serverOnline' = 'true'
-                AND at <= $3 AND player IN (${placeholders})
-              GROUP BY player, 2
-           ), cumulative AS (
-             SELECT player, at, SUM(delta) OVER (PARTITION BY player ORDER BY at) AS v
-               FROM buckets
-           )
-           SELECT player, at, v FROM cumulative
-            WHERE at >= $2 OR (
-              $${q.players.length + 4} = 'zuwachs'
-              AND at = (SELECT max(previous.at) FROM cumulative previous
-                         WHERE previous.player = cumulative.player AND previous.at < $2)
-            )
-            ORDER BY player, at`,
-          [minutes, from, to, ...q.players, q.mode],
-        )
-      ).rows;
-      const byPlayer = new Map<string, SeriesLine>();
-      for (const id of q.players) byPlayer.set(id, { id, name: players[id]?.name ?? id, points: [] });
-      for (const row of rows) {
-        byPlayer.get(row.player)?.points.push({ at: iso(row.at)!, v: Number(row.v) });
-      }
-      return finish([...byPlayer.values()]);
-    }
-
-    const rows = (
-      await db.query<{ at: Date; v: number | string }>(
-        `WITH buckets AS (
-           SELECT ${bucket} AS at, SUM(delta) AS delta
-             FROM events
-            WHERE type IN ('subscription', 'subscription_gift') AND meta->>'serverOnline' = 'true' AND at <= $3
-            GROUP BY 1
-         ), cumulative AS (
-           SELECT at, SUM(delta) OVER (ORDER BY at) AS v FROM buckets
-         )
-         SELECT at, v FROM cumulative
-          WHERE at >= $2 OR (
-            $4 = 'zuwachs' AND at = (SELECT max(previous.at) FROM cumulative previous WHERE previous.at < $2)
-          )
-          ORDER BY at`,
-        [minutes, from, to, q.mode],
-      )
-    ).rows;
-    return finish([{ id: "alle", name: "Alle Spieler", points: rows.map((row) => ({ at: iso(row.at)!, v: Number(row.v) })) }]);
+    // Wie die Einnahmen gezählt (lib/earnings.ts), damit Abos und Einnahmen zusammenpassen
+    const lines = await getSubsSeries(perPlayer ? q.players : [], from.getTime(), to.getTime(), minutes);
+    return finish(lines.map((l) => ({ id: l.id, name: l.id === "alle" ? "Alle Spieler" : (players[l.id]?.name ?? l.id), points: l.points })));
   }
-
   // Server-Verlauf (eine Linie)
   if (table === "history") {
     const col = HISTORY_COL[q.metric]!;
@@ -2227,7 +2151,7 @@ export async function explainChange(q: { metric: string; from: number; to: numbe
     contrib = (
       await db.query<{ id: string; d: string }>(
         `SELECT player AS id, sum(delta) AS d FROM events
-          WHERE at > $1 AND at <= $2 AND type IN ('subscription', 'subscription_gift') AND meta->>'serverOnline' = 'true'
+          WHERE at > $1 AND at <= $2 AND type IN ('subscription', 'subscription_gift') AND meta->>'serverOnline' = 'true' AND ${onServerSql("events.player", "events.at")}
             AND player IS NOT NULL AND ($3::text[] IS NULL OR player = ANY($3))
           GROUP BY 1`,
         [from, to, only],
@@ -2236,7 +2160,7 @@ export async function explainChange(q: { metric: string; from: number; to: numbe
   } else if (metric === "twitchBits") {
     contrib = (
       await db.query<{ id: string; d: string }>(
-        `SELECT channel_id AS id, sum(bits) AS d FROM twitch_cheers WHERE at > $1 AND at <= $2 AND on_server AND ($3::text[] IS NULL OR channel_id = ANY($3)) GROUP BY 1`,
+        `SELECT channel_id AS id, sum(bits) AS d FROM twitch_cheers WHERE at > $1 AND at <= $2 AND twitch_cheers.on_server AND ${onServerSql("twitch_cheers.channel_id", "twitch_cheers.at")} AND ($3::text[] IS NULL OR channel_id = ANY($3)) GROUP BY 1`,
         [from, to, only],
       )
     ).rows.map((r) => ({ id: r.id, delta: Number(r.d) }));
@@ -2264,7 +2188,7 @@ export async function explainChange(q: { metric: string; from: number; to: numbe
           `SELECT * FROM events
             WHERE at > $1 AND at <= $2 AND type = ANY($3) AND coalesce(meta->>'catchUp', '') <> 'true'
               AND ($4::text[] IS NULL OR player = ANY($4) OR meta->>'raidTargetPlayerId' = ANY($4))
-              AND (type <> 'subscription' OR meta->>'serverOnline' = 'true')
+              AND (type <> 'subscription' OR meta->>'serverOnline' = 'true' AND ${onServerSql("events.player", "events.at")})
               AND (type <> 'milestone' OR meta->>'board' = $5 OR meta->>'board' = ANY($6))
             ORDER BY abs(coalesce(delta, value, 0)) DESC, at DESC
             LIMIT 12`,

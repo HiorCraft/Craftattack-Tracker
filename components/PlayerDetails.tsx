@@ -162,7 +162,7 @@ export function PlayerDetails({
 
         {tops.length > 0 && (
           <>
-            <h3 className="t-3 pdetail__subhead">
+            <h3 className="eyebrow pdetail__subhead">
               Top-Listen
               {compare && <span className="muted pdetail__since"> · Zuwachs seit {ago(compare.at, now)}</span>}
             </h3>

@@ -17,7 +17,7 @@ export const TOP_CATEGORIES = ["blocksBroken", "blocksPlaced", "mobsKilled", "an
 export type TopCategory = (typeof TOP_CATEGORIES)[number];
 export const isTopCategory = (v: string): v is TopCategory => (TOP_CATEGORIES as readonly string[]).includes(v);
 
-export type SpecialKey = "tracked" | "followers" | "twitchSubs" | "afk" | "afkmobs" | "afkblocks";
+export type SpecialKey = "tracked" | "followers" | "twitchSubs" | "twitchBits" | "afk" | "afkmobs" | "afkblocks";
 export type RestKey = `rest-${TopCategory}`;
 export type ItemKey = "top";
 export type LeaderboardKey = BoardKey | SpecialKey | ExtraStatKey | RestKey | ItemKey;
@@ -120,6 +120,7 @@ export const LEADERBOARDS: Record<Exclude<LeaderboardKey, ItemKey>, LeaderboardM
   tracked: { title: "Dauergäste", sub: "Online-Zeit laut Tracker, alle Spieler", tone: METRIC_TONE.tracked, icon: "users", group: "zeit" },
   followers: { title: "Fanmagnet", sub: "Neue Twitch-Follower, während der Streamer auf dem Server war", tone: METRIC_TONE.followers, icon: "users", group: "twitch" },
   twitchSubs: { title: "Sub-Stars", sub: "Twitch-Abos auf dem Server seit Beginn der IRC-Erfassung", tone: METRIC_TONE.twitchSubs, icon: "gift", group: "twitch" },
+  twitchBits: { title: "Bit-Regen", sub: "Bits aus Cheers im eigenen Kanal, während der Streamer auf dem Server war", tone: METRIC_TONE.twitchBits, icon: "bits", group: "twitch" },
   afk: { title: "Standbilder", sub: "AFK-Zeit seit Tracker-Start laut Server: ab 5 Min ohne Bewegung", tone: METRIC_TONE.afkSeconds, icon: "clock", group: "afk" },
   afkmobs: { title: "Mob-Farmer", sub: "AFK-Zeit, in der trotzdem ≥ 10 Mobs pro Minute gestorben sind (AFK-Mobfarm)", tone: METRIC_TONE.afkMobsSeconds, icon: "sword", group: "afk" },
   afkblocks: { title: "Block-Farmer", sub: "AFK-Zeit, in der trotzdem ≥ 10 Blöcke pro Minute abgebaut wurden (AFK-Blockfarm)", tone: METRIC_TONE.afkBlocksSeconds, icon: "pickaxe", group: "afk" },

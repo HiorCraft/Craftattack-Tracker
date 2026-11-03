@@ -6569,3 +6569,56 @@ a.st-board__mvlink:focus-visible {
   font-size: 0.75rem;
   margin: 0;
 }
+
+/* ---------- Nichts läuft über: Kennzahlen, Ranglisten-Köpfe, Beschriftungen ---------- */
+/* Zahl in jeder Kachel nach Kachelbreite (überall gleich groß, passt auch bei 8–9 Zeichen) */
+.st-fig dd,
+.st-fig dd[data-len] {
+  /* Ziffern der Pixelschrift sind ~0,6em breit: Länge · 0,6 · Größe ≤ Kachelbreite (mit etwas Luft) */
+  font-size: min(2.75rem, calc(150cqi / var(--len, 7))) !important;
+  max-inline-size: 100%;
+}
+.st-fig dt {
+  overflow-wrap: break-word;
+}
+.st-figs--auto .st-fig dt,
+.st-figs--auto .pstat__label {
+  font-size: 0.75rem;
+}
+/* Hinweise unter der Kurve, nicht über der Beschriftung */
+.st-fig--spark > p {
+  order: 2;
+}
+.rankboard .st-board__head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+}
+.rankboard__title {
+  min-width: 0;
+}
+.rankboard__title .t-3 {
+  font-size: clamp(1rem, 1.5vw, 1.25rem);
+  overflow-wrap: break-word;
+}
+/* Kästen im Profil: Kopf wie „Vom Tracker gemessen“ (kleine Überschrift, Unterzeile) */
+.pbox__head {
+  margin-bottom: 10px;
+}
+.pbox__head .eyebrow {
+  margin: 0;
+}
+.pbox__head .muted {
+  margin: 2px 0 0;
+  font-size: 0.8125rem;
+}
+.st-board--plain {
+  border-top: 0;
+}
+.pdetail__subhead.eyebrow {
+  margin: 24px 0 10px;
+}
+.heat__h {
+  font-size: 0.5625rem;
+}

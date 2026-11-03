@@ -1,6 +1,7 @@
 import "server-only";
 import { getDb } from "./db";
 import { createSwrCache } from "./swrCache";
+import { ON_SERVER_GAP as COVER_GAP, onServerSql } from "./onServer";
 
 /**
  * Geschätzte Twitch-Einnahmen aus Abos und Bits. Werbung ist nicht sichtbar und fehlt.
@@ -38,8 +39,6 @@ const MIN_CALIBRATION = 300;
 /** Startwert: Plus Points je altem Eintrag (erste Stunden der Einzelerfassung) */
 const DEFAULT_POINTS_PER_ENTRY = 0.06;
 const MIN_STREAM_MIN = 10;
-/** Größter Abstand zweier Verlaufspunkte, der noch als durchgehend gilt */
-const COVER_GAP = "5 minutes";
 const BASE_CACHE_MS = 10 * 60_000;
 const DAY_MS = 86_400_000;
 
@@ -105,14 +104,17 @@ interface Base {
   channels: Map<string, ChannelShare>;
   /** Einnahmen auf dem Server (automatischer Anteil) je Spieler: Zeitpunkte und aufsummierte Euro */
   timeline: Map<string, { t: number[]; cum: number[] }>;
+  /**
+   * Abos auf dem Server je Spieler, nach denselben Regeln wie die Einnahmen: genaue Einträge einzeln (verschenkte je
+   * Empfänger, Sammelmeldungen nicht doppelt), alte Einträge mal gemessenem Faktor. Kachel, „Sub-Stars“ und Graph
+   * zählen damit dasselbe, was die Einnahmen bewerten.
+   */
+  subsTimeline: Map<string, { t: number[]; cum: number[] }>;
   loadedAt: number;
 }
 
-// Bei Sperren durch craftattack.one bleibt der letzte Online-Stand stehen, während kein Verlauf geschrieben wird:
-// Abos und Bits zählen nur, wenn kurz davor ein Verlaufspunkt live auf dem Server liegt, Lücken zählen nicht als Zeit
-const covered = (player: string, at: string) =>
-  `EXISTS (SELECT 1 FROM player_history h WHERE h.player = ${player} AND h.at > ${at} - interval '${COVER_GAP}'
-     AND h.at <= ${at} + interval '1 minute' AND h.online AND h.viewers IS NOT NULL)`;
+// „Auf dem Server“ wie überall (lib/onServer.ts): kurz davor ein Verlaufspunkt online und live
+const covered = onServerSql;
 
 /** Plus Points einer Abo-Meldung (selbst bezahlt, nicht Prime) */
 const POINTS_SQL = `CASE WHEN kind IN ('sub', 'resub') THEN CASE plan WHEN '1000' THEN 1 WHEN '2000' THEN 2 WHEN '3000' THEN 6 ELSE 0 END ELSE 0 END`;
@@ -305,14 +307,34 @@ async function loadBase(): Promise<Base> {
     push(r.channel_id, r.at.getTime(), tierEur(t, autoShare(r.channel_id)));
   }
   for (const r of bitRows.rows) push(r.channel_id, r.at.getTime(), r.bits * BIT_EUR);
-  const timeline = new Map<string, { t: number[]; cum: number[] }>();
-  for (const [id, list] of inc) {
-    list.sort((a, b) => a[0] - b[0]);
-    let run = 0;
-    timeline.set(id, { t: list.map((x) => x[0]), cum: list.map((x) => (run += x[1])) });
+  const cumulate = (m: Map<string, [number, number][]>) => {
+    const out = new Map<string, { t: number[]; cum: number[] }>();
+    for (const [id, list] of m) {
+      list.sort((a, b) => a[0] - b[0]);
+      let run = 0;
+      out.set(id, { t: list.map((x) => x[0]), cum: list.map((x) => (run += x[1])) });
+    }
+    return out;
+  };
+  const timeline = cumulate(inc);
+  // Abos (Einheiten) auf dem Server, gleiche Quellen wie oben
+  const units = new Map<string, [number, number][]>();
+  const pushUnits = (id: string, t: number, n: number) => {
+    if (n <= 0) return;
+    const list = units.get(id) ?? [];
+    list.push([t, n]);
+    units.set(id, list);
+  };
+  for (const r of legacyRows.rows) if (r.ok) pushUnits(r.player, r.at.getTime(), r.n * perEntry.units);
+  for (const r of subRows.rows) {
+    if (!r.on_server) continue;
+    const t = noTiers();
+    addSub(t, r);
+    pushUnits(r.channel_id, r.at.getTime(), tierUnits(t));
   }
+  const subsTimeline = cumulate(units);
 
-  return { streams, preciseFrom, countedFrom, calibration, perEntry, channels, timeline, loadedAt };
+  return { streams, preciseFrom, countedFrom, calibration, perEntry, channels, timeline, subsTimeline, loadedAt };
 }
 
 const swr = createSwrCache();
@@ -530,6 +552,41 @@ export async function getEarningsSeries(
     const total = (t: number) => ids.reduce((s, pid) => s + cumAt(b.timeline.get(pid), t), 0);
     return { id, points: at.map((x) => ({ at: new Date(x).toISOString(), v: Math.round(total(x + size - 1) * 100) / 100 })) };
   });
+}
+
+/** Abos auf dem Server je Spieler (wie die Einnahmen gezählt) über die Zeit, für den Graphen */
+export async function getSubsSeries(players: string[], from: number | null, to: number, bucketMinutes: number): Promise<{ id: string; points: { at: string; v: number }[] }[]> {
+  const b = await getBase();
+  const start = from ?? b.countedFrom ?? to;
+  const size = bucketMinutes * 60_000;
+  const lines = players.length ? players.map((id) => ({ id, ids: [id] })) : [{ id: "alle", ids: [...b.subsTimeline.keys()] }];
+  return lines.map(({ id, ids }) => {
+    const buckets = new Set<number>();
+    for (const pid of ids) for (const t of b.subsTimeline.get(pid)?.t ?? []) if (t >= start && t <= to) buckets.add(Math.floor(t / size) * size);
+    const first = Math.floor(start / size) * size;
+    const at = [first, ...[...buckets].filter((x) => x > first).sort((x, y) => x - y)];
+    const total = (t: number) => ids.reduce((s, pid) => s + cumAt(b.subsTimeline.get(pid), t), 0);
+    return { id, points: at.map((x) => ({ at: new Date(x).toISOString(), v: Math.round(total(x + size - 1)) })) };
+  });
+}
+
+/** Abos eines Spielers auf dem Server: Summe, seit `since` (laufender Stream) und Verlauf für die Sparkline */
+export async function getPlayerSubs(id: string, since: number | null): Promise<{ total: number; currentStream: number; history: { at: string; value: number }[] }> {
+  const b = await getBase();
+  const line = b.subsTimeline.get(id);
+  const total = line?.cum[line.cum.length - 1] ?? 0;
+  const before = since !== null ? cumAt(line, since - 1) : total;
+  const step = Math.max(1, Math.ceil((line?.t.length ?? 0) / 200));
+  const history = (line?.t ?? [])
+    .map((t, i) => ({ at: new Date(t).toISOString(), value: Math.round(line!.cum[i]) }))
+    .filter((_, i, all) => i % step === 0 || i === all.length - 1);
+  return { total: Math.round(total), currentStream: Math.round(total - before), history };
+}
+
+/** Rangliste: Abos auf dem Server je Spieler (wie die Einnahmen gezählt) */
+export async function getSubsTotals(): Promise<Map<string, { value: number; at: number }>> {
+  const b = await getBase();
+  return new Map([...b.subsTimeline].map(([id, line]) => [id, { value: Math.round(line.cum[line.cum.length - 1] ?? 0), at: line.t[line.t.length - 1] ?? 0 }]));
 }
 
 /** Rangliste: Einnahmen auf dem Server je Spieler (automatischer Anteil) */

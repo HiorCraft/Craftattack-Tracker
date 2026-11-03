@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { PageSkeleton } from "@/components/Skeletons";
 import type { Metadata } from "next";
 import { loadTracker } from "@/lib/data";
-import { getFullBoard, getTwitchSubscriptionBoard } from "@/lib/store";
+import { getFullBoard, getTwitchCheerBoard, getTwitchSubscriptionBoard } from "@/lib/store";
 import { getAfkBoard, getAfkRanksBefore, getBoardRanksBefore, getExtraRanksBefore, getFollowerRanksBefore, getTopRanksBefore, getTrackedRanksBefore } from "@/lib/analytics";
 import { BOARD_KEYS, type AfkKind, type BoardKey } from "@/lib/types";
 import { ago, boardValue, duration, num } from "@/lib/format";
@@ -76,7 +76,7 @@ async function Boards(props: PageProps<"/bestenlisten">) {
   const span: Span = typeof sp.seit === "string" && sp.seit in SPANS ? (sp.seit as Span) : "24h";
   const hours = SPANS[span].hours;
   // ▲▼ gibt es überall, wo der Tracker einen früheren Stand kennt (Twitch-Abos zählen erst seit der IRC-Erfassung)
-  const hasMovement = key !== "twitchSubs";
+  const hasMovement = key !== "twitchSubs" && key !== "twitchBits";
   const [{ state, now }, ranksBefore]: [{ state: Awaited<ReturnType<typeof loadTracker>>["state"]; now: number }, Record<string, number>] = await Promise.all([
     loadTracker(),
     key === "tracked"
@@ -123,6 +123,8 @@ async function Boards(props: PageProps<"/bestenlisten">) {
     fmt = duration;
   } else if (key === "twitchSubs") {
     rows = await getTwitchSubscriptionBoard();
+  } else if (key === "twitchBits") {
+    rows = await getTwitchCheerBoard();
   } else if (key === "followers") {
     rows = await getFullBoard("followers");
   } else if (isBoardKey(key)) {
