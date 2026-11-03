@@ -21,6 +21,8 @@ const nextConfig: NextConfig = {
       { source: "/netz", destination: "/verbindungen", permanent: false },
     ];
   },
+  // Abwechselnd .next-a / .next-b (scripts/deploy.sh): die neue Version baut, während die alte weiterläuft
+  ...(process.env.NEXT_DIST_DIR && !estimate ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   ...(estimate ? { basePath: "/schaetzung", distDir: ".next-schaetzung" } : {}),
   env: {
     NEXT_PUBLIC_CA_ESTIMATE: estimate ? "1" : "",

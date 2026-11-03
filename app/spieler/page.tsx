@@ -3,6 +3,7 @@ import { ListSearch } from "@/components/ListSearch";
 import { Suspense } from "react";
 import { PageSkeleton } from "@/components/Skeletons";
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { loadTracker } from "@/lib/data";
 import { duration, num, ago } from "@/lib/format";
 import { playtimeOf } from "@/lib/playtime";
@@ -24,6 +25,7 @@ export default function Page(props: PageProps<"/spieler">) {
 }
 
 async function Players({ searchParams }: { searchParams: PageProps<"/spieler">["searchParams"] }) {
+  await connection();
   const sp = await searchParams;
   const filter = typeof sp.filter === "string" ? sp.filter : "alle";
   const [{ state, events, now }, subscriptionBoard, chatMessages] = await Promise.all([

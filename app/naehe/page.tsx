@@ -5,6 +5,7 @@ import { connection } from "next/server";
 import { PageSkeleton } from "@/components/Skeletons";
 import { NetworkLab } from "@/components/NetworkLab";
 import { Explain } from "@/components/Explain";
+import { DataAge } from "@/components/DataAge";
 import { NETWORK_RANGES, getNetwork } from "@/lib/connections";
 
 export const metadata: Metadata = { title: "Nähe", description: "Ein Spieler in der Mitte, alle anderen nach ihrer Nähe im Netz aus Raids, geteilten Chats, Titeln und Chat-Nachrichten." };
@@ -22,7 +23,7 @@ async function Rings({ searchParams }: { searchParams: PageProps<"/naehe">["sear
   await connection();
   const sp = await searchParams;
   const range = NETWORK_RANGES.find((r) => r.key === sp.zeit) ?? NETWORK_RANGES[2];
-  const { nodes, edges } = await getNetwork(range.hours);
+  const { nodes, edges, at } = await getNetwork(range.hours);
   const spieler = typeof sp.spieler === "string" && nodes.some((n) => n.id === sp.spieler) ? sp.spieler : "";
   return (
     <>
@@ -35,7 +36,8 @@ async function Rings({ searchParams }: { searchParams: PageProps<"/naehe">["sear
             <Explain>
               Nähe über den kürzesten Weg im Netz: Raids, Titel und Chat-Nachrichten zählen nur in ihre Richtung, geteilter Chat in beide. Ein Klick auf
               einen Kopf setzt ihn in die Mitte. Wer mit wem eine Gruppe bildet, zeigt <Link href="/gruppen">Gruppen</Link>.
-            </Explain>
+            </Explain>{" "}
+            <DataAge at={at} prefix="Auswertung" hint="wird alle 10 Minuten im Hintergrund neu berechnet" />
           </p>
         </div>
       </section>

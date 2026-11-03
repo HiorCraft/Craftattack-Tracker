@@ -43,10 +43,10 @@ function ActiveList() {
 export function HubTabs() {
   const path = usePathname();
   const current = hubOf(path);
-  if (!current || current.hub.tabs.length < 2) return null;
+  if (!current || current.hub.tabs.length < 2) return <span />;
   return (
     <nav className="subnav" aria-label={current.hub.label}>
-      <ul className="wrap subnav__in">
+      <ul className="subnav__in">
         {current.hub.tabs.map((t) => (
           <li key={t.href}>
             <Link href={t.href} aria-current={t.href === current.tab.href ? "page" : undefined}>

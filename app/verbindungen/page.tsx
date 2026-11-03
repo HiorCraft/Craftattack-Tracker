@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { Explain } from "@/components/Explain";
+import { DataAge } from "@/components/DataAge";
 import { Suspense } from "react";
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { PageSkeleton } from "@/components/Skeletons";
 import { ConnectionExplorer } from "@/components/ConnectionExplorer";
 import { FigValue } from "@/components/FigValue";
@@ -22,9 +24,10 @@ export default function Page(props: PageProps<"/verbindungen">) {
 }
 
 async function Connections({ searchParams }: { searchParams: PageProps<"/verbindungen">["searchParams"] }) {
+  await connection();
   const sp = await searchParams;
   const range = RANGES.find((r) => r.key === sp.zeit) ?? RANGES[2];
-  const { nodes, edges } = await getNetwork(range.hours);
+  const { nodes, edges, at } = await getNetwork(range.hours);
 
   const raids = edges.reduce((s, e) => s + e.raidsAB + e.raidsBA, 0);
   const chats = edges.reduce((s, e) => s + e.chats, 0);
@@ -42,7 +45,8 @@ async function Connections({ searchParams }: { searchParams: PageProps<"/verbind
             <Explain>
               Je enger die Verbindung, desto dicker die Linie und desto näher stehen die Köpfe zusammen. Wie viel jede Art zählt, stellst du selbst ein.
               Ringe um einen Spieler zeigt <Link href="/naehe">Nähe</Link>, erkannte Gruppen <Link href="/gruppen">Gruppen</Link>.
-            </Explain>
+            </Explain>{" "}
+            <DataAge at={at} prefix="Auswertung" hint="wird alle 10 Minuten im Hintergrund neu berechnet" />
           </p>
         </div>
       </section>

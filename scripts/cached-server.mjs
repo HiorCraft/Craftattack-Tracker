@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Kurzzeit-Cache vor der Website, für viele gleichzeitige Besucher.
+ * Kurzzeit-Cache vor der Website, für viele gleichzeitige Besucher, und Wechsel auf neue Versionen ohne Ausfall.
  *
- *   node scripts/cached-server.mjs        (PORT wie gewohnt, Next.js läuft intern auf PORT + 1)
+ *   node scripts/cached-server.mjs        (PORT wie gewohnt, Next.js läuft intern auf PORT + 1 bzw. PORT + 2)
  *
  * Die Seiten hängen nur von der URL ab (kein Login, keine Cookies) und die Daten ändern sich höchstens einmal pro
  * Minute. Deshalb wird jede Seite (HTML, RSC-Daten für Navigation und Auto-Refresh, API-Antworten) höchstens alle
@@ -10,49 +10,160 @@
  * - Gleichzeitige Anfragen für dieselbe Seite warten auf ein einziges Rendern.
  * - Ältere Kopien (bis STALE_MS) werden sofort ausgeliefert und im Hintergrund erneuert.
  * - Höchstens MAX_RENDERS Seiten werden gleichzeitig gerendert (2 CPUs), der Rest wartet in einer Schlange.
- * - Endet Next.js, endet auch dieser Prozess (systemd startet beide neu).
- * - `/schaetzung/…` geht an die Schätzungs-Ausgabe (eigener Dienst auf ESTIMATE_PORT, siehe README), mit demselben Cache.
+ *
+ * Neue Version ohne Ausfall (scripts/deploy.sh): Der Build landet abwechselnd in `.next-a` / `.next-b`, der Name
+ * steht in `.next-active`. SIGUSR2 an diesen Prozess startet Next.js aus dem neuen Ordner auf dem anderen Port,
+ * wartet, bis es antwortet, wärmt die wichtigsten Seiten vor und schaltet dann um; der alte Prozess endet kurz
+ * danach. Bis dahin bedient der alte alle Anfragen. Dateien unter `/_next/static/` liefert dieser Prozess selbst
+ * von der Platte, aus allen Build-Ordnern: Seiten, die noch die alte Version geladen haben, funktionieren weiter.
+ * Der Seiten-Cache bleibt beim Wechsel erhalten und wird nur als „neu rendern“ markiert.
+ *
+ * Endet der aktive Next.js-Prozess unerwartet, endet auch dieser Prozess (systemd startet neu).
+ * `/schaetzung` ist abgeschaltet und leitet auf die Startseite.
  */
 import http from "node:http";
 import { spawn } from "node:child_process";
 import { gunzipSync } from "node:zlib";
 import { createRequire } from "node:module";
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
+import { extname, join, normalize, sep } from "node:path";
 
 const PORT = Number(process.env.PORT ?? 3000);
-const INNER_PORT = Number(process.env.INNER_PORT ?? PORT + 1);
-const FRESH_MS = 30_000;
-const STALE_MS = 10 * 60_000;
+const PORTS = [PORT + 1, PORT + 2];
+const FRESH_MS = 60_000;
+const STALE_MS = 30 * 60_000;
 const MAX_BYTES = 120 * 1024 * 1024;
 const MAX_RENDERS = 3;
 const MAX_QUEUE = 400;
 const UPSTREAM_TIMEOUT_MS = 90_000;
-/** Schätzungs-Ausgabe (eigener Next.js-Dienst mit basePath /schaetzung) */
-const ESTIMATE_PORT = Number(process.env.ESTIMATE_PORT ?? 3030);
-const ESTIMATE_PREFIX = /^\/schaetzung(\/|\?|$)/;
-const portFor = (url) => (ESTIMATE_PREFIX.test(url) ? ESTIMATE_PORT : INNER_PORT);
+/** Nach dem Umschalten darf der alte Prozess so lange laufende Anfragen beenden */
+const RETIRE_MS = 15_000;
+/** Vor dem Umschalten einmal laden, damit Besucher nicht die kalten Zwischenspeicher treffen */
+const WARM = ["/", "/spieler", "/bestenlisten", "/live", "/ereignisse", "/verbindungen", "/gruppen", "/zuschauer", "/statistik"];
+const DIST_DIRS = [".next-a", ".next-b", ".next"];
 /** Nie zwischenspeichern: Cron/Poll, Vorwärmen, Status */
-const BYPASS = [/^(\/schaetzung)?\/api\/cron\//, /^(\/schaetzung)?\/api\/tracker(\/|$|\?)/, /^(\/schaetzung)?\/api\/warm/];
+const BYPASS = [/^\/api\/cron\//, /^\/api\/tracker(\/|$|\?)/, /^\/api\/warm/];
 /** Diese Anfrage-Header ändern die Antwort von Next.js (siehe dessen `Vary`) und gehören in den Schlüssel */
 const VARY = ["rsc", "next-router-state-tree", "next-router-prefetch", "next-router-segment-prefetch", "next-url"];
 /** Nicht an den Besucher weiterreichen; Länge und Kodierung setzt dieser Prozess selbst */
 const DROP = new Set(["content-length", "transfer-encoding", "connection", "keep-alive", "content-encoding"]);
+const TYPES = { ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".woff2": "font/woff2", ".woff": "font/woff", ".png": "image/png", ".webp": "image/webp", ".svg": "image/svg+xml", ".json": "application/json", ".map": "application/json", ".txt": "text/plain; charset=utf-8" };
 
-/* ---------- Next.js als Kindprozess ---------- */
+const log = (...a) => console.log("[cache]", ...a);
+
+/* ---------- Next.js als Kindprozess(e) ---------- */
 const nextBin = createRequire(import.meta.url).resolve("next/dist/bin/next");
-const child = spawn(
-  process.execPath,
-  ["--max-old-space-size=280", "--max-semi-space-size=16", nextBin, "start", "-p", String(INNER_PORT), "-H", "127.0.0.1"],
-  { env: { ...process.env, PORT: String(INNER_PORT) }, stdio: "inherit" },
-);
-child.on("exit", (code, signal) => {
-  console.error(`[cache] Next.js beendet (${signal ?? code}), beende auch den Cache`);
-  process.exit(code || 1);
-});
+const activeDist = () => {
+  try {
+    const d = readFileSync(".next-active", "utf8").trim();
+    if (DIST_DIRS.includes(d) && existsSync(join(d, "BUILD_ID"))) return d;
+  } catch {}
+  return ".next";
+};
+
+function startNext(dist, port) {
+  const child = spawn(process.execPath, ["--max-old-space-size=280", "--max-semi-space-size=16", nextBin, "start", "-p", String(port), "-H", "127.0.0.1"], {
+    env: { ...process.env, PORT: String(port), ...(dist === ".next" ? {} : { NEXT_DIST_DIR: dist }) },
+    stdio: "inherit",
+  });
+  const inst = { child, port, dist, retired: false };
+  child.on("exit", (code, signal) => {
+    if (inst.retired) return;
+    if (current === inst) {
+      console.error(`[cache] Next.js beendet (${signal ?? code}), beende auch den Cache`);
+      process.exit(code || 1);
+    }
+  });
+  return inst;
+}
+
+let current = startNext(activeDist(), PORTS[0]);
+let switching = false;
+log(`Next.js aus ${current.dist} auf ${current.port}`);
+
 for (const sig of ["SIGTERM", "SIGINT"]) {
   process.on(sig, () => {
-    child.kill(sig);
+    current.child.kill(sig);
     setTimeout(() => process.exit(0), 5_000).unref();
   });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function get(port, path, timeout = UPSTREAM_TIMEOUT_MS) {
+  return new Promise((resolve) => {
+    const req = http.get({ host: "127.0.0.1", port, path, timeout, headers: { "accept-encoding": "gzip" } }, (res) => {
+      res.resume();
+      res.on("end", () => resolve(res.statusCode ?? 0));
+    });
+    req.on("timeout", () => req.destroy());
+    req.on("error", () => resolve(0));
+  });
+}
+
+/** Neue Version starten, vorwärmen, umschalten (SIGUSR2) */
+async function switchVersion() {
+  if (switching) return log("Wechsel läuft schon");
+  const dist = activeDist();
+  if (dist === current.dist) return log(`${dist} läuft bereits`);
+  switching = true;
+  const port = PORTS.find((p) => p !== current.port);
+  log(`Starte neue Version aus ${dist} auf ${port}`);
+  const next = startNext(dist, port);
+  next.retired = true; // bis zum Umschalten: Ende nicht als Ausfall werten
+  const t0 = Date.now();
+  let ok = false;
+  while (Date.now() - t0 < 180_000 && next.child.exitCode === null) {
+    if ((await get(port, "/api/tracker", 5_000)) === 200) {
+      ok = true;
+      break;
+    }
+    await sleep(1_000);
+  }
+  if (!ok) {
+    log("Neue Version antwortet nicht, bleibe bei der alten");
+    next.child.kill("SIGTERM");
+    switching = false;
+    return;
+  }
+  for (const path of WARM) {
+    const status = await get(port, path);
+    log(`vorgewärmt ${path} (${status})`);
+  }
+  const old = current;
+  next.retired = false;
+  current = next;
+  old.retired = true;
+  // Gespeicherte Seiten bleiben, werden aber beim nächsten Aufruf neu gerendert
+  for (const e of cache.values()) e.at = Math.min(e.at, Date.now() - FRESH_MS);
+  log(`Umgeschaltet auf ${dist} nach ${Math.round((Date.now() - t0) / 1000)} s`);
+  setTimeout(() => old.child.kill("SIGTERM"), RETIRE_MS).unref();
+  switching = false;
+}
+process.on("SIGUSR2", () => void switchVersion().catch((e) => ((switching = false), console.error("[cache] Wechsel fehlgeschlagen:", e))));
+
+/* ---------- Statische Dateien aus allen Build-Ordnern ---------- */
+function serveStatic(req, res) {
+  const rel = normalize(decodeURIComponent((req.url ?? "").split("?")[0]).replace(/^\/_next\/static\//, ""));
+  if (rel.startsWith("..") || rel.includes(`..${sep}`)) return false;
+  for (const dist of [current.dist, ...DIST_DIRS.filter((d) => d !== current.dist)]) {
+    const file = join(dist, "static", rel);
+    let st;
+    try {
+      st = statSync(file);
+    } catch {
+      continue;
+    }
+    if (!st.isFile()) continue;
+    res.writeHead(200, {
+      "content-type": TYPES[extname(file)] ?? "application/octet-stream",
+      "content-length": String(st.size),
+      "cache-control": "public, max-age=31536000, immutable",
+    });
+    if (req.method === "HEAD") res.end();
+    else createReadStream(file).pipe(res);
+    return true;
+  }
+  return false;
 }
 
 /* ---------- Cache ---------- */
@@ -98,7 +209,7 @@ function release() {
 function fetchUpstream(req) {
   return new Promise((resolve, reject) => {
     const headers = { ...req.headers, "accept-encoding": "gzip" };
-    const up = http.request({ host: "127.0.0.1", port: portFor(req.url ?? "/"), method: "GET", path: req.url, headers, timeout: UPSTREAM_TIMEOUT_MS }, (res) => {
+    const up = http.request({ host: "127.0.0.1", port: current.port, method: "GET", path: req.url, headers, timeout: UPSTREAM_TIMEOUT_MS }, (res) => {
       const chunks = [];
       res.on("data", (c) => chunks.push(c));
       res.on("end", () => resolve({ at: Date.now(), status: res.statusCode ?? 502, headers: res.headers, body: Buffer.concat(chunks), gzip: res.headers["content-encoding"] === "gzip" }));
@@ -143,13 +254,14 @@ function send(req, res, entry, state) {
   }
   headers["content-length"] = String(body.length);
   headers["x-cache"] = state;
+  headers["x-cache-age"] = String(Math.round((Date.now() - entry.at) / 1000));
   res.writeHead(entry.status, headers);
   res.end(req.method === "HEAD" ? undefined : body);
 }
 
 /** Alles, was nicht zwischengespeichert wird, unverändert durchreichen (inkl. Streaming) */
 function pass(req, res) {
-  const up = http.request({ host: "127.0.0.1", port: portFor(req.url ?? "/"), method: req.method, path: req.url, headers: req.headers }, (r) => {
+  const up = http.request({ host: "127.0.0.1", port: current.port, method: req.method, path: req.url, headers: req.headers }, (r) => {
     res.writeHead(r.statusCode ?? 502, r.headers);
     r.pipe(res);
   });
@@ -163,6 +275,11 @@ function pass(req, res) {
 const server = http.createServer(async (req, res) => {
   res.on("error", () => {});
   const url = req.url ?? "/";
+  if (/^\/schaetzung(\/|\?|$)/.test(url)) {
+    res.writeHead(302, { location: "/" });
+    return res.end();
+  }
+  if ((req.method === "GET" || req.method === "HEAD") && url.startsWith("/_next/static/") && serveStatic(req, res)) return;
   if ((req.method !== "GET" && req.method !== "HEAD") || BYPASS.some((r) => r.test(url))) return pass(req, res);
   const key = [req.headers.host ?? "", url, ...VARY.map((h) => req.headers[h] ?? "")].join("\n");
   const hit = cache.get(key);
@@ -183,4 +300,4 @@ const server = http.createServer(async (req, res) => {
   }
 });
 server.keepAliveTimeout = 65_000;
-server.listen(PORT, () => console.log(`[cache] Port ${PORT} → Next.js auf ${INNER_PORT} (frisch ${FRESH_MS / 1000} s, Reserve ${STALE_MS / 60_000} Min)`));
+server.listen(PORT, () => log(`Port ${PORT} → Next.js (frisch ${FRESH_MS / 1000} s, Reserve ${STALE_MS / 60_000} Min)`));

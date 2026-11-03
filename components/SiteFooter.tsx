@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Icon } from "./Icons";
 import { SOCIALS } from "@/lib/site";
 import { HUBS } from "@/lib/hubs";
-import { ESTIMATE, ESTIMATE_PATH } from "@/lib/estimateMode";
+import { ESTIMATE } from "@/lib/estimateMode";
 
 export function SiteFooter() {
   return (
@@ -35,11 +35,13 @@ export function SiteFooter() {
           <li>
             <a href="/api/tracker">JSON-API</a>
           </li>
-          <li>
-            {/* Normale <a>: die Schätzung ist ein eigener Build mit eigenem Präfix */}
-            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-            {ESTIMATE ? <a href="/">Echte Daten</a> : <a href={ESTIMATE_PATH}>Schätzung (Lücken gefüllt)</a>}
-          </li>
+          {/* Die Schätzung (/schaetzung) ist abgeschaltet; nur ihr eigener Build verlinkt zurück */}
+          {ESTIMATE && (
+            <li>
+              {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+              <a href="/">Echte Daten</a>
+            </li>
+          )}
           <li>
             <a href="https://craftattack.one/" target="_blank" rel="noopener">
               Offizielle Seite

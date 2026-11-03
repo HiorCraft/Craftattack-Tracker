@@ -16,6 +16,12 @@
 # next.js
 /.next/
 /.next-schaetzung/
+/.next-a/
+/.next-b/
+/.next-active
+/.next-legacy/
+/.next.tmp
+/scripts/.tmp/
 /out/
 
 # production

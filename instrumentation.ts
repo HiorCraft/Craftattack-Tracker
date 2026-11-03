@@ -32,6 +32,9 @@ export async function register() {
     const { startEventQuality } = await import("./lib/eventQuality");
     startEventQuality();
     // Einmal pro Prozess: alte Verlaufsdaten korrigieren und fehlende AFK-Farm-Ereignisse nachtragen
+    // Teure Auswertungen für die Website vorberechnen (Zuschauerwanderung, Netze)
+    const { startSnapshotJobs } = await import("./lib/snapshotJobs");
+    startSnapshotJobs();
     const { runBackfills } = await import("./lib/backfill");
     runBackfills().catch((err: unknown) => console.error("[tracker] Nachträge fehlgeschlagen:", err));
   }

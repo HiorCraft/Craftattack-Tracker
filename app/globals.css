@@ -6202,3 +6202,36 @@ a.st-board__mvlink:focus-visible {
 .mig__mk-own {
   color: var(--mig-mk-own);
 }
+
+/* Reiterleiste mit Datenstand rechts */
+.subbar {
+  border-top: 2px solid color-mix(in srgb, var(--line) 25%, transparent);
+}
+.subbar__in {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 10px;
+}
+.subbar .subnav {
+  border-top: 0;
+  min-width: 0;
+}
+.subbar__in > .data-age {
+  flex: none;
+  padding: 6px 0;
+}
+.data-age {
+  font-size: 0.75rem;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+.page-head .data-age {
+  display: inline-block;
+  margin-left: 6px;
+}
+.subbar .subnav__in {
+  margin: 0;
+  padding: 0;
+}

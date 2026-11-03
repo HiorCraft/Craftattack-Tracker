@@ -5,6 +5,7 @@ import { connection } from "next/server";
 import { PageSkeleton } from "@/components/Skeletons";
 import { FigValue } from "@/components/FigValue";
 import { Explain } from "@/components/Explain";
+import { DataAge } from "@/components/DataAge";
 import { Fold } from "@/components/Fold";
 import { ShowMore } from "@/components/ShowMore";
 import { PlayerSearch } from "@/components/PlayerSearch";
@@ -65,7 +66,8 @@ async function Viewers({ searchParams }: { searchParams: PageProps<"/zuschauer">
           <p className="eyebrow">Community</p>
           <h1 className="t-1">Zuschauer</h1>
           <p>
-            Wohin Zuschauer gehen, wenn ein Stream endet, einbricht oder raidet, und ob sie bleiben. <MethodNote />
+            Wohin Zuschauer gehen, wenn ein Stream endet, einbricht oder raidet, und ob sie bleiben. <MethodNote />{" "}
+            <DataAge at={flows.computedAt} prefix="Auswertung" hint="wird alle 10 Minuten im Hintergrund neu berechnet" />
           </p>
         </div>
       </section>

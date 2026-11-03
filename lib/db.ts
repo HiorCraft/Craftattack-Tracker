@@ -253,6 +253,13 @@ async function migrate(db: Db) {
       body         bytea NOT NULL,
       fetched_at   timestamptz NOT NULL
     )`);
+  // Vorberechnete Auswertungen (lib/snapshots.ts): der Tracker schreibt, die Website liest
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS snapshots (
+      key  text PRIMARY KEY,
+      at   timestamptz NOT NULL,
+      data text NOT NULL
+    )`);
   // Chat-Spuren der Zuschauerwanderung (lib/chatMoves.ts): nur Summen je 5-Minuten-Abschnitt und Kanalpaar
   await db.query(`
     CREATE TABLE IF NOT EXISTS viewer_chat_moves (

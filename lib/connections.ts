@@ -1,4 +1,8 @@
 import "server-only";
+import { snapshot } from "./snapshots";
+
+/** Vorberechnete Netze werden so oft erneuert (wie in lib/viewerMigration.ts) */
+const SNAPSHOT_MS = 10 * 60_000;
 import { getDb } from "./db";
 import { emptyLink, type LinkCounts } from "./connectionWeights";
 import { mentionMatcher, titleSeconds } from "./titleMentions";
@@ -128,7 +132,17 @@ export async function getConnections(hours: number | null): Promise<ConnectionEd
  * Netz für die Seiten: nur erfasste Spieler, an den Browser gehen nur die Zählwerte (gewichtet wird dort).
  * `nodes` enthält alle erfassten Spieler, auch ohne Verbindung (für Suche und „alle Spieler“-Ansichten).
  */
-export async function getNetwork(hours: number | null): Promise<{ nodes: NetworkNode[]; edges: LinkCounts[] }> {
+/**
+ * Netz für die Seiten. Für die Zeiträume der Seiten (24 Std, 7 Tage, Staffel) vom Tracker alle 10 Minuten
+ * vorberechnet (lib/snapshots.ts); `at` sagt, wie alt das Ergebnis ist.
+ */
+export async function getNetwork(hours: number | null): Promise<{ nodes: NetworkNode[]; edges: LinkCounts[]; at: number }> {
+  if (!NETWORK_RANGES.some((r) => r.hours === hours)) return { ...(await computeNetwork(hours)), at: Date.now() };
+  const { value, at } = await snapshot(`network:${hours ?? "alle"}`, () => computeNetwork(hours), SNAPSHOT_MS);
+  return { ...value, at };
+}
+
+async function computeNetwork(hours: number | null): Promise<{ nodes: NetworkNode[]; edges: LinkCounts[] }> {
   const [{ state }, all] = await Promise.all([loadTracker(), getConnections(hours)]);
   const edges: LinkCounts[] = all
     .filter((e) => state.players[e.a] && state.players[e.b])
@@ -141,7 +155,13 @@ export async function getNetwork(hours: number | null): Promise<{ nodes: Network
   return { nodes, edges };
 }
 
-export async function getDailyNetwork(): Promise<{ nodes: NetworkNode[]; daily: DailyNetwork }> {
+/** Netz je Tag (Gruppen über die Zeit), vom Tracker alle 10 Minuten vorberechnet */
+export async function getDailyNetwork(): Promise<{ nodes: NetworkNode[]; daily: DailyNetwork; at: number }> {
+  const { value, at } = await snapshot("daily-network", computeDailyNetwork, SNAPSHOT_MS);
+  return { ...value, at };
+}
+
+async function computeDailyNetwork(): Promise<{ nodes: NetworkNode[]; daily: DailyNetwork }> {
   const db = await getDb();
   const [{ state }, raids, chats, messages, streams, players] = await Promise.all([
     loadTracker(),

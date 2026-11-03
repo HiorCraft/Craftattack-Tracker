@@ -5,6 +5,7 @@ import { connection } from "next/server";
 import { PageSkeleton } from "@/components/Skeletons";
 import { GroupsTimeline } from "@/components/GroupsTimeline";
 import { Explain } from "@/components/Explain";
+import { DataAge } from "@/components/DataAge";
 import { getDailyNetwork } from "@/lib/connections";
 
 export const metadata: Metadata = { title: "Gruppen", description: "Wer auf CraftAttack 14 untereinander eng verbunden ist: Gruppen aus Raids, geteilten Chats, Titeln und Chat-Nachrichten, über die Zeit." };
@@ -20,7 +21,7 @@ export default function Page() {
 
 async function Groups() {
   await connection();
-  const { nodes, daily } = await getDailyNetwork();
+  const { nodes, daily, at } = await getDailyNetwork();
   return (
     <>
       <section className="block page-head" data-tone="amethyst">
@@ -33,7 +34,8 @@ async function Groups() {
               Gezählt werden Raids, Chat-Nachrichten, geteilte Chats und Namen im Stream-Titel; die Einteilung rechnet ein Programm (Louvain) aus diesen
               öffentlichen Daten, sie sagt nichts über echte Freundschaften. Jede Gruppe ist nach ihrem Anführer benannt: dem Mitglied, das in der Gruppe
               die meiste Aufmerksamkeit bekommt. Siehe auch <Link href="/verbindungen">Netz</Link> und <Link href="/naehe">Nähe</Link>.
-            </Explain>
+            </Explain>{" "}
+            <DataAge at={at} prefix="Auswertung" hint="wird alle 10 Minuten im Hintergrund neu berechnet" />
           </p>
         </div>
       </section>

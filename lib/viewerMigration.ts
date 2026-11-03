@@ -4,6 +4,7 @@ import { createSwrCache } from "./swrCache";
 import { vodsBetween } from "./twitch";
 import { computeFlows, type FlowResult } from "./viewerFlowCore";
 import { loadChatMoves } from "./chatMoves";
+import { snapshot } from "./snapshots";
 import { getNetwork } from "./connections";
 import { adjacency } from "./network";
 import { DEFAULT_WEIGHTS } from "./connectionWeights";
@@ -22,7 +23,8 @@ const MIN_AGE_MIN = 30;
 /** Lücke zwischen zwei Messpunkten, ab der eine neue Stream-Sitzung beginnt */
 const SESSION_GAP_MIN = 15;
 const BASE_CACHE_MS = 10 * 60_000;
-const ANALYSIS_CACHE_MS = 30 * 60_000;
+/** Vorberechnete Auswertungen werden so oft erneuert */
+export const SNAPSHOT_MS = 10 * 60_000;
 
 interface Series {
   /** Minuten seit 1970 */
@@ -818,9 +820,13 @@ export interface FlowAnalysis extends FlowResult {
   to: number | null;
 }
 
-/** Wanderung über die ganze Staffel, eine halbe Stunde zwischengespeichert (Rechnung ~6 s) */
-export function getFlows(): Promise<FlowAnalysis> {
-  return swr("viewer-flows", ANALYSIS_CACHE_MS, computeAll);
+/**
+ * Wanderung über die ganze Staffel (Rechnung ~6 s): vom Tracker alle 10 Minuten vorberechnet (lib/snapshots.ts),
+ * die Website liest das Ergebnis. `computedAt` sagt, wie alt es ist.
+ */
+export async function getFlows(): Promise<FlowAnalysis & { computedAt: number }> {
+  const { value, at } = await snapshot("viewer-flows", computeAll, SNAPSHOT_MS);
+  return { ...value, computedAt: at };
 }
 
 /* ------------------------------------------------------------------ Staffel je Streamer */
