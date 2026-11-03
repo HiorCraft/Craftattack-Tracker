@@ -6458,7 +6458,8 @@ a.st-board__mvlink:focus-visible {
 .advt__icon {
   display: inline-block;
   flex: none;
-  image-rendering: pixelated;
+  /* 64-px-Felder auf 32 px: genau halbiert, glättet die Würfelkanten ohne Pixel zu verwischen */
+  image-rendering: auto;
   background-repeat: no-repeat;
 }
 .advt__view {
@@ -6511,8 +6512,10 @@ a.st-board__mvlink:focus-visible {
   opacity: 0.8;
   filter: saturate(0.55);
 }
+/* Noch nicht erreicht: Symbol grau und blass, wie im Beispiel */
 .advt__node--open .advt__icon {
-  opacity: 0.85;
+  filter: grayscale(1);
+  opacity: 0.45;
 }
 .advt__q {
   position: absolute;

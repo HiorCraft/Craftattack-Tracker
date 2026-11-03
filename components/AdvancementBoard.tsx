@@ -20,6 +20,7 @@ const COL = 28 * SCALE;
 const ROW = 27 * SCALE;
 const NODE = 26 * SCALE;
 const PAD = 12 * SCALE;
+/** Sprite public/adv/icons.png: 16 Spalten, 64-px-Felder (Blöcke als Würfel wie im Inventar), angezeigt in 32 px */
 const SPRITE_COLS = 16;
 
 interface Placed {

@@ -16,7 +16,7 @@ export interface Advancement {
   title: string;
   desc: string;
   depth: number;
-  /** Feld im Sprite public/adv/icons.png (16 × 16 px, 16 Spalten) */
+  /** Feld im Sprite public/adv/icons.png (64 × 64 px, 16 Spalten; Blöcke als Würfel gerendert) */
   icon: number;
 }
 
