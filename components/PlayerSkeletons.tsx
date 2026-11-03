@@ -200,3 +200,18 @@ export function ChatSkeleton() {
     </section>
   );
 }
+
+/** Einfacher Platzhalter: Überschrift und eine graue Fläche in der ungefähren Höhe des Inhalts */
+export function SectionSkeleton({ title, height = 220 }: { title: string; height?: number }) {
+  return (
+    <section className="block block--tight" data-tone="paper" aria-busy="true">
+      <div className="wrap">
+        <div className="section-head">
+          <h2 className="t-2">{title}</h2>
+        </div>
+        <Bar w="100%" h={height} />
+        <Loading label={title} />
+      </div>
+    </section>
+  );
+}

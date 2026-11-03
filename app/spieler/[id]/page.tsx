@@ -33,7 +33,7 @@ import { PlayerActivity } from "@/components/PlayerActivity";
 import { PlayerDetails } from "@/components/PlayerDetails";
 import { playtimeOf, trackedSecondsOf } from "@/lib/playtime";
 import { getPlayerEventTimeState } from "@/lib/playerEventStatus";
-import { ChatSkeleton, DetailsSkeleton, HeadSkeleton, InsightsSkeleton, RanksSkeleton, TilesSkeleton, TimelineSkeleton } from "@/components/PlayerSkeletons";
+import { ChatSkeleton, DetailsSkeleton, HeadSkeleton, InsightsSkeleton, RanksSkeleton, SectionSkeleton, TilesSkeleton, TimelineSkeleton } from "@/components/PlayerSkeletons";
 import { METRIC_TONE } from "@/lib/statTone";
 import { Head } from "@/components/Head";
 import { TOP_CATEGORIES, boardHref, itemRanking, restRanking } from "@/lib/leaderboards";
@@ -72,7 +72,8 @@ type Params = PageProps<"/spieler/[id]">["params"];
 /**
  * Die Seite öffnet sofort: Jeder Abschnitt lädt seine Daten selbst und erscheint, sobald sie da sind.
  * Bis dahin zeigt ein Platzhalter mit der echten Überschrift, was kommt, ohne dass das Layout springt.
- * Schnelles zuerst: Kopf und Kacheln brauchen fast nur den Tracker-Stand im Speicher.
+ * Reihenfolge: erst, was man sonst nirgends sieht (Auswertung, Ränge, Verbindungen, Fortschritte), dann Details
+ * und Verlauf, zuletzt Chat und Clips. Kopf und Kacheln brauchen fast nur den Tracker-Stand im Speicher.
  */
 export default function Page(props: PageProps<"/spieler/[id]">) {
   const { params, searchParams } = props;
@@ -84,32 +85,33 @@ export default function Page(props: PageProps<"/spieler/[id]">) {
       <Suspense fallback={<TilesSkeleton />}>
         <StatsSection params={params} />
       </Suspense>
-      <Suspense fallback={null}>
-        <HighlightsSection params={params} searchParams={searchParams} />
-      </Suspense>
-      <Suspense fallback={null}>
-        <ClipsSection params={params} />
-      </Suspense>
       <Suspense fallback={<InsightsSkeleton />}>
         <InsightsSection params={params} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <HighlightsSection params={params} searchParams={searchParams} />
       </Suspense>
       <Suspense fallback={<RanksSkeleton />}>
         <ActivitySection params={params} />
       </Suspense>
-      <Suspense fallback={null}>
+      <Suspense fallback={<SectionSkeleton title="Verbindungen" height={180} />}>
         <NetworkSection params={params} />
       </Suspense>
-      <Suspense fallback={null}>
+      <Suspense fallback={<SectionSkeleton title="Fortschritte" height={360} />}>
         <AdvancementsSection params={params} />
-      </Suspense>
-      <Suspense fallback={<DetailsSkeleton />}>
-        <DetailsSection params={params} />
       </Suspense>
       <Suspense fallback={<TimelineSkeleton />}>
         <TimelineSection params={params} />
       </Suspense>
+      <Suspense fallback={<DetailsSkeleton />}>
+        <DetailsSection params={params} />
+      </Suspense>
       <Suspense fallback={<ChatSkeleton />}>
         <ChatSection params={params} />
+      </Suspense>
+      {/* Clips zuletzt: schön anzusehen, aber keine Daten, die man sonst nicht sieht */}
+      <Suspense fallback={null}>
+        <ClipsSection params={params} />
       </Suspense>
     </>
   );
@@ -876,7 +878,7 @@ async function ChatSection({ params }: { params: Params }) {
 async function NetworkSection({ params }: { params: Params }) {
   const { id } = await ctxFor(params);
   const { nodes, edges, out, analysis } = await getNetworkSummary();
-  if (!edges.some((e) => e.a === id || e.b === id)) return null;
+  if (!edges.some((e) => e.a === id || e.b === id)) return <EmptySection title="Verbindungen" text="Noch keine Raids, geteilten Chats oder Chat-Nachrichten mit anderen Spielern." />;
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const name = (x: string) => byId.get(x)?.name ?? x;
   const near = [...distancesFrom(id, out, "von").values()].filter((r) => r.id !== id).sort((a, b) => a.dist - b.dist).slice(0, 10);
@@ -941,11 +943,25 @@ async function NetworkSection({ params }: { params: Params }) {
   );
 }
 
+/** Abschnitt ohne Inhalt: Überschrift bleibt (statt dass der Platzhalter verschwindet und die Seite springt) */
+function EmptySection({ title, text }: { title: string; text: string }) {
+  return (
+    <section className="block block--tight" data-tone="paper">
+      <div className="wrap">
+        <div className="section-head">
+          <h2 className="t-2">{title}</h2>
+          <p className="muted">{text}</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /** Fortschritte (Advancements) wie im Spiel, mit Vermutungen für das, was vor dem Tracker passierte */
 async function AdvancementsSection({ params }: { params: Params }) {
   const { id, state } = await ctxFor(params);
   const board = await getAdvancementBoard(id, state.players);
-  if (!Object.keys(board.mine).length) return null;
+  if (!Object.keys(board.mine).length) return <EmptySection title="Fortschritte" text="Noch keine Fortschritte gemeldet." />;
   return (
     <section className="block block--tight" data-tone="paper" aria-labelledby="adv-h">
       <div className="wrap">

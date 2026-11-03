@@ -16,7 +16,8 @@
  * wartet, bis es antwortet, wärmt die wichtigsten Seiten vor und schaltet dann um; der alte Prozess endet kurz
  * danach. Bis dahin bedient der alte alle Anfragen. Dateien unter `/_next/static/` liefert dieser Prozess selbst
  * von der Platte, aus allen Build-Ordnern: Seiten, die noch die alte Version geladen haben, funktionieren weiter.
- * Der Seiten-Cache bleibt beim Wechsel erhalten und wird nur als „neu rendern“ markiert.
+ * Beim Wechsel wird der Seiten-Cache geleert (alte Seiten passen nicht zur neuen Version); Dateien früherer
+ * Versionen liegen zusätzlich 7 Tage in `.next-static-archive`.
  *
  * Endet der aktive Next.js-Prozess unerwartet, endet auch dieser Prozess (systemd startet neu).
  * `/schaetzung` ist abgeschaltet und leitet auf die Startseite.
@@ -41,6 +42,8 @@ const RETIRE_MS = 15_000;
 /** Vor dem Umschalten einmal laden, damit Besucher nicht die kalten Zwischenspeicher treffen */
 const WARM = ["/", "/spieler", "/bestenlisten", "/live", "/ereignisse", "/verbindungen", "/gruppen", "/zuschauer", "/statistik"];
 const DIST_DIRS = [".next-a", ".next-b", ".next"];
+/** Statische Dateien früherer Versionen (scripts/deploy.sh hebt sie 7 Tage auf), für Seiten, die noch offen sind */
+const STATIC_ARCHIVE = ".next-static-archive";
 /** Nie zwischenspeichern: Cron/Poll, Vorwärmen, Status */
 const BYPASS = [/^\/api\/cron\//, /^\/api\/tracker(\/|$|\?)/, /^\/api\/warm/];
 /** Diese Anfrage-Header ändern die Antwort von Next.js (siehe dessen `Vary`) und gehören in den Schlüssel */
@@ -133,8 +136,10 @@ async function switchVersion() {
   next.retired = false;
   current = next;
   old.retired = true;
-  // Gespeicherte Seiten bleiben, werden aber beim nächsten Aufruf neu gerendert
-  for (const e of cache.values()) e.at = Math.min(e.at, Date.now() - FRESH_MS);
+  // Gespeicherte Seiten der alten Version verwerfen: Sie verweisen auf deren Dateien und passen nicht zu den
+  // Daten, die die neue Version beim Aktualisieren liefert (das ließ Abschnitte nach dem Laden verschwinden)
+  cache.clear();
+  cachedBytes = 0;
   log(`Umgeschaltet auf ${dist} nach ${Math.round((Date.now() - t0) / 1000)} s`);
   setTimeout(() => old.child.kill("SIGTERM"), RETIRE_MS).unref();
   switching = false;
@@ -145,8 +150,9 @@ process.on("SIGUSR2", () => void switchVersion().catch((e) => ((switching = fals
 function serveStatic(req, res) {
   const rel = normalize(decodeURIComponent((req.url ?? "").split("?")[0]).replace(/^\/_next\/static\//, ""));
   if (rel.startsWith("..") || rel.includes(`..${sep}`)) return false;
-  for (const dist of [current.dist, ...DIST_DIRS.filter((d) => d !== current.dist)]) {
-    const file = join(dist, "static", rel);
+  const roots = [current.dist, ...DIST_DIRS.filter((d) => d !== current.dist)].map((d) => join(d, "static"));
+  for (const root of [...roots, STATIC_ARCHIVE]) {
+    const file = join(root, rel);
     let st;
     try {
       st = statSync(file);
