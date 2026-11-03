@@ -43,7 +43,7 @@ set -a
 . "$ENV_FILE"
 set +a
 start=$(date +%s)
-NEXT_DIST_DIR="$target" NODE_ENV=production nice -n 10 "$NODE" node_modules/next/dist/bin/next build > "/tmp/actracker-build.log" 2>&1 || {
+DEPLOY_ID="$(git rev-parse --short HEAD)-$start" NEXT_DIST_DIR="$target" NODE_ENV=production nice -n 10 "$NODE" node_modules/next/dist/bin/next build > "/tmp/actracker-build.log" 2>&1 || {
   tail -30 /tmp/actracker-build.log
   echo "[deploy] Build fehlgeschlagen, alte Version läuft weiter"
   exit 1

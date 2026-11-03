@@ -27,6 +27,8 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_CA_ESTIMATE: estimate ? "1" : "",
     NEXT_PUBLIC_BASE_PATH: estimate ? "/schaetzung" : "",
+    // Kennung dieser Version (scripts/deploy.sh), damit offene Seiten eine neue Version erkennen
+    NEXT_PUBLIC_DEPLOY_ID: process.env.DEPLOY_ID ?? "",
   },
 };
 

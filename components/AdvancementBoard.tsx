@@ -77,7 +77,21 @@ function Icon({ index, size = 32 }: { index: number; size?: number }) {
  * Die Fläche lässt sich wie im Spiel mit der Maus ziehen.
  */
 export function AdvancementBoard({ mine, others, players }: { mine: Record<string, Status>; others: Record<string, [number, number]>; players: number }) {
-  const [cat, setCat] = useState<AdvCategory>("story");
+  const [cat, setCatState] = useState<AdvCategory>("story");
+  // Gewählten Reiter über Neuladen hinweg behalten (z. B. wenn eine neue Version der Website kommt)
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem("ac.adv.tab") as AdvCategory | null;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- gespeicherte Auswahl erst nach dem Hydrieren lesen
+      if (saved && ADV_CATEGORIES.some((c) => c.key === saved)) setCatState(saved);
+    } catch {}
+  }, []);
+  const setCat = (c: AdvCategory) => {
+    setCatState(c);
+    try {
+      sessionStorage.setItem("ac.adv.tab", c);
+    } catch {}
+  };
   const [tip, setTip] = useState<{ id: string; pinned: boolean } | null>(null);
   const view = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; sl: number; st: number; moved: boolean } | null>(null);

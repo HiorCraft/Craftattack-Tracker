@@ -162,7 +162,10 @@ const shareFor = (points: number): Share => (points >= PLUS_POINTS[70] ? 70 : po
 async function loadBase(): Promise<Base> {
   const db = await getDb();
   const [first, counted] = await Promise.all([
-    db.query<{ at: Date | null }>(`SELECT min(at) AS at FROM twitch_subs`),
+    // Beginn der genauen Erfassung im Live-Chat. Nicht einfach der früheste Eintrag: Das VOD-Nachtragen schreibt auch
+    // ältere Einträge (Kennung „vod-…“, z. B. 10./11. Okt.), davor und dazwischen gilt aber weiter die alte Zählung.
+    // Mit dem frühesten Eintrag fiel die alte Zählung vom 12. bis 28. Okt. weg.
+    db.query<{ at: Date | null }>(`SELECT min(at) AS at FROM twitch_subs WHERE id LIKE 'twitch-irc-%'`),
     // Abos werden erst seit diesem Zeitpunkt gezählt; frühere Streams hätten scheinbar keine Einnahmen
     db.query<{ at: Date | null }>(`SELECT min(at) AS at FROM events WHERE type = 'subscription' AND meta->>'serverOnline' = 'true'`),
   ]);
@@ -212,7 +215,8 @@ async function loadBase(): Promise<Base> {
        FROM streams s`,
       [SEASON_FROM],
     ),
-    db.query<SubRow>(subRowsSql("true")),
+    // Genaue Einträge erst ab Beginn der Live-Erfassung (davor zählt die alte Zählung; sonst doppelt)
+    db.query<SubRow>(subRowsSql("t.at >= $1"), [preciseDate]),
     // Alte Zählung auf dem Server, je Minute (nur vor der Einzelerfassung, danach zählt diese)
     db.query<{ player: string; at: Date; n: number; ok: boolean }>(
       `SELECT e.player, date_trunc('minute', e.at) AS at, sum(e.value)::int AS n, bool_or(${covered("e.player", "e.at")}) AS ok

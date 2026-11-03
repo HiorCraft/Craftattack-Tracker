@@ -45,7 +45,7 @@ const DIST_DIRS = [".next-a", ".next-b", ".next"];
 /** Statische Dateien früherer Versionen (scripts/deploy.sh hebt sie 7 Tage auf), für Seiten, die noch offen sind */
 const STATIC_ARCHIVE = ".next-static-archive";
 /** Nie zwischenspeichern: Cron/Poll, Vorwärmen, Status */
-const BYPASS = [/^\/api\/cron\//, /^\/api\/tracker(\/|$|\?)/, /^\/api\/warm/];
+const BYPASS = [/^\/api\/cron\//, /^\/api\/tracker(\/|$|\?)/, /^\/api\/warm/, /^\/api\/version/];
 /** Diese Anfrage-Header ändern die Antwort von Next.js (siehe dessen `Vary`) und gehören in den Schlüssel */
 const VARY = ["rsc", "next-router-state-tree", "next-router-prefetch", "next-router-segment-prefetch", "next-url"];
 /** Nicht an den Besucher weiterreichen; Länge und Kodierung setzt dieser Prozess selbst */
