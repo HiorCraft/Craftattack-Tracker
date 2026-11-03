@@ -968,13 +968,14 @@ async function AdvancementsSection({ params }: { params: Params }) {
         <Fold
           id="profil.fortschritte"
           titleId="adv-h"
-          title="Fortschritte"
-          aside={
-            <Explain label="Woher die Fortschritte kommen">
+          title={
+            <>
+              Fortschritte <Explain label="Woher die Fortschritte kommen">
               Gemeldet: Der Feed von craftattack.one hat den Fortschritt angezeigt (seit dem 10. Oktober, und nur, was der Tracker mitbekam; vieles davor
               fehlt). Vermutet (gestrichelt): Ein späterer Fortschritt setzt ihn voraus, oder die Statistik zeigt es (z. B. Diamanten abgebaut,
               Netherrack abgebaut, Totem benutzt). Prozent: Anteil aller Spieler mit diesem Fortschritt, gemeldet oder vermutet.
             </Explain>
+            </>
           }
         >
           <AdvancementBoard mine={board.mine} others={board.others} players={board.players} />

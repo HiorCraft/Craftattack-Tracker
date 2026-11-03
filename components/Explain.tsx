@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 /**
  * Erklärung erst auf Klick: kleines „?“, der Text öffnet sich als Kasten darunter. Nur Inline-Elemente
@@ -8,7 +8,16 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
  */
 export function Explain({ children, label = "Erklärung" }: { children: ReactNode; label?: string }) {
   const [open, setOpen] = useState(false);
+  const [shift, setShift] = useState(0);
   const ref = useRef<HTMLSpanElement>(null);
+  const box = useRef<HTMLSpanElement>(null);
+  // Nie aus dem Fenster ragen: ragt der Kasten rechts hinaus, rückt er nach links (8 px Abstand zum Rand)
+  useLayoutEffect(() => {
+    if (!open || !box.current) return;
+    const r = box.current.getBoundingClientRect();
+    const over = r.right - (document.documentElement.clientWidth - 8);
+    setShift(over > 0 ? Math.min(over, Math.max(0, r.left - 8)) : 0);
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
@@ -28,7 +37,7 @@ export function Explain({ children, label = "Erklärung" }: { children: ReactNod
         ?
       </button>
       {open && (
-        <span className="explain__box" role="note">
+        <span className="explain__box" role="note" ref={box} style={shift ? { transform: `translateX(-${shift}px)` } : undefined}>
           {children}
         </span>
       )}
