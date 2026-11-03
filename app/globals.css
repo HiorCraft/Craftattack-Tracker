@@ -6425,3 +6425,147 @@ a.st-board__mvlink:focus-visible {
 .adv__obar .adv__obar-guess {
   background: color-mix(in srgb, var(--ink) 40%, transparent);
 }
+
+/* ---------- Fortschritte als Baum wie im Spiel ---------- */
+.advt {
+  display: grid;
+  gap: 10px;
+}
+.advt__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.advt__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 8px;
+  background: #c6c6c6;
+  color: #3f3f3f;
+  border: 0;
+  box-shadow: inset 2px 2px 0 #fff, inset -2px -2px 0 #555, 0 0 0 2px #000;
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.advt__tab[aria-pressed="true"] {
+  background: #e0e0e0;
+  color: #000;
+  transform: translateY(-2px);
+}
+.advt__icon {
+  display: inline-block;
+  flex: none;
+  image-rendering: pixelated;
+  background-repeat: no-repeat;
+}
+.advt__view {
+  position: relative;
+  overflow: auto;
+  background-size: 32px 32px;
+  image-rendering: pixelated;
+  box-shadow: 0 0 0 3px #000, inset 0 0 0 3px #555;
+  cursor: grab;
+  overscroll-behavior: contain;
+  user-select: none;
+}
+.advt__view:active {
+  cursor: grabbing;
+}
+.advt__canvas {
+  position: relative;
+}
+.advt__lines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.advt__line-outer {
+  fill: none;
+  stroke: #000;
+  stroke-width: 6;
+}
+.advt__line-inner {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+}
+.advt__node {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+  cursor: pointer;
+}
+.advt__node:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+.advt__node--guess {
+  opacity: 0.8;
+  filter: saturate(0.55);
+}
+.advt__node--open .advt__icon {
+  opacity: 0.85;
+}
+.advt__q {
+  position: absolute;
+  right: -4px;
+  top: -6px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  color: #000;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 0 0 2px #000;
+  z-index: 1;
+}
+.advt__tip {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  gap: 4px;
+  width: 280px;
+  padding: 0 10px 8px;
+  background: #212121;
+  color: #fff;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  box-shadow: 0 0 0 2px #000, inset 0 0 0 2px #555;
+  pointer-events: none;
+}
+.advt__tiphead {
+  margin: 0 -10px 4px;
+  padding: 6px 10px;
+  background: #0489c1;
+  font-size: 0.9375rem;
+  box-shadow: inset 0 0 0 2px #000;
+}
+.advt__tip--done .advt__tiphead {
+  background: #c2922f;
+}
+.advt__tip--guess .advt__tiphead {
+  background: repeating-linear-gradient(45deg, #c2922f 0 8px, #a77d28 8px 16px);
+}
+.advt__tip > span:nth-of-type(1) {
+  color: #55ff55;
+}
+.advt__tipmeta {
+  color: #c6c6c6;
+  font-size: 0.75rem;
+}
+.advt__note {
+  font-size: 0.75rem;
+  margin: 0;
+}
