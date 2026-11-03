@@ -5897,3 +5897,122 @@ a.st-board__mvlink:focus-visible {
     order: -1;
   }
 }
+
+/* ---------- Zuschauerwanderung (Fluss) ---------- */
+.vf__daynav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.vf__daynav b {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+}
+.vf__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0;
+}
+.vf__row {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 2px solid color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.vf__time {
+  font-weight: 700;
+  padding-top: 2px;
+}
+.vf__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+}
+.vf__ovl {
+  font-size: 0.75rem;
+  padding: 1px 6px;
+}
+.vf__bar {
+  display: block;
+  width: 100%;
+  height: 12px;
+  margin: 8px 0 6px;
+  background: color-mix(in srgb, var(--mig-c0) 35%, transparent);
+}
+.vf__dest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9375rem;
+}
+.vf__dest li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.vf__dest i,
+.mig__keys i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+}
+.vf__leave {
+  color: var(--mig-loss);
+  font-weight: 600;
+}
+.vf__two {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  align-items: start;
+}
+.vf__two .t-3 {
+  margin: 0 0 10px;
+}
+.vf__heads {
+  display: inline-flex;
+  gap: 4px;
+}
+.vf__heads a {
+  line-height: 0;
+}
+.vf__pairs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.vf__pairs li {
+  display: grid;
+  grid-template-columns: minmax(0, 11rem) minmax(60px, 1fr) auto;
+  align-items: center;
+  gap: 4px 10px;
+}
+.vf__pairs li > .muted {
+  grid-column: 1 / -1;
+  font-size: 0.8125rem;
+  margin-top: -4px;
+}
+.vf__pbar {
+  display: flex;
+  height: 10px;
+  background: color-mix(in srgb, var(--mig-c0) 25%, transparent);
+}
+.vf__pbar i {
+  display: block;
+  height: 100%;
+}
+.mig__c0line {
+  stroke: var(--mig-c0);
+}

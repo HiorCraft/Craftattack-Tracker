@@ -2,6 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { appendLiveEvent, chatEvent, getEvents, getState, incrementLiveSubscriptionEvent, saveTwitchCheer, saveTwitchChatMessage, saveTwitchSub } from "./store";
 import { observeSharedChatPair } from "./sharedChat";
+import { noteChatter } from "./chatMoves";
 import { KNOWN_LOGINS } from "./tracker";
 import type { PlayerState, TrackerEvent } from "./types";
 
@@ -523,6 +524,9 @@ async function handleLine(irc: IrcState, socket: WebSocket, line: string) {
     const at = Number.isFinite(sentAt) && sentAt > 0 && Number.isFinite(timestamp.getTime())
       ? timestamp.toISOString()
       : new Date().toISOString();
+
+    // Chat-Spur (nur Summen, siehe lib/chatMoves.ts); Kopien aus dem geteilten Chat nicht doppelt
+    if (!isCopy) noteChatter(owner.id, message.tags["user-id"], Number.isFinite(sentAt) && sentAt > 0 ? sentAt : Date.now());
 
     // Cheer (Bits): nur im Ursprungskanal zählen, Kopien aus dem geteilten Chat nicht noch einmal
     const bits = Number(message.tags.bits);

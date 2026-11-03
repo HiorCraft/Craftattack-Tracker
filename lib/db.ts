@@ -253,6 +253,17 @@ async function migrate(db: Db) {
       body         bytea NOT NULL,
       fetched_at   timestamptz NOT NULL
     )`);
+  // Chat-Spuren der Zuschauerwanderung (lib/chatMoves.ts): nur Summen je 5-Minuten-Abschnitt und Kanalpaar
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS viewer_chat_moves (
+      bin     integer NOT NULL,
+      from_id text NOT NULL,
+      to_id   text NOT NULL,
+      n       integer NOT NULL DEFAULT 0,
+      stay    integer NOT NULL DEFAULT 0,
+      back    integer NOT NULL DEFAULT 0,
+      PRIMARY KEY (bin, from_id, to_id)
+    )`);
   await db.query(`
     CREATE TABLE IF NOT EXISTS player_history (
       player           text NOT NULL,
