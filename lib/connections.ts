@@ -8,7 +8,7 @@ import { emptyLink, type LinkCounts } from "./connectionWeights";
 import { mentionMatcher, titleSeconds } from "./titleMentions";
 import { berlinDay, splitByBerlinDay } from "./berlin";
 import type { DailyNetwork } from "./dailyNetwork";
-import { loadTracker } from "./data";
+import { getState } from "./store";
 
 /** Zeiträume für die Netz-Seiten */
 export const NETWORK_RANGES: { key: string; label: string; hours: number | null }[] = [
@@ -143,7 +143,8 @@ export async function getNetwork(hours: number | null): Promise<{ nodes: Network
 }
 
 async function computeNetwork(hours: number | null): Promise<{ nodes: NetworkNode[]; edges: LinkCounts[] }> {
-  const [{ state }, all] = await Promise.all([loadTracker(), getConnections(hours)]);
+  // getState statt loadTracker: läuft auch im Hintergrund des Trackers (ohne Seitenanfrage)
+  const [state, all] = await Promise.all([getState(), getConnections(hours)]);
   const edges: LinkCounts[] = all
     .filter((e) => state.players[e.a] && state.players[e.b])
     .map((e) => {
@@ -163,8 +164,8 @@ export async function getDailyNetwork(): Promise<{ nodes: NetworkNode[]; daily: 
 
 async function computeDailyNetwork(): Promise<{ nodes: NetworkNode[]; daily: DailyNetwork }> {
   const db = await getDb();
-  const [{ state }, raids, chats, messages, streams, players] = await Promise.all([
-    loadTracker(),
+  const [state, raids, chats, messages, streams, players] = await Promise.all([
+    getState(),
     db.query<{ src: string; dst: string; day: string; n: number }>(
       `SELECT player AS src, meta->>'raidTargetPlayerId' AS dst, to_char(at AT TIME ZONE 'Europe/Berlin', 'YYYY-MM-DD') AS day, count(*)::int AS n
          FROM events
