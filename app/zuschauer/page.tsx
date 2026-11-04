@@ -320,12 +320,52 @@ const ICON: Record<ChartMarker["kind"], string> = {
   start_loss: "▶",
 };
 
-function markerView(mk: ChartMarker, names: Names, day: string): ViewMarker {
+/**
+ * Bedeutung eines Ereignisses für die Analyse des Verlaufs (0–1). Eigener Start und Ende gliedern den Tag; Raids,
+ * Zuwanderung, Abwanderung an Starts anderer und Einbrüche zählen nach ihrer Größe im Verhältnis zum Stand; Server-
+ * Events mittel, geteilter Chat und Titel wenig. Was einen Hype oder Absturz erklärt, zählt mehr.
+ */
+function importanceOf(mk: ChartMarker, level: number, explains: boolean): number {
+  const rel = Math.abs(mk.viewers ?? 0) / Math.max(50, level);
+  let v: number;
+  switch (mk.kind) {
+    case "own_start":
+    case "own_end":
+      v = 0.9;
+      break;
+    case "raid_in":
+    case "raid_out":
+      v = 0.5 + Math.min(0.45, rel);
+      break;
+    case "flow_in":
+    case "start_loss":
+    case "own_drop":
+      v = 0.2 + Math.min(0.7, rel * 3);
+      break;
+    case "server_event":
+      v = 0.55;
+      break;
+    case "shared_start":
+      v = 0.4;
+      break;
+    case "shared_end":
+      v = 0.25;
+      break;
+    case "title":
+      v = 0.15;
+      break;
+    default:
+      v = 0.3;
+  }
+  return Math.min(1, v + (explains ? 0.25 : 0));
+}
+
+function markerView(mk: ChartMarker, names: Names, day: string, importance = 0.5): ViewMarker {
   const other = mk.other ? (names[mk.other]?.name ?? mk.other) : "";
   const v = mk.viewers ?? 0;
   const icon = ICON[mk.kind];
   const o = mk.other ? { id: mk.other, name: other, uuid: names[mk.other]?.uuid, href: href({ ansicht: "streamer", spieler: mk.other, tag: day }) } : undefined;
-  const base = { at: mk.at, icon, other: o };
+  const base = { at: mk.at, icon, other: o, importance };
   switch (mk.kind) {
     case "own_start":
       return { ...base, tone: "own", label: "Stream startet" };
@@ -525,7 +565,14 @@ function StreamerDay({ pd, names, name, dayHref }: { pd: NonNullable<Awaited<Ret
   const last = pd.points.at(-1)?.[0] ?? dayEnd;
   const from = Math.max(dayStart, first - 30 * 60_000);
   const to = Math.min(dayEnd, Math.max(last + 30 * 60_000, from + 2 * 3_600_000));
-  const markers = pd.markers.map((mk) => markerView(mk, names, pd.day));
+  // Stand zum Zeitpunkt eines Ereignisses (Trend, sonst Messwert) und ob es in einem Hype/Absturz liegt
+  const levelAt = (t: number) => {
+    let best = -1;
+    for (let i = 0; i < pd.points.length; i++) if (best < 0 || Math.abs(pd.points[i][0] - t) < Math.abs(pd.points[best][0] - t)) best = i;
+    return best < 0 ? 0 : (pd.trend[best] ?? pd.points[best][1]);
+  };
+  const explains = (t: number) => pd.anomalies.some((a) => t >= a.from - 10 * 60_000 && t <= a.to);
+  const markers = pd.markers.map((mk) => markerView(mk, names, pd.day, importanceOf(mk, levelAt(mk.at), explains(mk.at))));
   const bands: ViewBand[] = pd.anomalies.map((a) => ({
     from: a.from,
     to: a.to,

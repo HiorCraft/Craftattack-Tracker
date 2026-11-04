@@ -6625,3 +6625,37 @@ a.st-board__mvlink:focus-visible {
 .heat__h {
   font-size: 0.5625rem;
 }
+
+/* Streamer-Tag: Ebenen-Schalter und Regler für Ereignisse nebeneinander */
+.vf__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 20px;
+  margin-bottom: 10px;
+}
+.vf__controls .vf__layers {
+  margin: 0;
+}
+.vf__evslider {
+  display: grid;
+  gap: 2px;
+  min-width: min(100%, 320px);
+  font-size: 0.8125rem;
+}
+.vf__evlabel b {
+  font-weight: 700;
+}
+.vf__evrange {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.vf__evrange input {
+  flex: 1;
+  min-width: 120px;
+}
+.vf__evrange .muted {
+  font-size: 0.75rem;
+}

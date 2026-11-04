@@ -160,6 +160,8 @@ export interface ViewMarker {
   icon: string;
   /** beteiligter anderer Streamer: Kopf an der Linie, Klick führt zu seinem Tag */
   other?: { id: string; name: string; uuid?: string; href: string };
+  /** Bedeutung für die Analyse des Verlaufs (0–1): steuert, ab welcher Stufe des Reglers das Ereignis erscheint */
+  importance: number;
 }
 
 export interface ViewBand {
@@ -205,11 +207,13 @@ function vodUrl(v: ViewVod, at: number) {
   return `https://www.twitch.tv/videos/${encodeURIComponent(v.vodId)}?t=${Math.floor(o / 3600)}h${Math.floor((o % 3600) / 60)}m${o % 60}s`;
 }
 
+/** Ab dieser Bedeutung steht der Regler anfangs (die wichtigen Ereignisse) */
+const IMPORTANT = 0.6;
+
 const LAYERS = [
   { key: "trend", label: "Trend", hint: "Gleitender Median über 25 Min: das eigentliche Niveau ohne kurze Ausschläge" },
   { key: "bumps", label: "Ausschläge", hint: "Kurz über (grün) oder unter (rot) dem Trend, kommt gleich wieder zurück" },
   { key: "shifts", label: "Hypes & Abstürze", hint: "Anhaltende Änderung des Niveaus, deutlich mehr als sonst um diese Zeit und bei diesem Streamalter" },
-  { key: "events", label: "Ereignisse", hint: "Raids, Starts und Enden anderer, Titel, geteilter Chat; Klick auf einen Kopf öffnet dessen Tag" },
   { key: "comp", label: "Konkurrenz", hint: "Wie viele andere CraftAttack-Streams gerade live sind (dunkler = mehr)" },
 ] as const;
 type Layer = (typeof LAYERS)[number]["key"];
@@ -237,12 +241,18 @@ export function StreamerDayChart({
 }) {
   const ref = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<number | null>(null);
-  const [on, setOn] = useState<Record<Layer, boolean>>({ trend: true, bumps: true, shifts: true, events: true, comp: false });
+  const [on, setOn] = useState<Record<Layer, boolean>>({ trend: true, bumps: true, shifts: true, comp: false });
+  // Ereignisse nach Bedeutung: der Regler zeigt die k wichtigsten (0 = keine, alle = alle)
+  const ranked = [...markers].sort((a, b) => b.importance - a.importance);
+  const important = ranked.filter((m) => m.importance >= IMPORTANT).length;
+  const [k, setK] = useState(() => Math.min(ranked.length, Math.max(Math.min(3, ranked.length), important)));
+  const cutoff = k > 0 ? ranked[k - 1].importance : Infinity;
+  const shownMarkers = markers.filter((m) => k >= ranked.length || m.importance > cutoff || (m.importance === cutoff && ranked.indexOf(m) < k));
   const W = 900;
   const H = 340;
   const L = 56;
   const R = 12;
-  const T = on.events ? 44 : 14;
+  const T = shownMarkers.length ? 44 : 14;
   const STRIP = on.comp ? 16 : 0;
   const B = 28 + STRIP;
   const ticks = niceTicks(Math.max(10, ...points.map((p) => p[1])));
@@ -310,7 +320,7 @@ export function StreamerDayChart({
   const vodFor = (t: number) => vods.filter((v) => t >= v.from && t <= v.to).sort((p, q) => q.to - q.from - (p.to - p.from))[0] ?? null;
   const ht = hover;
   const hi = ht !== null ? nearestIdx(ht) : -1;
-  const hm = ht !== null && on.events ? markers.filter((m) => Math.abs(m.at - ht) <= 6 * 60_000) : [];
+  const hm = ht !== null ? shownMarkers.filter((m) => Math.abs(m.at - ht) <= 6 * 60_000) : [];
   const hb = ht !== null && on.shifts ? bands.find((b) => ht >= b.from && ht <= b.to) : undefined;
   const hc = ht !== null && on.comp ? competition.find((c) => ht >= c.at && ht < c.at + 5 * 60_000) : undefined;
   const hv = ht !== null ? vodFor(ht) : null;
@@ -320,20 +330,34 @@ export function StreamerDayChart({
   for (let t = Math.ceil(from / 3_600_000) * 3_600_000; t <= to; t += 3_600_000) if (hourOf(t) % stepH === 0) hourTicks.push(t);
   // Köpfe nah beieinander übereinander staffeln
   const lane: number[] = [];
-  markers.forEach((m, i) => {
+  shownMarkers.forEach((m, i) => {
     let l = 0;
-    for (let j = 0; j < i; j++) if (Math.abs(x(markers[j].at) - x(m.at)) < 18 && lane[j] === l) l++;
+    for (let j = 0; j < i; j++) if (Math.abs(x(shownMarkers[j].at) - x(m.at)) < 18 && lane[j] === l) l++;
     lane.push(Math.min(l, 1));
   });
 
   return (
     <div className="mig__chart">
-      <div className="gb__seg vf__layers" role="group" aria-label="Anzeigen">
-        {LAYERS.map((l) => (
-          <button key={l.key} type="button" aria-pressed={on[l.key]} title={l.hint} onClick={() => setOn((o) => ({ ...o, [l.key]: !o[l.key] }))}>
-            {l.label}
-          </button>
-        ))}
+      <div className="vf__controls">
+        <div className="gb__seg vf__layers" role="group" aria-label="Anzeigen">
+          {LAYERS.map((l) => (
+            <button key={l.key} type="button" aria-pressed={on[l.key]} title={l.hint} onClick={() => setOn((o) => ({ ...o, [l.key]: !o[l.key] }))}>
+              {l.label}
+            </button>
+          ))}
+        </div>
+        {ranked.length > 0 && (
+          <label className="vf__evslider" title="Ereignisse nach Bedeutung für den Verlauf: eigener Start und Ende, große Raids und Wanderungen zuerst, Titelwechsel zuletzt. Klick auf einen Kopf öffnet dessen Tag">
+            <span className="vf__evlabel">
+              Ereignisse <b className="num">{k === 0 ? "keine" : k >= ranked.length ? `alle ${ranked.length}` : `${k} wichtigste von ${ranked.length}`}</b>
+            </span>
+            <span className="vf__evrange">
+              <span className="muted">keine</span>
+              <input type="range" min={0} max={ranked.length} step={1} value={k} onChange={(e) => setK(Number(e.target.value))} aria-label="Wie viele Ereignisse, nach Bedeutung" />
+              <span className="muted">alle</span>
+            </span>
+          </label>
+        )}
       </div>
       <div className="mig__plot">
         <svg
@@ -385,8 +409,8 @@ export function StreamerDayChart({
             <polyline key={i} points={d} className={`mig__line mig__l1${on.trend ? " vf__raw" : ""}`} />
           ))}
           {on.trend && trendSegs.map((d, i) => <polyline key={i} points={d} className="vf__trend" />)}
-          {on.events &&
-            markers.map((m, i) => {
+          {shownMarkers.length > 0 &&
+            shownMarkers.map((m, i) => {
               const cx = x(m.at);
               const top = 4 + lane[i] * 20;
               return (
