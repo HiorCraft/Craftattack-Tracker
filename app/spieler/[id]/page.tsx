@@ -14,11 +14,11 @@ import { BOARD_KEYS, type BoardKey, type TrackerEvent } from "@/lib/types";
 import { ago, boardParts, dateTime, duration, eur, num, skinUrl } from "@/lib/format";
 import { getPlayerEarnings, getStreamTotals } from "@/lib/earnings";
 import { getStreamFollowerGains } from "@/lib/streamFollowers";
-import type { PlayerPoint } from "@/lib/types";
 import { EventFeed } from "@/components/EventFeed";
 import { BOARD_ICON, Icon } from "@/components/Icons";
 import { FigValue } from "@/components/FigValue";
 import { StatSpark } from "@/components/StatSpark";
+import { sparkRows, sparkSeries } from "@/lib/sparkSeries";
 import { ClipGrid } from "@/components/ClipGrid";
 import { getTopClips } from "@/lib/clips";
 import { EstimatePlayer, PlayerEstimateSummary } from "@/components/Estimates";
@@ -133,30 +133,6 @@ interface Phase extends Session {
 }
 
 /** Baut aus Stream-an/aus-Ereignissen eine Stream-Liste (laufender Stream: end = null). */
-/** Einzelner Verlauf als Messpunkte für StatSpark */
-function sparkPoints(rows: { at: string; value: number }[], key: "twitchSubs" | "twitchBits" | "twitchEarnings"): PlayerPoint[] {
-  return rows.map((point) => ({
-    at: point.at,
-    online: false,
-    viewers: null,
-    playtimeSeconds: null,
-    deaths: null,
-    diamonds: null,
-    blocksBroken: null,
-    mobsKilled: null,
-    distance: null,
-    damageDealt: null,
-    totemsUsed: null,
-    foodEaten: null,
-    followersOnServer: null,
-    followersTotal: null,
-    ranks: {},
-    streamGameId: null,
-    streamGameName: null,
-    [key]: point.value,
-  }));
-}
-
 function streams(events: TrackerEvent[], live: boolean, liveSince: string | null, now: number, liveLogin?: string): (Session & { peak?: number; login?: string })[] {
   const out: (Session & { peak?: number; login?: string })[] = [];
   let open: string | null = null;
@@ -366,7 +342,7 @@ async function StatsSection({ params }: { params: Params }) {
                   <Link className="pstat__val" href={graphHref(k)} tabIndex={-1} aria-hidden="true">
                     <FigValue>{p.followersAt ? num(p.followersOnServer) : "–"}</FigValue>
                   </Link>
-                  <StatSpark points={sparkHistory} k="followersOnServer" label="Follower" href={graphHref(k)} />
+                  <StatSpark data={sparkSeries(sparkHistory, "followersOnServer")} k="followersOnServer" label="Follower" href={graphHref(k)} />
                   {p.live && followerGain !== null && (
                     <p className="muted" style={{ fontSize: ".75rem", marginTop: 4 }} title="Follower jetzt minus Follower beim Streamstart">
                       Dieser Stream: {followerGain > 0 ? "+" : ""}
@@ -402,7 +378,7 @@ async function StatsSection({ params }: { params: Params }) {
                   <Link className="pstat__val" href={graphHref(k)} tabIndex={-1} aria-hidden="true">
                     <FigValue>{num(cheers.onServer)}</FigValue>
                   </Link>
-                  <StatSpark points={sparkPoints(cheers.history, "twitchBits")} k="twitchBits" label="Twitch Bits" href={graphHref(k)} />
+                  <StatSpark data={sparkRows(cheers.history)} k="twitchBits" label="Twitch Bits" href={graphHref(k)} />
                   <p className="muted" style={{ fontSize: ".75rem", marginTop: 4 }}>
                     {cheers.count === 0
                       ? "Noch kein Cheer erfasst"
@@ -440,7 +416,7 @@ async function StatsSection({ params }: { params: Params }) {
                   <Link className="pstat__val" href={graphHref(k)} tabIndex={-1} aria-hidden="true">
                     <FigValue>{num(subscriptions.total)}</FigValue>
                   </Link>
-                  <StatSpark points={sparkPoints(subscriptions.history, "twitchSubs")} k="twitchSubs" label="Twitch Subs" href={graphHref(k)} />
+                  <StatSpark data={sparkRows(subscriptions.history)} k="twitchSubs" label="Twitch Subs" href={graphHref(k)} />
                   {p.live && thisStream && (
                     <p
                       className="muted"
@@ -480,7 +456,7 @@ async function StatsSection({ params }: { params: Params }) {
                   <Link className="pstat__val" href={graphHref(k)} tabIndex={-1} aria-hidden="true">
                     <FigValue>{eur(earnings.total)}</FigValue>
                   </Link>
-                  <StatSpark points={sparkPoints(earnings.history, "twitchEarnings")} k="twitchEarnings" label="Twitch-Einnahmen" href={graphHref(k)} />
+                  <StatSpark data={sparkRows(earnings.history)} k="twitchEarnings" label="Twitch-Einnahmen" href={graphHref(k)} />
                   <p className="muted" style={{ fontSize: ".75rem", marginTop: 4 }}>
                     {earnings.perHour !== null ? `ca. ${eur(earnings.perHour)} je Stunde auf dem Server` : "Geschätzt, ohne Werbung"}
                     {p.live && thisStream ? ` · Dieser Stream: ${eur(thisStream.eur)}` : ""}
@@ -524,7 +500,7 @@ async function StatsSection({ params }: { params: Params }) {
                 <Link className="pstat__val" href={graphHref(k)} tabIndex={-1} aria-hidden="true">
                   {v !== undefined ? <FigValue unit={boardParts(k, v).unit}>{boardParts(k, v).value}</FigValue> : <FigValue>–</FigValue>}
                 </Link>
-                <StatSpark points={sparkHistory} k={k} label={LABEL[k]} href={graphHref(k)} />
+                <StatSpark data={sparkSeries(sparkHistory, k)} k={k} label={LABEL[k]} href={graphHref(k)} />
               </div>
             );
           })}
@@ -633,7 +609,8 @@ async function TimelineSection({ params }: { params: Params }) {
   // Verlauf: alles, woran der Spieler beteiligt ist – auch als Täter, Raid-Ziel, Schenker oder Kanal
   const isShown = await getFeedFilter();
   const shown = events.filter((e) => isShown(e) && eventPlayers(e).includes(id));
-  const recent = [...shown].reverse().slice(0, 150);
+  // Sichtbar sind ohnehin nur die ersten (ShowMore); der Rest steht unter „Alle …“ in /ereignisse
+  const recent = [...shown].reverse().slice(0, 50);
   const getTimeState = await getPlayerEventTimeState({
     playerEvents: mine.filter((event) => event.player === id),
     displayEvents: recent,
@@ -711,7 +688,7 @@ async function TimelineSection({ params }: { params: Params }) {
                       Zuschauer <span aria-hidden="true">↗</span>
                     </Link>
                   </p>
-                  <StatSpark points={sparkHistory} k="viewers" label="Zuschauer" height={48} href={graphHref("viewers")} />
+                  <StatSpark data={sparkSeries(sparkHistory, "viewers")} k="viewers" label="Zuschauer" height={48} href={graphHref("viewers")} />
                 </div>
               )}
             </div>

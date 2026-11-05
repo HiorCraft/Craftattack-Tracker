@@ -3,12 +3,17 @@
 #
 #   scripts/deploy.sh            git pull, bauen, umschalten, Tracker neu starten
 #   scripts/deploy.sh --no-pull  nur bauen und umschalten
+#   FRONT_RESTART=1 …            Cache-Server sicher neu starten (z. B. nach manuellem git pull)
 #
 # Gebaut wird in den gerade NICHT benutzten Ordner (.next-a / .next-b), während die alte Version weiterläuft.
 # Danach steht der neue Ordner in .next-active, `.next` zeigt darauf (für den Tracker), und scripts/cached-server.mjs
 # bekommt SIGUSR2: Es startet die neue Version daneben, wärmt sie vor und schaltet erst dann um.
 # Schlägt der Build fehl, bleibt alles, wie es war.
 set -euo pipefail
+
+# Alles steht in main(): Bash liest das ganze Skript, bevor es läuft. Sonst würde `git pull`, der dieses Skript
+# selbst ändert, mitten im Lauf andere Zeilen ausführen lassen.
+main() {
 
 LIVE="${ACTRACKER_LIVE:-$HOME/actracker-live}"
 ENV_FILE="${ACTRACKER_ENV:-$HOME/.config/actracker/web.env}"
@@ -19,7 +24,7 @@ cd "$LIVE"
 before="$(git rev-parse HEAD)"
 if [[ "${1:-}" != "--no-pull" ]]; then git pull --ff-only; fi
 # Hat sich der Cache-Server selbst geändert, braucht es einmal einen echten Neustart (kurzer Ausfall)
-front_changed=""
+front_changed="${FRONT_RESTART:-}"
 if ! git diff --quiet "$before" HEAD -- scripts/cached-server.mjs; then front_changed=1; fi
 
 active="$(cat .next-active 2>/dev/null || true)"
@@ -65,21 +70,35 @@ elif [[ "$pid" -gt 1 ]]; then
   echo "[deploy] Website wechselt auf $target (läuft weiter, bis die neue Version bereit ist)"
 fi
 
-if systemctl --user is-enabled actracker-tracker >/dev/null 2>&1; then
-  systemctl --user restart actracker-tracker
-  echo "[deploy] Tracker neu gestartet"
-fi
-
-# Auf das Umschalten warten: die alte Version nutzt nach dem Wechsel keinen der beiden Ports mehr doppelt
+# Auf das Umschalten warten (die neue Version rendert vorher die zuletzt besuchten Seiten, bis zu 4 Min)
 for _ in $(seq 1 120); do
   [[ -n "$front_changed" ]] && break
-  if journalctl -u actracker-web --since "-5 min" --no-pager 2>/dev/null | grep -q "Umgeschaltet auf $target"; then
+  if journalctl -u actracker-web --since "@$start" --no-pager 2>/dev/null | grep -q "Umgeschaltet auf $target"; then
     echo "[deploy] umgeschaltet"
     break
   fi
   sleep 3
 done
+# Nach einem echten Neustart ist der Seiten-Cache leer: die Hauptseiten einmal laden, bevor Besucher kommen
+if [[ -n "$front_changed" ]]; then
+  for _ in $(seq 1 60); do
+    [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$URL/api/version")" == 200 ]] && break
+    sleep 2
+  done
+  for path in / /spieler /bestenlisten /live /ereignisse /verlauf /graph /verbindungen /gruppen /naehe /zuschauer /statistik; do
+    curl -s -o /dev/null --max-time 90 "$URL$path" || true
+  done
+  echo "[deploy] Hauptseiten vorgeladen"
+fi
+# Tracker erst danach neu starten: sein Start lädt alle Daten und bremst sonst das Vorrendern
+if systemctl --user is-enabled actracker-tracker >/dev/null 2>&1; then
+  systemctl --user restart actracker-tracker
+  echo "[deploy] Tracker neu gestartet"
+fi
+
 code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "$URL/")"
 echo "[deploy] $URL → $code"
 [[ -d .next-legacy ]] && rm -rf -- ./.next-legacy
 exit 0
+}
+main "$@"

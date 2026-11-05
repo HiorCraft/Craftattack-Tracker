@@ -8,15 +8,17 @@
  * Minute. Deshalb wird jede Seite (HTML, RSC-Daten für Navigation und Auto-Refresh, API-Antworten) höchstens alle
  * FRESH_MS neu gerendert; alle anderen Besucher bekommen die fertige, gzip-komprimierte Kopie.
  * - Gleichzeitige Anfragen für dieselbe Seite warten auf ein einziges Rendern.
- * - Ältere Kopien (bis STALE_MS) werden sofort ausgeliefert und im Hintergrund erneuert.
+ * - Ältere Kopien werden immer sofort ausgeliefert, egal wie alt, und im Hintergrund erneuert. Wie alt die Daten
+ *   sind, steht auf jeder Seite („Stand: vor …“). Warten muss nur, wer eine Seite aufruft, die noch nie gerendert wurde.
  * - Höchstens MAX_RENDERS Seiten werden gleichzeitig gerendert (2 CPUs), der Rest wartet in einer Schlange.
+ *   Besucher, die warten, kommen vor Erneuerungen im Hintergrund dran.
  *
  * Neue Version ohne Ausfall (scripts/deploy.sh): Der Build landet abwechselnd in `.next-a` / `.next-b`, der Name
  * steht in `.next-active`. SIGUSR2 an diesen Prozess startet Next.js aus dem neuen Ordner auf dem anderen Port,
- * wartet, bis es antwortet, wärmt die wichtigsten Seiten vor und schaltet dann um; der alte Prozess endet kurz
- * danach. Bis dahin bedient der alte alle Anfragen. Dateien unter `/_next/static/` liefert dieser Prozess selbst
+ * wartet, bis es antwortet, rendert die zuletzt besuchten Seiten (und WARM) mit der neuen Version in einen neuen
+ * Seiten-Cache und schaltet dann um; der alte Prozess endet kurz danach. Bis dahin bedient der alte alle Anfragen. Dateien unter `/_next/static/` liefert dieser Prozess selbst
  * von der Platte, aus allen Build-Ordnern: Seiten, die noch die alte Version geladen haben, funktionieren weiter.
- * Beim Wechsel wird der Seiten-Cache geleert (alte Seiten passen nicht zur neuen Version); Dateien früherer
+ * Seiten der alten Version kommen nicht in den neuen Cache (sie passen nicht zur neuen Version); Dateien früherer
  * Versionen liegen zusätzlich 7 Tage in `.next-static-archive`.
  *
  * Endet der aktive Next.js-Prozess unerwartet, endet auch dieser Prozess (systemd startet neu).
@@ -32,15 +34,18 @@ import { extname, join, normalize, sep } from "node:path";
 const PORT = Number(process.env.PORT ?? 3000);
 const PORTS = [PORT + 1, PORT + 2];
 const FRESH_MS = 60_000;
-const STALE_MS = 30 * 60_000;
+/** Beim Versionswechsel höchstens so viele Seiten vorrendern, und höchstens so lange */
+const REWARM_MAX = 120;
+const REWARM_MS = 4 * 60_000;
+const REWARM_PARALLEL = 2;
 const MAX_BYTES = 120 * 1024 * 1024;
 const MAX_RENDERS = 3;
 const MAX_QUEUE = 400;
 const UPSTREAM_TIMEOUT_MS = 90_000;
 /** Nach dem Umschalten darf der alte Prozess so lange laufende Anfragen beenden */
 const RETIRE_MS = 15_000;
-/** Vor dem Umschalten einmal laden, damit Besucher nicht die kalten Zwischenspeicher treffen */
-const WARM = ["/", "/spieler", "/bestenlisten", "/live", "/ereignisse", "/verbindungen", "/gruppen", "/zuschauer", "/statistik"];
+/** Vor dem Umschalten immer rendern, auch wenn sie gerade niemand besucht hat */
+const WARM = ["/", "/spieler", "/bestenlisten", "/live", "/ereignisse", "/verlauf", "/graph", "/verbindungen", "/gruppen", "/naehe", "/zuschauer", "/statistik"];
 const DIST_DIRS = [".next-a", ".next-b", ".next"];
 /** Statische Dateien früherer Versionen (scripts/deploy.sh hebt sie 7 Tage auf), für Seiten, die noch offen sind */
 const STATIC_ARCHIVE = ".next-static-archive";
@@ -128,23 +133,58 @@ async function switchVersion() {
     switching = false;
     return;
   }
-  for (const path of WARM) {
-    const status = await get(port, path);
-    log(`vorgewärmt ${path} (${status})`);
-  }
+  const warmed = await rewarm(port);
   const old = current;
   next.retired = false;
   current = next;
   old.retired = true;
-  // Gespeicherte Seiten der alten Version verwerfen: Sie verweisen auf deren Dateien und passen nicht zu den
-  // Daten, die die neue Version beim Aktualisieren liefert (das ließ Abschnitte nach dem Laden verschwinden)
+  // Seiten der alten Version nicht weiter ausliefern: Sie verweisen auf deren Dateien und passen nicht zu den
+  // Daten, die die neue Version beim Aktualisieren liefert (das ließ Abschnitte nach dem Laden verschwinden).
+  // Stattdessen gilt der eben mit der neuen Version gefüllte Cache.
   cache.clear();
   cachedBytes = 0;
+  for (const [key, entry] of warmed) store(key, entry);
+  log(`${warmed.size} Seiten mit der neuen Version vorgerendert`);
   log(`Umgeschaltet auf ${dist} nach ${Math.round((Date.now() - t0) / 1000)} s`);
   setTimeout(() => old.child.kill("SIGTERM"), RETIRE_MS).unref();
   switching = false;
 }
 process.on("SIGUSR2", () => void switchVersion().catch((e) => ((switching = false), console.error("[cache] Wechsel fehlgeschlagen:", e))));
+
+/**
+ * Zuletzt besuchte Seiten (ohne RSC-Varianten) plus WARM mit der neuen Version rendern. Die alte bedient so lange
+ * weiter alle Besucher. Ergebnis: Schlüssel → Eintrag, wird beim Umschalten der neue Cache.
+ */
+async function rewarm(port) {
+  const t0 = Date.now();
+  const keys = [];
+  const seen = new Set();
+  const add = (key) => !seen.has(key) && (seen.add(key), keys.push(key));
+  const hosts = new Set();
+  // Map: zuletzt benutzt steht hinten
+  for (const key of [...cache.keys()].reverse()) {
+    const [host, , ...vary] = key.split("\n");
+    hosts.add(host);
+    if (vary.every((v) => !v) && keys.length < REWARM_MAX) add(key);
+  }
+  for (const host of hosts.size ? hosts : [`127.0.0.1:${PORT}`]) for (const path of WARM) add([host, path, ...VARY.map(() => "")].join("\n"));
+  const out = new Map();
+  let i = 0;
+  const worker = async () => {
+    while (i < keys.length && Date.now() - t0 < REWARM_MS) {
+      const key = keys[i++];
+      const [host, url] = key.split("\n");
+      try {
+        const entry = await fetchUpstream({ url, headers: { host, accept: "text/html,*/*", "user-agent": "actracker-cache/rewarm" } }, port);
+        entry.key = key;
+        if (entry.status === 200 && !entry.headers["set-cookie"]) out.set(key, entry);
+      } catch {}
+    }
+  };
+  await Promise.all(Array.from({ length: REWARM_PARALLEL }, worker));
+  log(`vorgerendert: ${out.size} von ${keys.length} in ${Math.round((Date.now() - t0) / 1000)} s`);
+  return out;
+}
 
 /* ---------- Statische Dateien aus allen Build-Ordnern ---------- */
 function serveStatic(req, res) {
@@ -179,8 +219,11 @@ let cachedBytes = 0;
 /** @type {Map<string, Promise<any>>} */
 const rendering = new Map();
 let active = 0;
+/** Wartende: Besucher (vorn) und Erneuerungen im Hintergrund (danach) */
 /** @type {(() => void)[]} */
 const queue = [];
+/** @type {(() => void)[]} */
+const background = [];
 
 function store(key, entry) {
   const old = cache.get(key);
@@ -198,24 +241,25 @@ function store(key, entry) {
   }
 }
 
-function slot() {
+function slot(bg = false) {
   if (active < MAX_RENDERS) {
     active++;
     return Promise.resolve();
   }
-  if (queue.length >= MAX_QUEUE) return Promise.reject(Object.assign(new Error("Warteschlange voll"), { busy: true }));
-  return new Promise((resolve) => queue.push(resolve)).then(() => void active++);
+  const q = bg ? background : queue;
+  if (q.length >= MAX_QUEUE) return Promise.reject(Object.assign(new Error("Warteschlange voll"), { busy: true }));
+  return new Promise((resolve) => q.push(resolve)).then(() => void active++);
 }
 function release() {
   active--;
-  queue.shift()?.();
+  (queue.shift() ?? background.shift())?.();
 }
 
 /** Holt die Antwort von Next.js vollständig (gzip angefragt) */
-function fetchUpstream(req) {
+function fetchUpstream(req, port = current.port) {
   return new Promise((resolve, reject) => {
     const headers = { ...req.headers, "accept-encoding": "gzip" };
-    const up = http.request({ host: "127.0.0.1", port: current.port, method: "GET", path: req.url, headers, timeout: UPSTREAM_TIMEOUT_MS }, (res) => {
+    const up = http.request({ host: "127.0.0.1", port, method: "GET", path: req.url, headers, timeout: UPSTREAM_TIMEOUT_MS }, (res) => {
       const chunks = [];
       res.on("data", (c) => chunks.push(c));
       res.on("end", () => resolve({ at: Date.now(), status: res.statusCode ?? 502, headers: res.headers, body: Buffer.concat(chunks), gzip: res.headers["content-encoding"] === "gzip" }));
@@ -228,10 +272,10 @@ function fetchUpstream(req) {
 }
 
 /** Ein Rendern je Schlüssel, egal wie viele Besucher gleichzeitig fragen */
-function render(key, req) {
+function render(key, req, bg = false) {
   let p = rendering.get(key);
   if (!p) {
-    p = slot()
+    p = slot(bg)
       .then(() => fetchUpstream(req).finally(release))
       .then((entry) => {
         entry.key = key;
@@ -290,20 +334,19 @@ const server = http.createServer(async (req, res) => {
   const key = [req.headers.host ?? "", url, ...VARY.map((h) => req.headers[h] ?? "")].join("\n");
   const hit = cache.get(key);
   const age = hit ? Date.now() - hit.at : Infinity;
-  if (hit && age < STALE_MS) {
+  if (hit) {
     // Treffer hinten neu einreihen (zuletzt benutzt)
     cache.delete(key);
     cache.set(key, hit);
-    if (age >= FRESH_MS) render(key, req).catch(() => {});
+    if (age >= FRESH_MS) render(key, req, true).catch(() => {});
     return send(req, res, hit, age < FRESH_MS ? "HIT" : "STALE");
   }
   try {
     send(req, res, await render(key, req), "MISS");
   } catch (err) {
-    if (hit) return send(req, res, hit, "STALE");
     res.writeHead(503, { "content-type": "text/plain; charset=utf-8", "retry-after": "5" });
     res.end(err?.busy ? "Gerade sehr viele Besucher, bitte in ein paar Sekunden neu laden." : "Website startet gerade, bitte gleich neu laden.");
   }
 });
 server.keepAliveTimeout = 65_000;
-server.listen(PORT, () => log(`Port ${PORT} → Next.js (frisch ${FRESH_MS / 1000} s, Reserve ${STALE_MS / 60_000} Min)`));
+server.listen(PORT, () => log(`Port ${PORT} → Next.js (frisch ${FRESH_MS / 1000} s, ältere Kopien sofort, Erneuerung im Hintergrund)`));
