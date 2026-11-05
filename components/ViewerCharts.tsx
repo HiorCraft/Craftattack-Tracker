@@ -192,7 +192,7 @@ const VOD_LEAD_S = 30;
  * Als normalen neuen Tab öffnen: `window.open` mit Fenster-Optionen (z. B. "noopener") öffnet ein Popup-Fenster und
  * wird teils blockiert; ein Klick auf einen Link mit target="_blank" ist überall ein Tab.
  */
-function openTab(url: string) {
+export function openTab(url: string) {
   const a = document.createElement("a");
   a.href = url;
   a.target = "_blank";
@@ -202,7 +202,7 @@ function openTab(url: string) {
   a.remove();
 }
 
-function vodUrl(v: ViewVod, at: number) {
+export function vodUrl(v: ViewVod, at: number) {
   const o = Math.max(0, Math.floor((at - v.vodStart) / 1000) - VOD_LEAD_S);
   return `https://www.twitch.tv/videos/${encodeURIComponent(v.vodId)}?t=${Math.floor(o / 3600)}h${Math.floor((o % 3600) / 60)}m${o % 60}s`;
 }

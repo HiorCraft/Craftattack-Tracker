@@ -182,10 +182,6 @@ async function Dashboard() {
         </div>
       </section>
 
-      <Suspense fallback={null}>
-        <TopClips />
-      </Suspense>
-
       <section className="block" data-tone="paper" aria-labelledby="feed-h">
         <div className="wrap">
           <Fold
@@ -415,6 +411,10 @@ async function Dashboard() {
           </Fold>
         </div>
       </section>
+
+      <Suspense fallback={null}>
+        <TopClips />
+      </Suspense>
     </div>
   );
 }

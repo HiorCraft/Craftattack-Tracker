@@ -242,6 +242,7 @@ export function PlayerMulti({
   allHint,
   rank,
   onOpenChange,
+  profileHref,
 }: {
   players: PickPlayer[];
   selected: string[];
@@ -258,11 +259,28 @@ export function PlayerMulti({
   allHint?: string;
   rank?: (a: PickPlayer, b: PickPlayer) => number;
   onOpenChange?: (open: boolean) => void;
+  /** Gewählte Spieler zusätzlich mit Link zum Profil (Pfeil im Chip) */
+  profileHref?: (id: string) => string;
 }) {
   const byId = useMemo(() => new Map(players.map((p) => [p.id, p])), [players]);
   const full = max !== undefined && selected.length >= max;
   const chip = (id: string) => {
     const p = byId.get(id);
+    if (profileHref && !hrefRemove)
+      return (
+        <span className="gb__chip gb__chip--head gb__chip--split" data-tone="ink">
+          <Link href={profileHref(id)} className="gb__chip-main" title={`Profil von ${p?.name ?? id} öffnen`}>
+            <Head id={id} uuid={p?.uuid} name={p?.name ?? id} size={20} src={32} decorative />
+            {p?.name ?? id}
+            <svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M5 2h9v9M14 2L3 13" fill="none" stroke="currentColor" strokeWidth="3" />
+            </svg>
+          </Link>
+          <button type="button" className="gb__chip-x" onClick={() => onRemove?.(id)} aria-label={`${p?.name ?? id} entfernen`} title="Entfernen">
+            ×
+          </button>
+        </span>
+      );
     const inner = (
       <>
         <Head id={id} uuid={p?.uuid} name={p?.name ?? id} size={20} src={32} decorative />
