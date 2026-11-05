@@ -306,6 +306,7 @@ function MultiChart({
   /** Angeheftete VOD-Auswahl (mehrere Spieler mit VOD an der Stelle, oder Touch) */
   const [vodPick, setVodPick] = useState<{ at: number; left: number } | null>(null);
   const plotRef = useRef<HTMLDivElement>(null);
+  const clickRef = useRef<{ pointerType: string } | null>(null);
   useEffect(() => {
     if (!vodPick) return;
     const close = (e: Event) => {
@@ -430,16 +431,23 @@ function MultiChart({
     cancelPress();
     // Ziehen vergrößert; ein einfacher Klick öffnet das VOD an der Stelle (mehrere: Auswahl), Erklären per Rechtsklick
     if (!fired && drag && onZoom && Math.abs(x(drag.b) - x(drag.a)) > 12) onZoom(Math.min(drag.a, drag.b), Math.max(drag.a, drag.b));
-    else if (!fired && e.button === 0) {
-      const t = timeAt(e.clientX);
-      const hits = t === null ? [] : vodsAt(t);
-      if (t !== null && hits.length === 1 && e.pointerType === "mouse") openTab(vodUrl(hits[0].vod, t, 0));
-      else if (t !== null && hits.length) {
-        const rect = plotRef.current?.getBoundingClientRect();
-        setVodPick({ at: t, left: rect ? (e.clientX - rect.left) / rect.width : 0.5 });
-      }
-    }
+    // Ein einfacher Klick wird erst im echten click-Ereignis ausgewertet: Nur dort lassen alle Browser einen neuen Tab zu
+    else if (!fired && e.button === 0) clickRef.current = { pointerType: e.pointerType };
     setDrag(null);
+  };
+  /** Einfacher Klick: VOD an der Stelle öffnen (ein Spieler, Maus) bzw. Auswahl zeigen (mehrere, Touch) */
+  const onClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    const c = clickRef.current;
+    clickRef.current = null;
+    if (!c) return;
+    const t = timeAt(e.clientX);
+    const hits = t === null ? [] : vodsAt(t);
+    if (t === null || !hits.length) return;
+    if (hits.length === 1 && c.pointerType === "mouse") openTab(vodUrl(hits[0].vod, t, 0));
+    else {
+      const rect = plotRef.current?.getBoundingClientRect();
+      setVodPick({ at: t, left: rect ? (e.clientX - rect.left) / rect.width : 0.5 });
+    }
   };
   const onContext = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!onPick) return;
@@ -519,6 +527,7 @@ function MultiChart({
           onPointerCancel={() => (cancelPress(), setDrag(null), setRdrag(null))}
           onPointerLeave={() => !drag && setHover(null)}
           onContextMenu={onContext}
+          onClick={onClick}
         >
           <EstimateRects zones={zones} x={x} t0={t0} t1={t1} height={H} />
           {drag && Math.abs(x(drag.b) - x(drag.a)) > 2 && (
@@ -651,16 +660,15 @@ function MultiChart({
                   return (
                     <a
                       key={v.vodId}
-                      href={vodUrl(v, a, 0)}
+                      // Echter Link, dessen Ziel dem Zeiger folgt: öffnet genau an der Stelle, auch mit Mittelklick (Tastatur: Anfang)
+                      href={vodUrl(v, hover !== null && hover >= v.from && hover <= v.to ? hover : a, 0)}
                       target="_blank"
                       rel="noopener noreferrer"
                       title={hover !== null && hover >= v.from && hover <= v.to ? `VOD von ${r.name} ab ${dtf.format(hover)} Uhr öffnen` : `VOD von ${r.name}`}
-                      onClick={(e) => {
-                        // Genau an der Stelle des Zeigers öffnen (Tastatur: Anfang des VODs im Zeitraum)
-                        const t = e.detail > 0 ? timeAt(e.clientX) : null;
-                        if (t === null) return;
-                        e.preventDefault();
-                        openTab(vodUrl(v, Math.min(v.to, Math.max(v.from, t)), 0));
+                      onPointerDown={(e) => {
+                        // Touch hat kein Überfahren: Stelle beim Antippen setzen, bevor der Link auslöst
+                        const t = timeAt(e.clientX);
+                        if (t !== null) setHover(t);
                       }}
                       style={{ left: `${(x(a) / W) * 100}%`, width: `${Math.max(0.4, ((x(b) - x(a)) / W) * 100)}%`, background: r.color }}
                       aria-label={`VOD von ${r.name} ab ${dtf.format(a)}`}
