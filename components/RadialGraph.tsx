@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { headUrl } from "@/lib/format";
 import { closeness, type Direction, type Reach } from "@/lib/network";
 import type { GraphNode } from "./ConnectionGraph";
@@ -46,6 +47,12 @@ export function RadialGraph({
   const [hover, setHover] = useState<string | null>(null);
   const [edge, setEdge] = useState<{ parent: string; child: string } | null>(null);
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  const router = useRouter();
+  /** Rechtsklick (Handy: lange drücken) öffnet das Profil */
+  const profile = (id: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    router.push(`/spieler/${encodeURIComponent(id)}`);
+  };
 
   const layout = useMemo(() => {
     const list = [...reach.values()].sort((a, b) => a.dist - b.dist).slice(0, maxNodes);
@@ -170,6 +177,7 @@ export function RadialGraph({
               onMouseEnter={() => setHover(r.id)}
               onMouseLeave={() => setHover(null)}
               onClick={() => r.id !== root && onFocus(r.id)}
+              onContextMenu={profile(r.id)}
               role="button"
               tabIndex={0}
               aria-label={`${n.name}: Nähe ${Math.round(closeness(r.dist) * 100)} %, in die Mitte stellen`}
@@ -197,6 +205,7 @@ export function RadialGraph({
               onMouseEnter={() => setHover(n.id)}
               onMouseLeave={() => setHover(null)}
               onClick={() => onFocus(n.id)}
+              onContextMenu={profile(n.id)}
               role="button"
               tabIndex={0}
               aria-label={`${n.name}: in dieser Richtung nicht verbunden, in die Mitte stellen`}
@@ -248,7 +257,7 @@ export function RadialGraph({
             <b>{name(hover)}</b>: <span className="muted">in dieser Richtung mit {name(root)} nicht verbunden, auch nicht über andere.</span>
           </p>
         ) : (
-          <p className="muted">Kopf überfahren für den Weg und warum, Linie überfahren für die einzelne Verbindung, Kopf anklicken stellt ihn in die Mitte.</p>
+          <p className="muted">Kopf überfahren für den Weg und warum, Linie überfahren für die einzelne Verbindung, Kopf anklicken stellt ihn in die Mitte, Rechtsklick öffnet das Profil.</p>
         )}
       </div>
     </div>

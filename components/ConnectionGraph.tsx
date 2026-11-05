@@ -92,6 +92,7 @@ export function ConnectionGraph({
   hrefOf = null,
   territoryOf = null,
   roleOf = null,
+  onSelect = null,
 }: {
   nodes: GraphNode[];
   edges: GraphEdge[];
@@ -104,6 +105,8 @@ export function ConnectionGraph({
   territoryOf?: ((id: string) => string | null) | null;
   /** Rolle in der Gruppe als Rahmenform (Anführer mit Krone, Kern dick, Rand gestrichelt) */
   roleOf?: ((id: string) => "anfuehrer" | "kern" | "mitglied" | "rand" | null) | null;
+  /** Anklicken wählt den Spieler aus (statt zu verlinken); Rechtsklick öffnet dann das Ziel von `hrefOf` bzw. das Profil */
+  onSelect?: ((id: string) => void) | null;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   /** Positionen über Änderungen der Einstellungen hinweg: Das Netz ordnet sich nur neu, statt neu zu beginnen */
@@ -117,6 +120,10 @@ export function ConnectionGraph({
   const hrefRef = useRef(hrefOf);
   const territoryRef = useRef(territoryOf);
   const roleRef = useRef(roleOf);
+  const selectRef = useRef(onSelect);
+  useEffect(() => {
+    selectRef.current = onSelect;
+  }, [onSelect]);
   useEffect(() => {
     colorRef.current = colorOf;
     hrefRef.current = hrefOf;
@@ -385,7 +392,7 @@ export function ConnectionGraph({
           paintTerritories(territory, color);
           terrSum = sum;
         }
-        if (fillLayer && lineLayer) {
+        if (fillLayer && lineLayer && fillLayer.width && fillLayer.height) {
           ctx.setTransform(1, 0, 0, 1, 0, 0);
           ctx.globalAlpha = 0.24;
           ctx.drawImage(fillLayer, 0, 0);
@@ -490,7 +497,7 @@ export function ConnectionGraph({
       draw();
       requestAnimationFrame(loop);
     };
-    const point = (ev: PointerEvent): [number, number] => {
+    const point = (ev: MouseEvent): [number, number] => {
       const r = canvas.getBoundingClientRect();
       return [ev.clientX - r.left, ev.clientY - r.top];
     };
@@ -543,7 +550,21 @@ export function ConnectionGraph({
         showTip(was);
         return;
       }
+      if (selectRef.current) {
+        tapped = null;
+        selectRef.current(was.id);
+        return;
+      }
       router.push(hrefRef.current?.(was.id) ?? `/spieler/${encodeURIComponent(was.id)}`);
+    };
+    // Mit Auswahl beim Anklicken: Rechtsklick (Handy: lange drücken) öffnet das Profil
+    const onContext = (ev: MouseEvent) => {
+      if (!selectRef.current) return;
+      const n = find(point(ev));
+      if (!n) return;
+      ev.preventDefault();
+      drag = null;
+      router.push(hrefRef.current?.(n.id) ?? `/spieler/${encodeURIComponent(n.id)}`);
     };
     const onLeave = () => {
       if (drag) return;
@@ -558,6 +579,7 @@ export function ConnectionGraph({
     canvas.addEventListener("pointermove", onMove);
     canvas.addEventListener("pointerup", onUp);
     canvas.addEventListener("pointerleave", onLeave);
+    canvas.addEventListener("contextmenu", onContext);
     window.addEventListener("resize", onResize);
     loop();
     return () => {
@@ -567,6 +589,7 @@ export function ConnectionGraph({
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp);
       canvas.removeEventListener("pointerleave", onLeave);
+      canvas.removeEventListener("contextmenu", onContext);
       window.removeEventListener("resize", onResize);
     };
   }, [nodes, edges, router]);

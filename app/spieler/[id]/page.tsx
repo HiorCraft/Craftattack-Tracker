@@ -906,7 +906,7 @@ async function NetworkSection({ params }: { params: Params }) {
               <div className="box pnet__group" data-tone="white" style={{ "--grp": `var(${g.color})` } as React.CSSProperties}>
                 <h3 className="eyebrow">Gruppe</h3>
                 <p className="t-3">
-                  <Link href={`/gruppen/${encodeURIComponent(id)}`}>Gruppe um {name(g.leader)}</Link>
+                  <Link href={`/verbindungen?ansicht=gruppen&spieler=${encodeURIComponent(id)}`}>Gruppe um {name(g.leader)}</Link>
                 </p>
                 <p className="muted">
                   {ROLE_LABEL[me.role]} · {num(g.members.length)} Mitglieder · {Math.round(me.belonging * 100)} % der Verbindungen in der Gruppe

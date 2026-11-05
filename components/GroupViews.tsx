@@ -1,13 +1,12 @@
 "use client";
 
 import { Explain } from "./Explain";
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ConnectionGraph, type GraphEdge, type GraphNode } from "./ConnectionGraph";
 import { Head } from "./Head";
-import { PlayerSearch } from "./PlayerSearch";
+import { Person, around as aroundOf } from "./CommunityViews";
+import type { CommunityCtx } from "./communityCtx";
 import { emptyLink, weigh, type LinkCounts, type Weights } from "@/lib/connectionWeights";
-import { useGroupSettings } from "./GroupSettings";
 import { explainGroup, reasonText, ROLE_LABEL, ROLE_TONE, type Group, type GroupAnalysis, type Member, type Role } from "@/lib/groups";
 import { GROUP_COLORS } from "@/lib/network";
 import { num } from "@/lib/format";
@@ -15,71 +14,39 @@ import { num } from "@/lib/format";
 const pct = (v: number) => `${Math.round(v * 100)} %`;
 const ROLE_ORDER: Role[] = ["anfuehrer", "kern", "mitglied", "rand"];
 
-/** Gemeinsame Einstellungen (Gewichtung, Feinheit oder Anzahl der Gruppen), siehe GroupSettings */
-const useAnalysis = useGroupSettings;
-
-/** Seite einer Gruppe, adressiert über ein Mitglied */
-const groupHref = (id: string) => `/gruppen/${encodeURIComponent(id)}`;
-
 function groupName(g: Group, name: (id: string) => string) {
   return `Gruppe um ${name(g.leader)}`;
 }
 
-/** Übersicht aller Gruppen: Karte der Gruppen (Anführer-Köpfe) und eine Karte je Gruppe */
-export function GroupsOverview({
-  nodes,
-  edges,
-  toolbar,
-  anchorColor,
-}: {
-  nodes: GraphNode[];
-  edges: LinkCounts[];
-  /** Über dem Netz, z. B. die Zeitleiste */
-  toolbar?: React.ReactNode;
-  /** Farbe je Spieler aus einer festen Einteilung: Gruppen behalten so über Zeitfenster hinweg ihre Farbe */
-  anchorColor?: ((id: string) => string | null) | null;
-}) {
-  const { analysis: raw, weights, controls, shown: isShown, groupEdges } = useAnalysis(edges);
-  const analysis = useMemo(() => (anchorColor ? recolor(raw, anchorColor) : raw), [raw, anchorColor]);
+/** Link-artiger Knopf, der einen Spieler (bzw. die Gruppe eines Spielers) auswählt */
+function Pick({ c, id, children, className }: { c: CommunityCtx; id: string; children: React.ReactNode; className?: string }) {
+  return (
+    <button type="button" className={`linkbtn ${className ?? ""}`} onClick={() => c.select(id)}>
+      {children}
+    </button>
+  );
+}
+
+/** Übersicht aller Gruppen: Karte der Gruppen (Anführer-Köpfe) und eine Karte je Gruppe. Anklicken wählt aus. */
+export function GroupsOverview({ c }: { c: CommunityCtx }) {
+  const { analysis, weights, counts, weighted, byId, name } = c;
   const [view, setView] = useState<"karte" | "alle">("karte");
-  const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
-  const name = (id: string) => byId.get(id)?.name ?? id;
-  const href = groupHref;
-  const [find, setFind] = useState("");
 
   // Karte: je Gruppe ein Knoten (Kopf des Anführers), Linien = Verbindungen zwischen Gruppen
-  const { mapNodes, mapEdges, leaderGroup } = useMemo(() => groupMap(analysis, byId, weights, edges.filter(isShown)), [analysis, byId, weights, edges, isShown]);
+  const { mapNodes, mapEdges, leaderGroup } = useMemo(() => groupMap(analysis, byId, weights, counts), [analysis, byId, weights, counts]);
   const colorOf = useMemo(() => (id: string) => analysis.groups[leaderGroup.get(id) ?? 0]?.color ?? GROUP_COLORS[0], [leaderGroup, analysis.groups]);
   // Alle Spieler: jeder Kopf auf der Fläche seiner Gruppe, Rolle als Rahmen
-  const allNodes = useMemo(() => nodes.filter((n) => analysis.groupOf.has(n.id)), [nodes, analysis.groupOf]);
-  const allEdges: GraphEdge[] = useMemo(() => edges.filter(isShown).map((e) => ({ ...e, ...weigh(e, weights) })).filter((e) => e.weight > 0), [edges, weights, isShown]);
-  const memberColor = useMemo(() => (id: string) => analysis.groups[analysis.groupOf.get(id) ?? -1]?.color ?? null, [analysis]);
+  const allNodes = useMemo(() => c.nodes.filter((n) => analysis.groupOf.has(n.id)), [c.nodes, analysis.groupOf]);
   const roleOf = useMemo(() => {
     const roles = new Map(analysis.groups.flatMap((g) => g.members.map((m) => [m.id, m.role] as const)));
     return (id: string) => roles.get(id) ?? null;
   }, [analysis.groups]);
-  const playerHref = useMemo(() => (id: string) => `/spieler/${encodeURIComponent(id)}`, []);
-  const hrefOf = groupHref;
-
-  const found = find ? analysis.groupOf.get(find) : undefined;
 
   return (
     <>
-      <div className="conn__layout">
-      <div className="conn__side">{controls}</div>
-      <div className="conn__main">
-      <div className="grp__find">
-        <span className="eyebrow">In welcher Gruppe ist …</span>
-        <PlayerSearch players={nodes} value={find} onChange={setFind} label="Spieler finden" empty={{ label: "Spieler wählen" }} />
-        {found !== undefined && (
-          <Link className="tag" data-tone="gold" href={href(find)}>
-            {name(find)} → {groupName(analysis.groups[found], name)}
-          </Link>
-        )}
-      </div>
       <div className="box conn__box" data-tone="white">
         <div className="grp__toolbar">
-          <div className="gb__seg" role="group" aria-label="Ansicht">
+          <div className="gb__seg" role="group" aria-label="Darstellung">
             <button type="button" aria-pressed={view === "karte"} onClick={() => setView("karte")} title="Ein Kopf je Gruppe (ihr Anführer)">
               Gruppen
             </button>
@@ -87,30 +54,27 @@ export function GroupsOverview({
               Alle Spieler
             </button>
           </div>
-          {toolbar}
         </div>
         {view === "karte" ? (
-          <ConnectionGraph nodes={mapNodes} edges={mapEdges} territoryOf={colorOf} hrefOf={hrefOf} />
+          <ConnectionGraph nodes={mapNodes} edges={mapEdges} territoryOf={colorOf} onSelect={c.select} hrefOf={(id) => `/spieler/${encodeURIComponent(id)}`} />
         ) : (
-          <ConnectionGraph nodes={allNodes} edges={allEdges} territoryOf={memberColor} roleOf={roleOf} hrefOf={playerHref} />
+          <ConnectionGraph nodes={allNodes} edges={weighted} territoryOf={c.groupColor} roleOf={roleOf} onSelect={c.select} />
         )}
         <p className="muted conn__legend">
           {view === "karte" ? "Ein Kopf je Gruppe" : `${num(allNodes.length)} Spieler in ${num(analysis.groups.length)} Gruppen`}{" "}
           <Explain label="Was zeigt das Netz?">
             {view === "karte"
-              ? "Ein Kopf je Gruppe (ihr Anführer), Größe = Stärke der Gruppe, Linien = Verbindungen zwischen den Gruppen (Raids, Titel, Nachrichten, geteilte Chats aller Mitglieder). Name beim Überfahren, anklicken öffnet die Gruppe."
-              : "Jeder verbundene Spieler, die Fläche zeigt seine Gruppe. Rahmen: Krone = Anführer, dick = Kern, gestrichelt = Rand. Anklicken öffnet das Profil."}
+              ? "Ein Kopf je Gruppe (ihr Anführer), Größe = Stärke der Gruppe, Linien = Verbindungen zwischen den Gruppen (Raids, Titel, Nachrichten, geteilte Chats aller Mitglieder). Anklicken zeigt die Gruppe, Rechtsklick öffnet das Profil des Anführers."
+              : "Jeder verbundene Spieler, die Fläche zeigt seine Gruppe. Rahmen: Krone = Anführer, dick = Kern, gestrichelt = Rand. Anklicken zeigt seine Gruppe, Rechtsklick öffnet das Profil."}
           </Explain>
         </p>
-      </div>
-      </div>
       </div>
       <ul className="grp__cards">
         {analysis.groups.map((g) => {
           const byRole = (r: Role) => g.members.filter((m) => m.role === r);
           return (
             <li key={g.index} className="box grp__card" data-tone="white" style={{ "--grp": `var(${g.color})` } as React.CSSProperties}>
-              <Link href={href(g.leader)} className="grp__card-head">
+              <Pick c={c} id={g.leader} className="grp__card-head">
                 <Head id={g.leader} uuid={byId.get(g.leader)?.uuid} name={name(g.leader)} size={40} decorative />
                 <span>
                   <b>{groupName(g, name)}</b>
@@ -118,21 +82,20 @@ export function GroupsOverview({
                     {num(g.members.length)} Spieler · {pct(g.cohesion)} bleibt in der Gruppe
                   </span>
                 </span>
-              </Link>
+              </Pick>
               <Bar parts={[{ v: g.cohesion, color: g.color, label: "bleibt in der Gruppe" }]} />
-              <p className="muted grp__line">{explainGroup(g, analysis, groupEdges, weights, name).short}</p>
+              <p className="muted grp__line">{explainGroup(g, analysis, counts, weights, name).short}</p>
               <p className="grp__line">
                 <span className="eyebrow">Kern</span>
-                <Heads ids={byRole("kern").map((m) => m.id)} byId={byId} max={8} />
+                <Heads c={c} ids={byRole("kern").map((m) => m.id)} max={8} />
               </p>
               <p className="grp__line">
                 <span className="eyebrow">Rand</span>
-                <Heads ids={byRole("rand").map((m) => m.id)} byId={byId} max={8} />
+                <Heads c={c} ids={byRole("rand").map((m) => m.id)} max={8} />
               </p>
               {g.neighbours[0] && (
                 <p className="muted grp__line">
-                  Am engsten mit{" "}
-                  <Link href={href(analysis.groups[g.neighbours[0].group].leader)}>{groupName(analysis.groups[g.neighbours[0].group], name)}</Link>
+                  Am engsten mit <Pick c={c} id={analysis.groups[g.neighbours[0].group].leader}>{groupName(analysis.groups[g.neighbours[0].group], name)}</Pick>
                 </p>
               )}
             </li>
@@ -174,14 +137,14 @@ function groupMap(analysis: GroupAnalysis, byId: Map<string, GraphNode>, weights
   return { mapNodes, mapEdges, leaderGroup };
 }
 
-function Heads({ ids, byId, max }: { ids: string[]; byId: Map<string, GraphNode>; max: number }) {
+function Heads({ c, ids, max }: { c: CommunityCtx; ids: string[]; max: number }) {
   if (!ids.length) return <span className="muted">–</span>;
   return (
     <span className="grp__heads">
       {ids.slice(0, max).map((id) => (
-        <Link key={id} href={`/spieler/${encodeURIComponent(id)}`} title={byId.get(id)?.name ?? id}>
-          <Head id={id} uuid={byId.get(id)?.uuid} name={byId.get(id)?.name ?? id} size={24} src={32} decorative />
-        </Link>
+        <button type="button" className="linkbtn" key={id} onClick={() => c.select(id)} title={`${c.name(id)} auswählen`}>
+          <Head id={id} uuid={c.byId.get(id)?.uuid} name={c.name(id)} size={24} src={32} decorative />
+        </button>
       ))}
       {ids.length > max && <span className="muted"> +{ids.length - max}</span>}
     </span>
@@ -201,12 +164,9 @@ function Bar({ parts }: { parts: { v: number; color: string; label: string }[] }
   );
 }
 
-/** Seite einer Gruppe: Anführer und warum, Netz der Mitglieder, Rollen, Zugehörigkeit, Matrix, Nachbargruppen */
-export function GroupView({ nodes, edges, member }: { nodes: GraphNode[]; edges: LinkCounts[]; member: string }) {
-  const { analysis, weights, controls, shown: isShown, groupEdges } = useAnalysis(edges);
-  const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
-  const name = (id: string) => byId.get(id)?.name ?? id;
-  const href = groupHref;
+/** Gruppe des gewählten Spielers: Anführer und warum, Netz der Mitglieder, Rollen, Zugehörigkeit, Matrix, Nachbargruppen */
+export function GroupView({ c }: { c: CommunityCtx }) {
+  const { analysis, weights, counts, weighted, byId, name, focus: member, s } = c;
   const [hover, setHover] = useState<string | null>(null);
   const [sort, setSort] = useState<"rolle" | "zugehoerigkeit" | "rang">("rolle");
 
@@ -215,44 +175,14 @@ export function GroupView({ nodes, edges, member }: { nodes: GraphNode[]; edges:
   const ids = useMemo(() => new Set(g?.members.map((m) => m.id) ?? []), [g]);
   const memberOf = useMemo(() => new Map(g?.members.map((m) => [m.id, m]) ?? []), [g]);
   // Umfeld: auch Spieler außerhalb der Gruppe, bis zu `around` Schritte von einem Mitglied entfernt
-  const [around, setAround] = useState(0);
-  const weighted: GraphEdge[] = useMemo(() => edges.filter(isShown).map((e) => ({ ...e, ...weigh(e, weights) })).filter((e) => e.weight > 0), [edges, weights, isShown]);
-  const shown = useMemo(() => {
-    const set = new Set(ids);
-    let frontier = [...ids];
-    for (let step = 0; step < around && frontier.length; step++) {
-      const next: string[] = [];
-      for (const e of weighted) {
-        for (const [x, y] of [
-          [e.a, e.b],
-          [e.b, e.a],
-        ]) {
-          if (frontier.includes(x) && !set.has(y)) {
-            set.add(y);
-            next.push(y);
-          }
-        }
-      }
-      frontier = next;
-    }
-    return set;
-  }, [ids, around, weighted]);
-  const gNodes = useMemo(() => nodes.filter((n) => shown.has(n.id)), [nodes, shown]);
+  const shown = useMemo(() => aroundOf(ids, weighted, s.around), [ids, s.around, weighted]);
+  const gNodes = useMemo(() => c.nodes.filter((n) => shown.has(n.id)), [c.nodes, shown]);
   const gEdges: GraphEdge[] = useMemo(() => weighted.filter((e) => shown.has(e.a) && shown.has(e.b)), [weighted, shown]);
   // Farbe = Gruppe (als Gebiet hinter den Köpfen), Rahmenform = Rolle in der eigenen Gruppe (auch bei Außenstehenden)
   const roleAll = useMemo(() => new Map(analysis.groups.flatMap((x) => x.members.map((m) => [m.id, m.role] as const))), [analysis.groups]);
-  const territoryOf = useMemo(
-    () => (id: string) => {
-      const og = analysis.groupOf.get(id);
-      return og === undefined ? null : GROUP_COLORS[og % GROUP_COLORS.length];
-    },
-    [analysis.groupOf],
-  );
   const roleOf = useMemo(() => (id: string) => roleAll.get(id) ?? null, [roleAll]);
-  // Außenstehende führen zu ihrer Gruppe, Mitglieder zum Profil
-  const hrefOf = useMemo(() => (id: string) => (memberOf.has(id) ? `/spieler/${encodeURIComponent(id)}` : href(id)), [memberOf]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!g) return <p className="muted">{name(member)} ist in diesem Zeitraum mit niemandem verbunden.</p>;
+  if (!g) return <p className="muted">{name(member)} ist mit diesen Einstellungen mit niemandem verbunden.</p>;
   const leader = memberOf.get(g.leader)!;
   const receivedTotal = g.members.reduce((s, m) => s + m.received, 0);
   const supporters = g.members
@@ -264,7 +194,7 @@ export function GroupView({ nodes, edges, member }: { nodes: GraphNode[]; edges:
   const sorted = [...g.members].sort((a, b) =>
     sort === "rolle" ? ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role) || b.rank - a.rank : sort === "rang" ? b.rank - a.rank : b.belonging - a.belonging,
   );
-  const counts = Object.fromEntries(ROLE_ORDER.map((r) => [r, g.members.filter((m) => m.role === r).length])) as Record<Role, number>;
+  const roleCounts = Object.fromEntries(ROLE_ORDER.map((r) => [r, g.members.filter((m) => m.role === r).length])) as Record<Role, number>;
 
   return (
     <>
@@ -305,15 +235,12 @@ export function GroupView({ nodes, edges, member }: { nodes: GraphNode[]; edges:
           </dl>
           {member !== g.leader && (
             <p className="muted">
-              Geöffnet über {name(member)} ({ROLE_LABEL[memberOf.get(member)!.role]}).
+              Ausgewählt: {name(member)} ({ROLE_LABEL[memberOf.get(member)!.role]}).
             </p>
           )}
         </div>
       </section>
 
-      <div className="conn__layout">
-        <div className="conn__side">{controls}</div>
-        <div className="conn__main">
       <div className="box conn__box" data-tone="white">
         <div className="gb__seg" role="group" aria-label="Umfeld" style={{ marginBottom: 12 }}>
           {(
@@ -324,12 +251,12 @@ export function GroupView({ nodes, edges, member }: { nodes: GraphNode[]; edges:
               [99, "Ganzes Netz"],
             ] as const
           ).map(([k, l]) => (
-            <button key={k} type="button" aria-pressed={around === k} onClick={() => setAround(k)}>
+            <button key={k} type="button" aria-pressed={s.around === k} onClick={() => c.set({ around: k })}>
               {l}
             </button>
           ))}
         </div>
-        <ConnectionGraph nodes={gNodes} edges={gEdges} focus={hover} territoryOf={territoryOf} roleOf={roleOf} hrefOf={hrefOf} />
+        <ConnectionGraph nodes={gNodes} edges={gEdges} focus={hover ?? member} territoryOf={c.groupColor} roleOf={roleOf} onSelect={c.select} />
         <ul className="conn__legend muted">
           <li>
             <i style={{ background: `var(${g.color})`, opacity: 0.5 }} /> Fläche = Gruppe
@@ -340,14 +267,12 @@ export function GroupView({ nodes, edges, member }: { nodes: GraphNode[]; edges:
             </li>
           ))}
           <li>
-            {around === 0
+            {s.around === 0
               ? "Nur Verbindungen innerhalb der Gruppe"
-              : `${num(gNodes.length - g.members.length)} Spieler außerhalb, auf der Fläche ihrer Gruppe (anklicken öffnet sie)`}{" "}
-            · Name beim Überfahren
+              : `${num(gNodes.length - g.members.length)} Spieler außerhalb, auf der Fläche ihrer Gruppe`}{" "}
+            · Anklicken wählt aus, Rechtsklick öffnet das Profil
           </li>
         </ul>
-      </div>
-        </div>
       </div>
 
       <section className="box grp__explain" data-tone="white" aria-labelledby="warum-h" style={{ "--grp": `var(${g.color})` } as React.CSSProperties}>
@@ -355,7 +280,7 @@ export function GroupView({ nodes, edges, member }: { nodes: GraphNode[]; edges:
           Warum das eine Gruppe ist
         </h3>
         <ul>
-          {explainGroup(g, analysis, groupEdges, weights, name).points.map((p) => (
+          {explainGroup(g, analysis, counts, weights, name).points.map((p) => (
             <li key={p.text} onMouseEnter={() => p.ids?.[0] && setHover(p.ids[0])} onMouseLeave={() => setHover(null)}>
               {p.text}
             </li>
@@ -381,7 +306,7 @@ export function GroupView({ nodes, edges, member }: { nodes: GraphNode[]; edges:
             </li>
             {supporters.length > 0 && (
               <li>
-                Am meisten von <Names ids={supporters.slice(0, 3).map((s) => s.id)} name={name} />.
+                Am meisten von <Names c={c} ids={supporters.slice(0, 3).map((x) => x.id)} />.
               </li>
             )}
             {runnerUp && (
@@ -400,7 +325,7 @@ export function GroupView({ nodes, edges, member }: { nodes: GraphNode[]; edges:
               <span className="tag" data-tone={ROLE_TONE[r]}>
                 {ROLE_LABEL[r]}
               </span>{" "}
-              <b className="num">{num(counts[r])}</b>{" "}
+              <b className="num">{num(roleCounts[r])}</b>{" "}
               <span className="muted">
                 {r === "anfuehrer"
                   ? "die meiste Aufmerksamkeit"
@@ -433,7 +358,7 @@ export function GroupView({ nodes, edges, member }: { nodes: GraphNode[]; edges:
       </div>
       <ul className="grp__members">
         {sorted.map((m) => (
-          <MemberRow key={m.id} m={m} g={g} analysis={analysis} name={name} byId={byId} hrefGroup={href} onHover={setHover} active={hover === m.id} />
+          <MemberRow key={m.id} c={c} m={m} g={g} onHover={setHover} active={hover === m.id || member === m.id} />
         ))}
       </ul>
 
@@ -453,13 +378,13 @@ export function GroupView({ nodes, edges, member }: { nodes: GraphNode[]; edges:
               const other = analysis.groups[nb.group];
               return (
                 <li key={nb.group} className="box grp__card" data-tone="white" style={{ "--grp": `var(${other.color})` } as React.CSSProperties}>
-                  <Link href={href(other.leader)} className="grp__card-head">
+                  <Pick c={c} id={other.leader} className="grp__card-head">
                     <Head id={other.leader} uuid={byId.get(other.leader)?.uuid} name={name(other.leader)} size={32} decorative />
                     <span>
                       <b>{groupName(other, name)}</b>
                       <span className="muted">{num(Math.round(nb.weight))} Punkte</span>
                     </span>
-                  </Link>
+                  </Pick>
                   <p className="muted grp__line">
                     Brücken:{" "}
                     {nb.bridges
@@ -477,38 +402,21 @@ export function GroupView({ nodes, edges, member }: { nodes: GraphNode[]; edges:
   );
 }
 
-function Names({ ids, name }: { ids: string[]; name: (id: string) => string }) {
+function Names({ c, ids }: { c: CommunityCtx; ids: string[] }) {
   return (
     <>
       {ids.map((id, i) => (
         <span key={id}>
           {i > 0 && (i === ids.length - 1 ? " und " : ", ")}
-          <Link href={`/spieler/${encodeURIComponent(id)}`}>{name(id)}</Link>
+          <Pick c={c} id={id}>{c.name(id)}</Pick>
         </span>
       ))}
     </>
   );
 }
 
-function MemberRow({
-  m,
-  g,
-  analysis,
-  name,
-  byId,
-  hrefGroup,
-  onHover,
-  active,
-}: {
-  m: Member;
-  g: Group;
-  analysis: GroupAnalysis;
-  name: (id: string) => string;
-  byId: Map<string, GraphNode>;
-  hrefGroup: (id: string) => string;
-  onHover: (id: string | null) => void;
-  active: boolean;
-}) {
+function MemberRow({ c, m, g, onHover, active }: { c: CommunityCtx; m: Member; g: Group; onHover: (id: string | null) => void; active: boolean }) {
+  const { analysis, name } = c;
   const parts = [{ v: m.belonging, color: g.color, label: "in dieser Gruppe" }, ...[...m.shares].filter(([k]) => k !== g.index).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ v, color: GROUP_COLORS[k % GROUP_COLORS.length], label: groupName(analysis.groups[k], name) }))];
   const why =
     m.role === "rand"
@@ -518,9 +426,7 @@ function MemberRow({
       : null;
   return (
     <li className="box grp__member" data-tone="white" data-active={active || undefined} onMouseEnter={() => onHover(m.id)} onMouseLeave={() => onHover(null)}>
-      <Link href={`/spieler/${encodeURIComponent(m.id)}`} className="conn__person">
-        <Head id={m.id} uuid={byId.get(m.id)?.uuid} name={name(m.id)} size={32} decorative /> <b>{name(m.id)}</b>
-      </Link>
+      <Person c={c} id={m.id} size={32} />
       <span className="tag" data-tone={ROLE_TONE[m.role]}>
         {ROLE_LABEL[m.role]}
       </span>
@@ -546,9 +452,9 @@ function MemberRow({
         {m.alt && m.role !== "rand" && m.alt.share > 0.15 && (
           <>
             {" "}
-            <Link className="muted" href={hrefGroup(analysis.groups[m.alt.group].leader)}>
+            <Pick c={c} id={analysis.groups[m.alt.group].leader} className="muted">
               · auch {pct(m.alt.share)} zur {groupName(analysis.groups[m.alt.group], name)}
-            </Link>
+            </Pick>
           </>
         )}
       </p>
@@ -635,7 +541,7 @@ function MatrixRow({
 }
 
 /** Gruppenfarben an eine feste Einteilung binden: jede Gruppe bekommt die Farbe, die die meisten ihrer Mitglieder dort haben */
-function recolor(a: GroupAnalysis, anchor: (id: string) => string | null): GroupAnalysis {
+export function recolor(a: GroupAnalysis, anchor: (id: string) => string | null): GroupAnalysis {
   const used = new Set<string>();
   const colors = new Map<number, string>();
   for (const g of [...a.groups].sort((x, y) => y.members.length - x.members.length)) {

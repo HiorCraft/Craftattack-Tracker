@@ -176,3 +176,34 @@ export function isMutual(e: LinkCounts, w: Weights): boolean {
   const { ab, ba } = directed(e, w);
   return ab > 0 && ba > 0;
 }
+
+export interface Centrality {
+  id: string;
+  /** Durchschnittliche Nähe zu allen anderen (nicht erreichbar = 0), 0–1 */
+  score: number;
+  /** In dieser Richtung erreichbar */
+  reached: number;
+  /** Direkt verbunden */
+  direct: number;
+}
+
+/**
+ * Zentralität aller Spieler: wie nah jemand im Schnitt allen anderen steht (harmonisch, nicht erreichbar zählt 0).
+ * `von`: wie gut er die anderen erreicht; `zu`: wie nah die anderen ihm kommen; `gegenseitig`: nur beidseitig.
+ */
+export function centralities(ids: string[], out: Map<string, Map<string, number>>, dir: Direction): Centrality[] {
+  const n = ids.length;
+  return ids
+    .map((id) => {
+      const reach = distancesFrom(id, out, dir);
+      let sum = 0;
+      let direct = 0;
+      for (const r of reach.values()) {
+        if (r.id === id) continue;
+        sum += closeness(r.dist);
+        if (r.hops === 1) direct++;
+      }
+      return { id, score: n > 1 ? sum / (n - 1) : 0, reached: reach.size - 1, direct };
+    })
+    .sort((a, b) => b.score - a.score);
+}
