@@ -7339,3 +7339,30 @@ a.st-board__mvlink:focus-visible {
   gap: 4px;
   text-decoration: none;
 }
+
+/* Wert als eigener Link auf den Graphen (über der Zeile, wie der ▲/▼-Pfeil); in der Zeile nur Platzhalter */
+.st-board__val[data-linked] {
+  visibility: hidden;
+}
+.st-board__vallink {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: inherit;
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+.st-board__list > li:has(.st-board__mv) > .st-board__vallink {
+  right: calc(2.4rem + 10px);
+}
+.st-board__vallink:hover,
+.st-board__vallink:focus-visible {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}

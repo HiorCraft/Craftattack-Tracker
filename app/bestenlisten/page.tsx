@@ -9,6 +9,7 @@ import { BOARD_KEYS, type AfkKind, type BoardKey } from "@/lib/types";
 import { ago, boardValue, duration, num } from "@/lib/format";
 import { BoardValue } from "@/components/BoardValue";
 import { BoardMove } from "@/components/BoardMove";
+import { BoardValLink } from "@/components/BoardValLink";
 import { getBoardRows, passedPlayers } from "@/lib/boardRows";
 import { Icon } from "@/components/Icons";
 import { playtimeOf } from "@/lib/playtime";
@@ -280,10 +281,17 @@ async function Boards(props: PageProps<"/bestenlisten">) {
                           {e.online && <span className="dot" style={{ display: "inline-block", marginLeft: 8, verticalAlign: "middle" }} title="online" />}
                         </span>
                         <span className="st-board__meta">{meta(e)}</span>
-                        <span className="st-board__val num">{key === "damageDealt" ? <BoardValue k={key} v={e.value} /> : fmt(e.value)}</span>
+                        <span className="st-board__val num" data-linked={graphMetric ? true : undefined} aria-hidden={graphMetric ? true : undefined}>
+                          {key === "damageDealt" ? <BoardValue k={key} v={e.value} /> : fmt(e.value)}
+                        </span>
                         {/* Platzhalter: der Pfeil liegt als eigener Link darüber */}
                         <span className="st-board__mv" aria-hidden="true" />
                       </Link>
+                      {graphMetric && (
+                        <BoardValLink href={graphHref(graphMetric, [e.id])} name={e.name}>
+                          {key === "damageDealt" ? <BoardValue k={key} v={e.value} /> : fmt(e.value)}
+                        </BoardValLink>
+                      )}
                       {hasMovement && (
                         <BoardMove
                           diff={diff}

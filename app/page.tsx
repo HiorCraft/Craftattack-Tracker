@@ -23,6 +23,7 @@ import { getBoardRows, passedPlayers, type BoardRow } from "@/lib/boardRows";
 import { BoardMove } from "@/components/BoardMove";
 import { boardHref } from "@/lib/leaderboards";
 import { ClipGrid } from "@/components/ClipGrid";
+import { BoardValLink } from "@/components/BoardValLink";
 import { BOARD_STYLE } from "@/lib/boards";
 import { BoardValue } from "@/components/BoardValue";
 import { BOARD_TONE, METRIC_TONE } from "@/lib/statTone";
@@ -323,12 +324,17 @@ async function Dashboard() {
                               <span className="st-board__rank num">{i + 1}</span>
                               <Head id={e.id} uuid={e.uuid} name={e.name} decorative />
                               <span className="st-board__name">{e.name}</span>
-                              <span className="st-board__val num" title={boardValue(key, e.value)}>
+                              <span className="st-board__val num" data-linked aria-hidden="true">
                                 <BoardValue k={key} v={e.value} />
                               </span>
                               {/* Platzhalter: der Pfeil liegt als eigener Link (Graph) darüber */}
                               <span className="st-board__mv" aria-hidden="true" />
                             </Link>
+                            <BoardValLink href={graphHref(key, [e.id])} name={e.name}>
+                              <span title={boardValue(key, e.value)}>
+                                <BoardValue k={key} v={e.value} />
+                              </span>
+                            </BoardValLink>
                             <BoardMove
                               diff={diff}
                               title={`Vor 24 Stunden Platz ${before}`}
@@ -367,9 +373,14 @@ async function Dashboard() {
                         <span className="st-board__rank num">{index + 1}</span>
                         <Head id={entry.id} uuid={entry.uuid} name={entry.name} decorative />
                         <span className="st-board__name">{entry.name}</span>
-                        <span className="st-board__val num">{num(entry.value)}</span>
+                        <span className="st-board__val num" data-linked aria-hidden="true">
+                          {num(entry.value)}
+                        </span>
                         <span className="st-board__mv" aria-hidden="true" />
                       </Link>
+                      <BoardValLink href={graphHref("twitchSubs", [entry.id])} name={entry.name}>
+                        {num(entry.value)}
+                      </BoardValLink>
                     </li>
                   ))
                 )}
