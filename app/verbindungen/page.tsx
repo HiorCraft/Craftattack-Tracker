@@ -43,10 +43,10 @@ async function Community({ searchParams }: { searchParams: PageProps<"/verbindun
             einen ausgewählten Spieler, auf Wunsch mit Gruppen.{" "}
             <Explain>
               Alle Einstellungen gelten für beide Ansichten, ein ausgewählter Spieler bleibt beim Wechsel ausgewählt. <b>Verbindungen</b>: je enger die
-              Verbindung, desto dicker die Linie und desto näher die Köpfe; mit Spieler sein Umfeld. <b>Distanz</b>: wer allen am nächsten steht; mit Spieler
+              Verbindung, desto dicker die Linie und desto näher die Köpfe; mit Spieler seine Verbindungen. <b>Distanz</b>: wer allen am nächsten steht; mit Spieler
               alle nach dem kürzesten Weg zu ihm (Raids, Titel und Nachrichten zählen nur in ihre Richtung). <b>Gruppen</b>: wer untereinander deutlich enger
               verbunden ist als mit dem Rest (Louvain), benannt nach dem Mitglied mit der meisten Aufmerksamkeit; das sagt nichts über echte Freundschaften.
-              <b> Nur auf dem Server</b> zählt nur, was geschah, während mindestens einer der beiden auf CraftAttack online war; in Lücken des Trackers gilt
+              <b> Verbindungen während online</b> zählt nur, was geschah, während mindestens einer der beiden auf CraftAttack online war; in Lücken des Trackers gilt
               niemand als online. Kopf anklicken wählt den Spieler aus, Rechtsklick öffnet sein Profil.
             </Explain>{" "}
             <DataAge at={Math.min(all.at, server.at)} prefix="Auswertung" hint="wird alle 10 Minuten im Hintergrund neu berechnet" />

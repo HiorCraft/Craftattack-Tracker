@@ -228,6 +228,8 @@ export function ConnectionGraph({
     let lineLayer: HTMLCanvasElement | null = null;
     let frame = 0;
     let terrSum = NaN;
+    /** Zuletzt gemalte Gruppeneinteilung: ändert sie sich (z. B. andere Anzahl), Gebiete sofort neu malen */
+    let terrFn: ((id: string) => string | null) | null = null;
     const layer = (c: HTMLCanvasElement | null) => {
       const cv = c && c.width === canvas.width && c.height === canvas.height ? c : document.createElement("canvas");
       cv.width = canvas.width;
@@ -388,9 +390,10 @@ export function ConnectionGraph({
         let sum = 0;
         for (const n of ns) sum += Math.round(sx(n)) * 7 + Math.round(sy(n)) * 13;
         const stale = !fillLayer || fillLayer.width !== canvas.width || fillLayer.height !== canvas.height;
-        if (stale || (sum !== terrSum && frame % 2 === 0)) {
+        if (stale || territory !== terrFn || (sum !== terrSum && frame % 2 === 0)) {
           paintTerritories(territory, color);
           terrSum = sum;
+          terrFn = territory;
         }
         if (fillLayer && lineLayer && fillLayer.width && fillLayer.height) {
           ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -580,7 +583,11 @@ export function ConnectionGraph({
     canvas.addEventListener("pointerup", onUp);
     canvas.addEventListener("pointerleave", onLeave);
     canvas.addEventListener("contextmenu", onContext);
-    window.addEventListener("resize", onResize);
+    // Auch wenn nur der Platz sich ändert (Seitenleiste ein-/ausgeblendet), nicht nur das Fenster
+    const ro = new ResizeObserver(() => {
+      if (canvas.clientWidth * dpr !== canvas.width || canvas.clientHeight * dpr !== canvas.height) onResize();
+    });
+    ro.observe(canvas);
     loop();
     return () => {
       running = false;
@@ -590,7 +597,7 @@ export function ConnectionGraph({
       canvas.removeEventListener("pointerup", onUp);
       canvas.removeEventListener("pointerleave", onLeave);
       canvas.removeEventListener("contextmenu", onContext);
-      window.removeEventListener("resize", onResize);
+      ro.disconnect();
     };
   }, [nodes, edges, router]);
 
