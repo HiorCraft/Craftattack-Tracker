@@ -15,6 +15,14 @@
 
 # next.js
 /.next/
+/.next-schaetzung/
+/.next-a/
+/.next-b/
+/.next-active
+/.next-legacy/
+/.next-static-archive/
+/.next.tmp
+/scripts/.tmp/
 /out/
 
 # production
@@ -46,3 +54,4 @@ next-env.d.ts
 
 # IDE
 /.idea/
+.neon

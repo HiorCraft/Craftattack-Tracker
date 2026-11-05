@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Timelapse as TimelapseData } from "@/lib/analytics";
-import { headUrl, num } from "@/lib/format";
+import type { Timelapse as TimelapseData, TimelapseMessage } from "@/lib/analytics";
+import { num } from "@/lib/format";
+import { BOARD_TONE, METRIC_TONE } from "@/lib/statTone";
+import { Head } from "./Head";
 
 const tf = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" });
 const SPEEDS = [
@@ -13,8 +15,8 @@ const SPEEDS = [
 ];
 
 /**
- * Der Tag im Schnelldurchlauf. Köpfe: grün = auf dem Server, gelb = auf dem Server, aber AFK (rot: Mob-Farm, türkis: Block-Farm),
- * lila Ring = live auf Twitch (mit grünem/gelbem Kern: dabei auf dem Server; mit grauem Kern: nur Stream).
+ * Der Tag im Schnelldurchlauf. Köpfe: hellblau = auf dem Server, grau = auf dem Server, aber AFK (grün: Mob-Farm, gelb: Block-Farm),
+ * lila Ring = live auf Twitch (mit farbigem Kern: dabei auf dem Server; mit blassem Kopf: nur Stream).
  */
 export function Timelapse({ data }: { data: TimelapseData }) {
   const { frames, players } = data;
@@ -25,7 +27,7 @@ export function Timelapse({ data }: { data: TimelapseData }) {
   const [i, setI] = useState(firstActive);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
-  const [log, setLog] = useState<{ at: number; text: string }[]>([]);
+  const [log, setLog] = useState<{ at: number; m: TimelapseMessage }[]>([]);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -38,7 +40,7 @@ export function Timelapse({ data }: { data: TimelapseData }) {
         }
         const next = cur + 1;
         const f = frames[next];
-        if (f.messages.length) setLog((l) => [...f.messages.map((text) => ({ at: f.at, text })), ...l].slice(0, 8));
+        if (f.messages.length) setLog((l) => [...f.messages.map((m) => ({ at: f.at, m })), ...l].slice(0, 8));
         return next;
       });
     }, SPEEDS[speed].ms);
@@ -71,34 +73,34 @@ export function Timelapse({ data }: { data: TimelapseData }) {
     <div className="zr">
       <div className="zr__bar">
         <span className="zr__clock num">{tf.format(new Date(f.at))}</span>
-        <span className="tag" data-tone="grass">
+        <span className="tag" data-tone={METRIC_TONE.onlineCount}>
           {num(f.online.length)} online
         </span>
         {f.afk.length > 0 && (
-          <span className="tag" data-tone="gold" title="Auf dem Server, aber seit mindestens fünf Minuten keine Bewegung · davon an einer AFK-Farm">
+          <span className="tag" data-tone="idle" title="Auf dem Server, aber laut Server AFK (ab 5 Minuten ohne Bewegung) · davon an einer AFK-Farm">
             {num(f.afk.length)} AFK{farming > 0 ? ` · ${num(farming)} farmen` : ""}
           </span>
         )}
-        <span className="tag" data-tone="twitch" title="Live auf Twitch · davon auf dem Server">
+        <span className="tag" data-tone={METRIC_TONE.liveCount} title="Live auf Twitch · davon auf dem Server">
           {num(f.live.length)} live{f.live.length > 0 ? ` · ${num(liveOnServer)} auf dem Server` : ""}
         </span>
-        <span className="tag" data-tone="amethyst">
+        <span className="tag" data-tone={METRIC_TONE.viewers}>
           {f.viewers !== null ? `${num(f.viewers)} Zuschauer` : "– Zuschauer"}
         </span>
-        <span className="tag" data-tone="redstone">
+        <span className="tag" data-tone={BOARD_TONE.deaths}>
           {f.deaths !== null ? `${num(f.deaths)} Tode` : "– Tode"}
         </span>
         <span className="zr__controls">
-          <button type="button" className="btn btn--small" data-tone="gold" onClick={togglePlay} aria-pressed={playing}>
+          <button type="button" className="btn btn--small" data-tone="ink" onClick={togglePlay} aria-pressed={playing}>
             {playing ? "❚❚ Pause" : i >= frames.length - 1 ? "↻ Nochmal" : "▶ Abspielen"}
           </button>
-          <select className="zr__speed" value={speed} onChange={(e) => setSpeed(Number(e.target.value))} aria-label="Geschwindigkeit">
-            {SPEEDS.map((s, k) => (
-              <option key={s.label} value={k}>
-                {s.label}
-              </option>
+          <span className="gb__seg" role="group" aria-label="Geschwindigkeit">
+            {SPEEDS.map((sp, k) => (
+              <button key={sp.label} type="button" aria-pressed={speed === k} onClick={() => setSpeed(k)}>
+                {sp.label}
+              </button>
             ))}
-          </select>
+          </span>
         </span>
       </div>
       <input
@@ -125,7 +127,7 @@ export function Timelapse({ data }: { data: TimelapseData }) {
         <>
           <ul className="legend zr__legend" aria-label="Legende">
             <li>
-              <i style={{ background: "var(--grass)" }} /> auf dem Server
+              <i style={{ background: "var(--presence)" }} /> auf dem Server
             </li>
             <li>
               <i className="legend__afk" /> auf dem Server, AFK
@@ -153,8 +155,8 @@ export function Timelapse({ data }: { data: TimelapseData }) {
               const state = isLive && isOn ? (isAfk ? `live, auf dem Server, ${afkText}` : "live, auf dem Server") : isLive ? "live, nicht auf dem Server" : isAfk ? `auf dem Server, ${afkText}` : isOn ? "auf dem Server" : "";
               return (
                 <li key={p.id} data-on={isOn ? "true" : undefined} data-afk={isAfk ? (farm ?? "true") : undefined} data-live={isLive ? "true" : undefined}>
-                  <Link href={`/spieler/${encodeURIComponent(p.id)}`} title={`${p.name}${state ? ` · ${state}` : ""}`}>
-                    <img src={headUrl(p.uuid, 40, p.id)} alt={p.name} width={40} height={40} loading="lazy" decoding="async" />
+                  <Link href={`/spieler/${encodeURIComponent(p.id)}`}>
+                    <Head id={p.id} uuid={p.uuid} name={`${p.name}${state ? ` · ${state}` : ""}`} size={40} className="" />
                     {isAfk && (
                       <span className={farm ? "zr__afk zr__afk--farm" : "zr__afk"} aria-hidden="true">
                         {farm === "mobs" ? "MOBS" : farm === "blocks" ? "BLÖCKE" : "AFK"}
@@ -171,15 +173,31 @@ export function Timelapse({ data }: { data: TimelapseData }) {
         {log.length === 0 && !playing && f.messages.length > 0
           ? f.messages.map((m, k) => (
               <li key={k}>
-                <span className="num muted">{tf.format(new Date(f.at))}</span> {m}
+                <span className="num muted">{tf.format(new Date(f.at))}</span> <Message m={m} />
               </li>
             ))
           : log.map((m, k) => (
               <li key={`${m.at}-${k}`}>
-                <span className="num muted">{tf.format(new Date(m.at))}</span> {m.text}
+                <span className="num muted">{tf.format(new Date(m.at))}</span> <Message m={m.m} />
               </li>
             ))}
       </ol>
     </div>
+  );
+}
+
+/** Eine Zeitraffer-Meldung: Kopf statt Name, bei Toden durch Spieler der Mörder als zweiter Kopf */
+function Message({ m }: { m: TimelapseMessage }) {
+  return (
+    <span className="zr__msg">
+      {m.player && <Head id={m.player.id} uuid={m.player.uuid} name={m.player.name} size={20} src={32} />}
+      <span>{m.text}</span>
+      {m.killer && (
+        <>
+          <span aria-hidden="true">⚔</span>
+          <Head id={m.killer.id} uuid={m.killer.uuid} name={`Getötet von ${m.killer.name}`} size={20} src={32} />
+        </>
+      )}
+    </span>
   );
 }

@@ -1,8 +1,14 @@
+import { connection } from "next/server";
+import { Fold } from "@/components/Fold";
+import { Explain } from "@/components/Explain";
+import { ShowMore } from "@/components/ShowMore";
 import Link from "next/link";
+import { Suspense } from "react";
+import { PageSkeleton } from "@/components/Skeletons";
 import { loadTracker } from "@/lib/data";
-import { getHistoryAll } from "@/lib/store";
+import { getHistoryAll, getTwitchSubscriptionBoard } from "@/lib/store";
 import { BOARD_KEYS, type BoardKey } from "@/lib/types";
-import { boardValue, headUrl, num, duration, dateTime } from "@/lib/format";
+import { boardValue, num, duration, dateTime } from "@/lib/format";
 import { StatusLine } from "@/components/StatusLine";
 import { EventFeed } from "@/components/EventFeed";
 import { Sparkline } from "@/components/Sparkline";
@@ -11,33 +17,50 @@ import { FigValue } from "@/components/FigValue";
 import { TrendChart } from "@/components/TrendChart";
 import { getBoardRanksBefore, getHistoryRange } from "@/lib/analytics";
 import { EVENT_GROUPS } from "@/lib/events";
+import { getFeedFilter } from "@/lib/feedThresholds";
+import { getTopClips } from "@/lib/clips";
+import { getBoardRows, passedPlayers, type BoardRow } from "@/lib/boardRows";
+import { BoardMove } from "@/components/BoardMove";
+import { boardHref } from "@/lib/leaderboards";
+import { ClipGrid } from "@/components/ClipGrid";
+import { BOARD_STYLE } from "@/lib/boards";
+import { BoardValue } from "@/components/BoardValue";
+import { BOARD_TONE, METRIC_TONE } from "@/lib/statTone";
+import { Head } from "@/components/Head";
+import { HowLink } from "@/components/HowLink";
+import { graphHref } from "@/lib/graphQuery";
 
-const BOARDS: Record<BoardKey, { title: string; sub: string; tone: string }> = {
-  playtimeSeconds: { title: "Dauerzocker", sub: "Meiste Spielzeit", tone: "sky" },
-  diamonds: { title: "Diamantenbank", sub: "Wer hat, der hat", tone: "diamond" },
-  deaths: { title: "Friedhof", sub: "Hier liegen sie. Immer wieder.", tone: "ender" },
-  blocksBroken: { title: "Abrissbirne", sub: "Meiste Blöcke abgebaut", tone: "gold" },
-  mobsKilled: { title: "Monsterjäger", sub: "Meiste Mobs erledigt", tone: "grass" },
-  distance: { title: "Weltenbummler", sub: "Weiteste Strecke", tone: "pink" },
-};
+// Titel, Untertitel und Farben wie auf craftattack.one/stats
+const BOARDS = BOARD_STYLE;
 
-// Kein Skeleton: die Seite wird komplett auf dem Server gerendert (SSR) und blockiert bis die Daten da sind.
-export const instant = false;
 
+/** Öffnet sofort mit Überschrift und Platzhaltern; die Daten werden nachgestreamt. */
 export default function Home() {
   return (
+    <Suspense fallback={<PageSkeleton eyebrow="Live vom Server · inoffizieller Tracker" title="Übersicht" tone="diamond" />}>
       <Dashboard />
+    </Suspense>
   );
 }
 
 async function Dashboard() {
   const { state, events, now } = await loadTracker();
-  const [histAll, trend, ranksBefore] = await Promise.all([getHistoryAll(), getHistoryRange(72), getBoardRanksBefore(24)]);
+  const [histAll, trend, ranksBefore, subscriptionBoard, boardRows] = await Promise.all([
+    getHistoryAll(),
+    getHistoryRange(72),
+    getBoardRanksBefore(24),
+    getTwitchSubscriptionBoard(),
+    // Dieselben Listen wie auf /bestenlisten (alle Spieler), hier die ersten zehn
+    Promise.all(BOARD_KEYS.map((k) => getBoardRows(k, state, now))).then((lists) => Object.fromEntries(BOARD_KEYS.map((k, i) => [k, lists[i]])) as Record<BoardKey, BoardRow[]>),
+  ]);
   const s = state.latest;
   const liveList = s ? [...(s.live ?? [])].sort((a, b) => b.viewers - a.viewers) : [];
   // Globale Zuschauer: nur Streams von Spielern, die gerade auf dem Server sind
   const viewers = liveList.filter((l) => l.onServer !== false).reduce((a, l) => a + l.viewers, 0);
-  const recent = [...events].reverse().slice(0, 25);
+  const isShown = await getFeedFilter();
+  // Von hinten suchen, bis 25 gefunden sind (nicht alle Ereignisse der Staffel filtern)
+  const recent: typeof events = [];
+  for (let i = events.length - 1; i >= 0 && recent.length < 25; i--) if (isShown(events[i])) recent.push(events[i]);
   // Gesamte Laufzeit (gebündelt), nicht nur die letzten Stunden
   const hist = histAll.points.length >= 2 ? histAll.points : state.history;
   const trackedPlayers = Object.keys(state.players).length;
@@ -82,7 +105,7 @@ async function Dashboard() {
           {!s && state.lastError && (
             <div className="box st-banner" data-tone="gold" role="status">
               <p className="t-3 st-banner__title">Keine Verbindung zur API.</p>
-              <p>{state.lastError} – wir versuchen es alle 30 Sekunden automatisch wieder.</p>
+              <p>{state.lastError} – der Tracker versucht es automatisch erneut und pausiert Anfragen bei einer Cloudflare-Sperre.</p>
             </div>
           )}
         </div>
@@ -93,36 +116,32 @@ async function Dashboard() {
           <h2 className="sr-only" id="fig-h">
             Auf einen Blick
           </h2>
-          <dl className="grid st-figs st-figs--6">
-            <Link href="/spieler?filter=online" className="box st-fig" data-tone="grass">
+          <dl className="grid st-figs st-figs--5">
+            <Link href="/spieler?filter=online" className="box st-fig" data-tone={METRIC_TONE.onlineCount}>
               <dt>Online</dt>
               <FigValue>{s ? num(s.onlineCount) : "–"}</FigValue>
             </Link>
-            <Link href="/live" className="box st-fig" data-tone="amethyst">
+            <Link href="/live" className="box st-fig" data-tone={METRIC_TONE.liveCount}>
               <dt>Live auf Twitch</dt>
               <FigValue>{s ? num(liveList.length) : "–"}</FigValue>
             </Link>
-            <Link href="/live" className="box st-fig" data-tone="twitch">
+            <Link href="/live" className="box st-fig" data-tone={METRIC_TONE.viewers}>
               <dt>Zuschauer</dt>
               <FigValue>{s ? num(viewers) : "–"}</FigValue>
             </Link>
-            <div className="box st-fig" data-tone="diamond">
+            <div className="box st-fig" data-tone={BOARD_TONE.playtimeSeconds}>
               <dt>Stunden gespielt</dt>
               <FigValue>{s ? num(s.totals.playtimeSeconds / 3600) : "–"}</FigValue>
             </div>
-            <Link href="/ereignisse?g=death" className="box st-fig" data-tone="redstone">
+            <Link href="/ereignisse?g=death" className="box st-fig" data-tone={BOARD_TONE.deaths}>
               <dt>Tode</dt>
               <FigValue>{s ? num(s.totals.deaths) : "–"}</FigValue>
-            </Link>
-            <Link href="/ereignisse" className="box st-fig" data-tone="gold">
-              <dt>Ereignisse</dt>
-              <FigValue>{num(state.eventCount)}</FigValue>
             </Link>
           </dl>
         </div>
       </section>
 
-      <section className="block block--tight" data-tone="grass" aria-labelledby="online-h">
+      <section className="block block--tight" data-tone="white" aria-labelledby="online-h">
         <div className="wrap">
           <h2 className="t-2 st-online__h" id="online-h">
             <span className="dot" aria-hidden="true" /> Gerade online{" "}
@@ -140,7 +159,7 @@ async function Dashboard() {
                       href={`/spieler/${encodeURIComponent(p.id)}`}
                       title={p.live?.title}
                     >
-                      <img className="head" src={headUrl(p.uuid, 32, p.id)} alt="" width={32} height={32} loading="lazy" />
+                      <Head id={p.id} uuid={p.uuid} name={p.name} size={32} decorative />
                       <span>{p.name}</span>
                       {p.live && (
                         <span className="st-livetag">
@@ -163,37 +182,46 @@ async function Dashboard() {
         </div>
       </section>
 
+      <Suspense fallback={null}>
+        <TopClips />
+      </Suspense>
+
       <section className="block" data-tone="paper" aria-labelledby="feed-h">
         <div className="wrap">
-          <div className="section-head">
-            <div className="stack" style={{ "--stack": "8px" } as React.CSSProperties}>
-              <h2 className="t-2" id="feed-h">
-                Zuletzt passiert
-              </h2>
-              <p className="lead">Was, wer, wo, wann. Neuestes oben.</p>
-            </div>
-            <Link className="btn btn--small" data-tone="white" href="/ereignisse">
-              Alle Ereignisse
-            </Link>
-          </div>
+          <Fold
+            id="start.feed"
+            titleId="feed-h"
+            title="Zuletzt passiert"
+            aside={
+              <Link className="btn btn--small" data-tone="white" href="/ereignisse">
+                Alle Ereignisse
+              </Link>
+            }
+          >
           <div className="box trend-card" data-tone="white" style={{ marginBottom: 24 }}>
             <div className="spark-card__head">
               <span className="eyebrow">Verlauf</span>
             </div>
             <TrendChart points={trend} now={now} />
+            <Link className="how-link" href={graphHref(["onlineCount", "liveCount", "viewers"], [], "3d")}>
+              Im Graph öffnen →
+            </Link>
           </div>
-          <div className="grid" style={{ "--min": "300px", "--gap": "24px" } as React.CSSProperties}>
-            <div style={{ gridColumn: "span 2" }} className="feed-col">
+          <div className="tl-grid">
+            <div className="feed-col">
               <ul className="filters" style={{ marginBottom: 12 }} aria-label="Nur eine Kategorie zeigen">
                 {EVENT_GROUPS.map((grp) => (
                   <li key={grp.key}>
-                    <Link className="tag" data-tone={grp.tone} href={`/ereignisse?g=${grp.key}`}>
+                    <Link className="tag" data-tone="white" href={`/ereignisse?g=${grp.key}`}>
+                      <span className="swatch" data-tone={grp.tone} aria-hidden="true" />
                       {grp.label}
                     </Link>
                   </li>
                 ))}
               </ul>
-              <EventFeed events={recent} />
+              <ShowMore height={1300} label="Ereignisse">
+                <EventFeed events={recent} isShown={isShown} />
+              </ShowMore>
             </div>
             <aside className="stack" style={{ "--stack": "16px" } as React.CSSProperties}>
               <div className="box spark-card" data-tone="white">
@@ -225,7 +253,7 @@ async function Dashboard() {
                   <dd className="num">{num(state.eventCount)}</dd>
                 </dl>
               </div>
-              <div className="box spark-card" data-tone="gold">
+              <div className="box spark-card" data-tone="white">
                 <div className="spark-card__head">
                   <span className="eyebrow">Rekorde seit Start</span>
                 </div>
@@ -250,24 +278,27 @@ async function Dashboard() {
               </div>
             </aside>
           </div>
+          </Fold>
         </div>
       </section>
 
       <section className="block" data-tone="paper" aria-labelledby="boards-h" style={{ paddingTop: 0 }}>
         <div className="wrap">
-          <div className="section-head">
-            <h2 className="t-2" id="boards-h">
-              Bestenlisten
-            </h2>
-            <Link className="btn btn--small" data-tone="white" href="/bestenlisten">
-              Mehr als Top 10
-            </Link>
-          </div>
+          <Fold
+            id="start.boards"
+            titleId="boards-h"
+            title="Bestenlisten"
+            aside={
+              <Link className="btn btn--small" data-tone="white" href="/bestenlisten">
+                Mehr als Top 10
+              </Link>
+            }
+          >
           <div className="grid st-boards">
             {BOARD_KEYS.map((key) => {
               const b = BOARDS[key];
               const IconCmp = Icon[BOARD_ICON[key]];
-              const list = s?.boards?.[key] ?? [];
+              const list = boardRows[key] ?? [];
               return (
                 <section className="box st-board" data-tone={b.tone} key={key} aria-labelledby={`b-${key}`}>
                   <header className="st-board__head">
@@ -276,7 +307,9 @@ async function Dashboard() {
                     </span>
                     <div>
                       <h3 className="t-3" id={`b-${key}`}>
-                        {b.title}
+                        <Link className="st-board__titlelink" href={boardHref(key)} title={`Ganze Liste „${b.title}“ öffnen`}>
+                          {b.title} <span aria-hidden="true">↗</span>
+                        </Link>
                       </h3>
                       <p className="st-board__sub">{b.sub}</p>
                     </div>
@@ -292,25 +325,20 @@ async function Dashboard() {
                           <li key={e.id}>
                             <Link className="st-board__row" href={`/spieler/${encodeURIComponent(e.id)}`}>
                               <span className="st-board__rank num">{i + 1}</span>
-                              <img className="head" src={headUrl(e.uuid, 28, e.id)} alt="" width={28} height={28} loading="lazy" />
+                              <Head id={e.id} uuid={e.uuid} name={e.name} decorative />
                               <span className="st-board__name">{e.name}</span>
-                              <span className="st-board__val num">{boardValue(key, e.value)}</span>
-                              {diff === null ? (
-                                <span className="st-board__mv st-board__mv--new" title="Vor 24 Stunden noch nicht erfasst">
-                                  neu
-                                </span>
-                              ) : diff > 0 ? (
-                                <span className="st-board__mv st-board__mv--up num" title={`Vor 24 Stunden Platz ${before}`}>
-                                  ▲{diff}
-                                </span>
-                              ) : diff < 0 ? (
-                                <span className="st-board__mv st-board__mv--down num" title={`Vor 24 Stunden Platz ${before}`}>
-                                  ▼{-diff}
-                                </span>
-                              ) : (
-                                <span className="st-board__mv" aria-hidden="true" />
-                              )}
+                              <span className="st-board__val num" title={boardValue(key, e.value)}>
+                                <BoardValue k={key} v={e.value} />
+                              </span>
+                              {/* Platzhalter: der Pfeil liegt als eigener Link (Graph) darüber */}
+                              <span className="st-board__mv" aria-hidden="true" />
                             </Link>
+                            <BoardMove
+                              diff={diff}
+                              title={`Vor 24 Stunden Platz ${before}`}
+                              newTitle="Vor 24 Stunden noch nicht erfasst"
+                              href={graphHref(key, [e.id, ...passedPlayers(list, i, ranksBefore[key] ?? {})], "24h")}
+                            />
                           </li>
                         );
                       })
@@ -319,14 +347,48 @@ async function Dashboard() {
                 </section>
               );
             })}
-            <section className="box st-board" data-tone="lava" aria-labelledby="b-tracked">
+            <section className="box st-board" data-tone={METRIC_TONE.twitchSubs} aria-labelledby="b-twitch-subs">
+              <header className="st-board__head">
+                <span className="st-board__icon">
+                  <Icon.gift aria-hidden="true" />
+                </span>
+                <div>
+                  <h3 className="t-3" id="b-twitch-subs">
+                    <Link className="st-board__titlelink" href={boardHref("twitchSubs")} title="Ganze Liste „Sub-Stars“ öffnen">
+                      Sub-Stars <span aria-hidden="true">↗</span>
+                    </Link>
+                  </h3>
+                  <p className="st-board__sub">Twitch-Abos, während die Spieler auf dem Server online waren</p>
+                </div>
+              </header>
+              <ol className="st-board__list">
+                {subscriptionBoard.length === 0 ? (
+                  <li className="st-board__note">Noch keine Subs erfasst.</li>
+                ) : (
+                  subscriptionBoard.slice(0, 10).map((entry, index) => (
+                    <li key={entry.id}>
+                      <Link className="st-board__row" href={`/spieler/${encodeURIComponent(entry.id)}`}>
+                        <span className="st-board__rank num">{index + 1}</span>
+                        <Head id={entry.id} uuid={entry.uuid} name={entry.name} decorative />
+                        <span className="st-board__name">{entry.name}</span>
+                        <span className="st-board__val num">{num(entry.value)}</span>
+                        <span className="st-board__mv" aria-hidden="true" />
+                      </Link>
+                    </li>
+                  ))
+                )}
+              </ol>
+            </section>
+            <section className="box st-board" data-tone={METRIC_TONE.tracked} aria-labelledby="b-tracked">
               <header className="st-board__head">
                 <span className="st-board__icon">
                   <Icon.users aria-hidden="true" />
                 </span>
                 <div>
                   <h3 className="t-3" id="b-tracked">
-                    Dauergäste
+                    <Link className="st-board__titlelink" href={boardHref("tracked")} title="Ganze Liste „Dauergäste“ öffnen">
+                      Dauergäste <span aria-hidden="true">↗</span>
+                    </Link>
                   </h3>
                   <p className="st-board__sub">Online-Zeit laut Tracker, alle Spieler</p>
                 </div>
@@ -339,7 +401,7 @@ async function Dashboard() {
                     <li key={p.id}>
                       <Link className="st-board__row" href={`/spieler/${encodeURIComponent(p.id)}`}>
                         <span className="st-board__rank num">{i + 1}</span>
-                        <img className="head" src={headUrl(p.uuid, 28, p.id)} alt="" width={28} height={28} loading="lazy" />
+                        <Head id={p.id} uuid={p.uuid} name={p.name} decorative />
                         <span className="st-board__name">{p.name}</span>
                         <span className="st-board__val num">{duration(p.seconds)}</span>
                       </Link>
@@ -349,12 +411,44 @@ async function Dashboard() {
               </ol>
             </section>
           </div>
-          <p className="muted" style={{ marginTop: 16, fontSize: ".9375rem" }}>
-            Die sechs oberen Listen kommen so von der API (nur Top 10), ▲▼ zeigt die Bewegung gegenüber dem Stand vor 24 Stunden. „Dauergäste“
-            misst der Tracker selbst seit seinem Start, dafür für alle Spieler.
-          </p>
+          <HowLink section="bestenlisten" />
+          </Fold>
         </div>
       </section>
     </div>
+  );
+}
+
+/** Meistgesehene Clips der letzten 24 Stunden (fehlen welche, die der letzten Woche) */
+async function TopClips() {
+  await connection();
+  let clips = await getTopClips({ hours: 24, limit: 8, perPlayer: 2 });
+  let range = "der letzten 24 Stunden";
+  if (clips.length < 4) {
+    clips = await getTopClips({ hours: 7 * 24, limit: 8, perPlayer: 2 });
+    range = "der letzten 7 Tage";
+  }
+  if (!clips.length) return null;
+  return (
+    <section className="block block--tight" data-tone="paper" aria-labelledby="clips-h">
+      <div className="wrap">
+        <Fold
+          id="start.clips"
+          titleId="clips-h"
+          title={
+            <>
+              Top-Clips <Explain>Die meistgesehenen Clips {range}, höchstens zwei je Kanal.</Explain>
+            </>
+          }
+          aside={
+            <Link className="btn btn--small" data-tone="white" href="/ereignisse?t=clip">
+              Alle Clips
+            </Link>
+          }
+        >
+          <ClipGrid clips={clips} />
+        </Fold>
+      </div>
+    </section>
   );
 }

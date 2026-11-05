@@ -1,9 +1,5 @@
-import { NextResponse, connection } from "next/server";
-import { pollOnce, startPolling } from "@/lib/tracker";
+import { handleCronPoll } from "@/lib/cronPoll";
 
-export async function GET() {
-  await connection();
-  startPolling();
-  const result = await pollOnce();
-  return NextResponse.json(result);
+export async function GET(request: Request) {
+  return handleCronPoll(request);
 }

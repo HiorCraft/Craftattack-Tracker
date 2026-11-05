@@ -1,24 +1,40 @@
 import Link from "next/link";
+import { ListSearch } from "@/components/ListSearch";
+import { Suspense } from "react";
+import { PageSkeleton } from "@/components/Skeletons";
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { loadTracker } from "@/lib/data";
-import { duration, headUrl, num, ago } from "@/lib/format";
-import { playtimeOf, trackedSecondsOf } from "@/lib/playtime";
+import { duration, num, ago } from "@/lib/format";
+import { playtimeOf } from "@/lib/playtime";
+import { getRecentTwitchChatMessages, getTwitchSubscriptionBoard } from "@/lib/store";
+import { ChatFeed } from "@/components/ChatFeed";
+import { Head } from "@/components/Head";
+import { chatVodLinks } from "@/lib/events";
 
-// Kein Skeleton: die Seite wird komplett auf dem Server gerendert (SSR) und blockiert bis die Daten da sind.
-export const instant = false;
 
 export const metadata: Metadata = { title: "Spieler" };
 
+/** Öffnet sofort mit Überschrift und Platzhaltern; die Daten werden nachgestreamt. */
 export default function Page(props: PageProps<"/spieler">) {
   return (
+    <Suspense fallback={<PageSkeleton eyebrow="Alle, die der Tracker je gesehen hat" title="Spieler" />}>
       <Players searchParams={props.searchParams} />
+    </Suspense>
   );
 }
 
 async function Players({ searchParams }: { searchParams: PageProps<"/spieler">["searchParams"] }) {
+  await connection();
   const sp = await searchParams;
   const filter = typeof sp.filter === "string" ? sp.filter : "alle";
-  const { state, now } = await loadTracker();
+  const [{ state, events, now }, subscriptionBoard, chatMessages] = await Promise.all([
+    loadTracker(),
+    getTwitchSubscriptionBoard(),
+    getRecentTwitchChatMessages(20),
+  ]);
+  const subscriptions = new Map(subscriptionBoard.map((entry) => [entry.id, entry.value]));
+  const chatVods = chatVodLinks(events);
 
   let players = Object.values(state.players);
   if (filter === "online") players = players.filter((p) => p.online);
@@ -42,13 +58,12 @@ async function Players({ searchParams }: { searchParams: PageProps<"/spieler">["
 
   return (
     <>
-      <section className="block page-head" data-tone="grass">
+      <section className="block page-head" data-tone="ender">
         <div className="wrap">
           <p className="eyebrow">Alle, die der Tracker je gesehen hat</p>
           <h1 className="t-1">Spieler</h1>
           <p>
             Jeder, der seit Start des Trackers online war, gestreamt hat oder in einer Bestenliste aufgetaucht ist.
-            Die Zahlen sind der letzte bekannte Stand.
           </p>
         </div>
       </section>
@@ -67,17 +82,18 @@ async function Players({ searchParams }: { searchParams: PageProps<"/spieler">["
             </ul>
             <p className="muted num">{num(players.length)} Spieler</p>
           </div>
+          <ListSearch targetId="spieler-liste" label="Spieler suchen" placeholder="Spieler suchen …" />
 
           {players.length === 0 ? (
             <p className="st-online__empty">Noch niemand erfasst. Gib dem Tracker eine Minute.</p>
           ) : (
-            <ul className="grid" style={{ "--min": "240px", "--gap": "16px", listStyle: "none", padding: 0, margin: 0 } as React.CSSProperties}>
+            <ul id="spieler-liste" className="grid" style={{ "--min": "240px", "--gap": "16px", listStyle: "none", padding: 0, margin: 0 } as React.CSSProperties}>
               {players.map((p) => (
-                <li key={p.id}>
+                <li key={p.id} data-search={[p.name, p.id, p.twitchLogin].filter(Boolean).join("|")}>
                   <Link className="box player-card" data-tone="white" href={`/spieler/${encodeURIComponent(p.id)}`}>
                     <div className="player-card__top">
                       <span className={p.online && p.afkSince ? "head-afk" : undefined} title={p.online && p.afkSince ? "AFK" : undefined}>
-                        <img className="head" src={headUrl(p.uuid, 48, p.id)} alt="" width={48} height={48} loading="lazy" />
+                        <Head id={p.id} uuid={p.uuid} name={p.name} size={48} decorative />
                       </span>
                       <div>
                         <p className="player-card__name">{p.name}</p>
@@ -92,7 +108,7 @@ async function Players({ searchParams }: { searchParams: PageProps<"/spieler">["
                             </span>
                           )}
                           {p.online && p.afkSince && (
-                            <span className="tag" data-tone="gold" title={`Keine Bewegung seit ${ago(p.afkSince).replace("vor ", "")}${p.afkFarm ? ` · ${p.afkFarm === "mobs" ? "farmt dabei Mobs" : "baut dabei Blöcke ab"}` : ""}`}>
+                            <span className="tag" data-tone="idle" title={`Keine Bewegung seit ${ago(p.afkSince).replace("vor ", "")}${p.afkFarm ? ` · ${p.afkFarm === "mobs" ? "farmt dabei Mobs" : "baut dabei Blöcke ab"}` : ""}`}>
                               AFK{p.afkFarm ? ` · ${p.afkFarm === "mobs" ? "Mobs" : "Blöcke"}` : ""}
                             </span>
                           )}
@@ -116,20 +132,53 @@ async function Players({ searchParams }: { searchParams: PageProps<"/spieler">["
                       </dd>
                       <dt>Tode</dt>
                       <dd className="num">{p.stats.deaths !== undefined ? num(p.stats.deaths) : "–"}</dd>
-                      <dt title="Vom Tracker gemessen, für alle Spieler">Online (Tracker)</dt>
-                      <dd className="num">
-                        {duration(trackedSecondsOf(p, now))}
-                      </dd>
-                      <dt>Sessions</dt>
-                      <dd className="num">{num(p.sessions)}</dd>
-                      <dt>Zuletzt</dt>
-                      <dd className="num">{p.online ? "jetzt" : ago(p.lastSeen)}</dd>
+                      {/* Kurz halten: Online-Zeit laut Tracker und Sessions stehen im Profil */}
+                      {(subscriptions.get(p.id) ?? 0) > 0 && (
+                        <>
+                          <dt>Twitch Subs</dt>
+                          <dd className="num">{num(subscriptions.get(p.id) ?? 0)}</dd>
+                        </>
+                      )}
+                      {!p.online && (
+                        <>
+                          <dt>Zuletzt</dt>
+                          <dd className="num">{ago(p.lastSeen)}</dd>
+                        </>
+                      )}
                     </dl>
                   </Link>
                 </li>
               ))}
             </ul>
           )}
+          <section className="chatsection" aria-labelledby="recent-twitch-chat">
+            <div className="section-head">
+              <h2 className="t-2" id="recent-twitch-chat">
+                Chat
+              </h2>
+              <p className="muted">Was Spieler in den Twitch-Chats anderer Spieler schreiben. Mehr im Profil jedes Spielers.</p>
+            </div>
+            <div className="chatpair chatpair--single">
+              <div className="box chatbox" data-tone="white">
+                <div className="chatbox__head">
+                  <p className="eyebrow">
+                    Neueste Nachrichten <span className="num">({num(chatMessages.length)})</span>
+                  </p>
+                </div>
+                <div className="chatbox__scroll">
+                  <ChatFeed
+                    messages={chatMessages}
+                    uuidOf={(id) => state.players[id]?.uuid}
+                    nameOf={(id) => state.players[id]?.name ?? id}
+                    now={now}
+                    empty="Noch keine Nachrichten zwischen erfassten Spielern."
+                    vodOf={(mid) => chatVods.get(mid)}
+                    label="Neueste Nachrichten von Spielern in Twitch-Chats"
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
       </section>
     </>

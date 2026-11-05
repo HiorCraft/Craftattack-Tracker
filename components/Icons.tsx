@@ -44,6 +44,23 @@ export const Icon = {
       <path d="M6 14h6" />
     </svg>
   ),
+  heart: (p: P) => (
+    <svg {...base} {...p}>
+      <path d="M20.8 8.7c0 4.5-8.8 11-8.8 11s-8.8-6.5-8.8-11A4.7 4.7 0 0 1 12 6.1a4.7 4.7 0 0 1 8.8 2.6Z" />
+    </svg>
+  ),
+  totem: (p: P) => (
+    <svg {...base} {...p}>
+      <path d="M8 3h8v4l2 2v10l-6 2-6-2V9l2-2z" />
+      <path d="M8 9h8M9 12h1m4 0h1M10 16h4" />
+    </svg>
+  ),
+  food: (p: P) => (
+    <svg {...base} {...p}>
+      <path d="M12 8c-3-4-8-1-8 4 0 5 4 9 8 9s8-4 8-9c0-5-5-8-8-4Z" />
+      <path d="M12 8c0-3 2-5 5-5M12 8c-2-2-4-2-6-1" />
+    </svg>
+  ),
   login: (p: P) => (
     <svg {...base} {...p}>
       <path d="M10 17l5-5-5-5M15 12H3" />
@@ -65,6 +82,36 @@ export const Icon = {
     <svg {...base} {...p}>
       <path d="M3 3h9l9 9-9 9-9-9z" />
       <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+    </svg>
+  ),
+  gift: (p: P) => (
+    <svg {...base} {...p}>
+      <path d="M3 10h18v11H3zM2 6h20v4H2zM12 6v15" />
+      <path d="M12 6H8.5a2.5 2.5 0 1 1 2.5-2.5V6zm0 0h3.5a2.5 2.5 0 1 0-2.5-2.5V6z" />
+    </svg>
+  ),
+  chat: (p: P) => (
+    <svg {...base} {...p}>
+      <path d="M4 5h16v11H10l-4 4v-4H4z" />
+      <path d="M8 9h8M8 12h5" />
+    </svg>
+  ),
+  bits: (p: P) => (
+    <svg {...base} {...p}>
+      <path d="M12 3 5 13l7 8 7-8z" />
+      <path d="M5 13h14M12 3v18" />
+    </svg>
+  ),
+  coin: (p: P) => (
+    <svg {...base} {...p}>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M15 8.5a4 4 0 1 0 0 7M7.5 11h5M7.5 13.5h5" />
+    </svg>
+  ),
+  raid: (p: P) => (
+    <svg {...base} {...p}>
+      <circle cx="7" cy="8" r="3" />
+      <path d="M2 20c0-3 2-5 5-5s5 2 5 5M13 8h8m-3-3 3 3-3 3" />
     </svg>
   ),
   server: (p: P) => (
@@ -123,6 +170,9 @@ export const BOARD_ICON: Record<BoardKey, keyof typeof Icon> = {
   blocksBroken: "pickaxe",
   mobsKilled: "sword",
   distance: "boots",
+  damageDealt: "heart",
+  totemsUsed: "totem",
+  foodEaten: "food",
 };
 
 export const EVENT_ICON: Record<EventType, keyof typeof Icon> = {
@@ -135,13 +185,36 @@ export const EVENT_ICON: Record<EventType, keyof typeof Icon> = {
   afk_blocks_end: "pickaxe",
   afk_end: "boots",
   death: "skull",
+  achievement: "trophy",
   diamonds: "diamond",
   blocksBroken: "pickaxe",
   mobsKilled: "sword",
   distance: "boots",
+  damageDealt: "heart",
+  totemsUsed: "totem",
+  foodEaten: "food",
   stream_start: "twitch",
   stream_end: "twitch",
   stream_title: "tag",
+  subscription: "gift",
+  subscription_gift: "gift",
+  cheer: "bits",
+  blocksPlaced: "pickaxe",
+  damageTaken: "heart",
+  raidsWon: "trophy",
+  itemsCrafted: "bolt",
+  itemsEnchanted: "bolt",
+  tradedWithVillagers: "users",
+  animalsKilled: "sword",
+  animalsBred: "heart",
+  fishCaught: "food",
+  bellsRung: "flag",
+  clip: "eye",
+  follower_burst: "users",
+  raid: "raid",
+  chat: "chat",
+  shared_chat_start: "users",
+  shared_chat_end: "users",
   server_online: "server",
   server_offline: "server",
   tracker_start: "bolt",

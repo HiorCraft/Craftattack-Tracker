@@ -14,6 +14,10 @@ const tf = new Intl.DateTimeFormat("de-DE", {
 });
 
 export const num = (n: number) => nf.format(Math.round(n));
+const ef = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
+/** Euro ohne Cent, z. B. „1.234 €“ */
+export const eur = (n: number) => ef.format(n);
+export const hearts = (damage: number) => new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 }).format(damage / 20);
 
 export function duration(sec: number) {
   const d = Math.floor(sec / 86400);
@@ -44,12 +48,20 @@ export function ago(iso: string | null | undefined, now = Date.now()) {
 export const dateTime = (iso: string) => dtf.format(new Date(iso));
 export const time = (iso: string) => tf.format(new Date(iso));
 
+/** Wert und Einheit getrennt, damit die Einheit in engen Listen kleiner gesetzt werden kann */
+export function boardParts(key: string, v: number): { value: string; unit: string | null } {
+  if (key === "damageDealt") return { value: hearts(v), unit: "Herzen" };
+  return { value: boardValue(key, v), unit: null };
+}
+
 export function boardValue(key: string, v: number) {
   switch (key) {
     case "playtimeSeconds":
       return duration(v);
     case "distance":
       return distance(v);
+    case "damageDealt":
+      return `${hearts(v)} Herzen`;
     default:
       return num(v);
   }

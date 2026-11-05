@@ -1,17 +1,27 @@
 import Link from "next/link";
 import type { StatsExtras as Data } from "@/lib/analytics";
-import { dateTime, duration, headUrl, num } from "@/lib/format";
+import { dateTime, duration, num } from "@/lib/format";
 import { Sparkline } from "./Sparkline";
+import { METRIC_TONE } from "@/lib/statTone";
+import { Head } from "@/components/Head";
+import { graphHref } from "@/lib/graphQuery";
 
 const DAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 const dayShort = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", timeZone: "Europe/Berlin" });
 const dayLabel = (day: string) => dayShort.format(new Date(`${day}T12:00:00Z`));
 
-function Card({ title, sub, children, wide = false, tone = "white" }: { title: string; sub?: string; children: React.ReactNode; wide?: boolean; tone?: string }) {
+function Card({ title, sub, children, wide = false, tone = "white", href }: { title: string; sub?: string; children: React.ReactNode; wide?: boolean; tone?: string; href?: string }) {
   return (
     <section className="box stat-card" data-tone={tone} style={wide ? { gridColumn: "1 / -1" } : undefined}>
       <header className="stat-card__head">
-        <h3 className="t-3">{title}</h3>
+        <h3 className="t-3">
+          {title}
+          {href && (
+            <Link href={href} className="chart__link stat-card__graph" title={`${title} im Graphen öffnen`}>
+              Graph <span aria-hidden="true">→</span>
+            </Link>
+          )}
+        </h3>
         {sub && <p className="muted">{sub}</p>}
       </header>
       {children}
@@ -23,7 +33,7 @@ function Person({ id, name, uuid, right }: { id: string; name: string; uuid: str
   return (
     <li className="plist__row">
       <Link className="plist__who" href={`/spieler/${encodeURIComponent(id)}`}>
-        <img className="head" src={headUrl(uuid, 24, id)} alt="" width={24} height={24} loading="lazy" />
+        <Head id={id} uuid={uuid} name={name} size={24} decorative />
         <span>{name}</span>
       </Link>
       <span className="plist__val num">{right}</span>
@@ -81,28 +91,28 @@ export function StatsExtras({ d, tag }: { d: Data; tag: (day: string) => number 
   return (
     <>
       <dl className="grid st-figs st-figs--6" style={{ marginBottom: 32 }}>
-        <div className="box st-fig" data-tone="grass">
+        <div className="box st-fig" data-tone={METRIC_TONE.onlineCount}>
           <dt>Server erreichbar</dt>
           <dd className="num">{d.availability.ratio === null ? "–" : `${(Math.round(d.availability.ratio * 1000) / 10).toLocaleString("de-DE")} %`}</dd>
         </div>
-        <div className="box st-fig" data-tone="sky">
+        <div className="box st-fig" data-tone={METRIC_TONE.tracked}>
           <dt>Spielerstunden</dt>
           <dd className="num">{num(d.totals.playerHours)}</dd>
         </div>
-        <div className="box st-fig" data-tone="white">
+        <div className="box st-fig" data-tone={METRIC_TONE.onlineCount}>
           <dt>Spieler bisher</dt>
           <dd className="num">{num(d.totals.players)}</dd>
         </div>
-        <div className="box st-fig" data-tone="grass">
+        <div className="box st-fig" data-tone={METRIC_TONE.onlineCount}>
           <dt>Aktiv in 24 h</dt>
           <dd className="num">{num(d.loyalty.groups.h24)}</dd>
         </div>
-        <div className="box st-fig" data-tone="gold">
+        <div className="box st-fig" data-tone={METRIC_TONE.onlineCount}>
           <dt>Länger als 1 Tag weg</dt>
           <dd className="num">{num(d.loyalty.groups.d3 + d.loyalty.groups.d7 + d.loyalty.groups.gone)}</dd>
         </div>
-        <div className="box st-fig" data-tone="gold">
-          <dt title="Online, aber ohne Streckenzuwachs für mindestens fünf Minuten">AFK-Stunden</dt>
+        <div className="box st-fig" data-tone={METRIC_TONE.afkSeconds}>
+          <dt title="Laut Server: online, aber mindestens 5 Minuten keine Bewegung">AFK-Stunden</dt>
           <dd className="num">
             {num(d.afk.totalHours)}
             {d.totals.playerHours > 0 && <small className="muted"> {Math.round((d.afk.totalHours / d.totals.playerHours) * 100)} %</small>}
@@ -111,7 +121,7 @@ export function StatsExtras({ d, tag }: { d: Data; tag: (day: string) => number 
       </dl>
 
       <div className="grid stat-grid" style={{ "--min": "340px" } as React.CSSProperties}>
-        <Card title="Tag für Tag" sub="Jeder Tag der Staffel, soweit der Tracker ihn gesehen hat" wide>
+        <Card title="Tag für Tag" href={graphHref(["playtimeSeconds", "afkSeconds"], [], "alle", { modus: "zuwachs", raster: "1440" })} sub="Jeder Tag der Staffel, soweit der Tracker ihn gesehen hat" wide>
           <div className="tbl-wrap">
             <table className="tbl">
               <thead>
@@ -148,7 +158,7 @@ export function StatsExtras({ d, tag }: { d: Data; tag: (day: string) => number 
           </div>
         </Card>
 
-        <Card title="Wann ist der Server voll?" sub="Ø Spieler online je Wochentag und Stunde (Berliner Zeit) – je gelber, desto mehr davon AFK">
+        <Card title="Wann ist der Server voll?" href={graphHref("onlineCount", [], "7d")} sub="Ø Spieler online je Wochentag und Stunde (Berliner Zeit) – je grauer, desto mehr davon AFK">
           <Heatmap values={d.heatmap} afk={d.heatmapAfk} />
         </Card>
 
@@ -177,7 +187,7 @@ export function StatsExtras({ d, tag }: { d: Data; tag: (day: string) => number 
           </ol>
         </Card>
 
-        <Card title="Wann wird gespielt?" sub="Spielerstunden je Tagesstunde (Berliner Zeit), über alle Tage – der goldene Teil ist AFK" tone="white">
+        <Card title="Wann wird gespielt?" href={graphHref(["playtimeSeconds", "afkSeconds"], [], "3d", { modus: "zuwachs", raster: "60" })} sub="Spielerstunden je Tagesstunde (Berliner Zeit), über alle Tage – der graue Teil ist AFK" tone="white">
           <HourBars values={d.playHours.map((p) => ({ hour: p.hour, v: p.hours, afk: p.afkHours, title: `${num(p.hours)} Spielerstunden${p.afkHours > 0 ? ` · davon ${num(p.afkHours)} AFK` : ""}` }))} unit="Spielerstunden je Tagesstunde, AFK-Anteil in Gold" tone="sky" />
         </Card>
 
@@ -190,7 +200,7 @@ export function StatsExtras({ d, tag }: { d: Data; tag: (day: string) => number 
           </ol>
         </Card>
 
-        <Card title="AFK-Zeit" sub="Online, aber mindestens fünf Minuten keine Bewegung – mit Anteil an der Online-Zeit">
+        <Card title="AFK-Zeit" href={graphHref("afkSeconds", d.afk.perPlayer.slice(0, 5).map((p) => p.id))} sub="Laut Server: online, aber mindestens 5 Minuten keine Bewegung – mit Anteil an der Online-Zeit">
           <ol className="plist">
             {d.afk.perPlayer.map((r) => (
               <Person key={r.id} id={r.id} name={r.name} uuid={r.uuid} right={`${duration(r.seconds)} · ${Math.round(r.share * 100)} %`} />
@@ -199,7 +209,7 @@ export function StatsExtras({ d, tag }: { d: Data; tag: (day: string) => number 
           </ol>
         </Card>
 
-        <Card title="AFK-Farmen" sub="AFK-Zeit, in der trotzdem Mobs starben oder Blöcke fielen (ab zehn pro Minute) – wer steht am längsten an der Farm?" tone="white">
+        <Card title="AFK-Farmen" href={graphHref(["afkMobsSeconds", "afkBlocksSeconds"])} sub="AFK-Zeit, in der trotzdem Mobs starben oder Blöcke fielen (ab zehn pro Minute) – wer steht am längsten an der Farm?" tone="white">
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
             {(["mobs", "blocks"] as const).map((kind) => (
               <div key={kind}>
@@ -217,7 +227,7 @@ export function StatsExtras({ d, tag }: { d: Data; tag: (day: string) => number 
           </div>
         </Card>
 
-        <Card title="Todesrate" sub="Tode pro Online-Stunde laut Tracker, ab zwei Toden und einer Stunde">
+        <Card title="Todesrate" href={graphHref("deaths")} sub="Tode pro Online-Stunde laut Tracker, ab zwei Toden und einer Stunde">
           <ol className="plist">
             {d.deathRate.map((r) => (
               <Person key={r.id} id={r.id} name={r.name} uuid={r.uuid} right={`${r.perHour.toLocaleString("de-DE")} / h · ${num(r.deaths)} in ${r.hours.toLocaleString("de-DE")} h`} />
@@ -226,7 +236,7 @@ export function StatsExtras({ d, tag }: { d: Data; tag: (day: string) => number 
           </ol>
         </Card>
 
-        <Card title="Treue" sub="Wie viele Spieler pro Tag da waren und wer länger fehlt">
+        <Card title="Treue" href={graphHref("onlineCount", [], "alle", { raster: "1440" })} sub="Wie viele Spieler pro Tag da waren und wer länger fehlt">
           {d.loyalty.perDay.length > 1 && <Sparkline points={d.loyalty.perDay.map((p) => ({ at: `${p.day}T12:00:00Z`, v: p.players }))} width={320} height={80} step label="Spieler pro Tag" />}
           <ul className="filters" style={{ margin: "12px 0" }}>
             <li>
@@ -257,7 +267,7 @@ export function StatsExtras({ d, tag }: { d: Data; tag: (day: string) => number 
           </ol>
         </Card>
 
-        <Card title="Server-Verfügbarkeit" sub="Ausfälle laut Stats-API und Lücken in der Aufzeichnung">
+        <Card title="Server-Verfügbarkeit" href={graphHref("onlineCount")} sub="Ausfälle laut Stats-API und Lücken in der Aufzeichnung">
           <ol className="plist">
             {d.availability.outages.map((o) => (
               <li className="plist__row" key={o.from}>

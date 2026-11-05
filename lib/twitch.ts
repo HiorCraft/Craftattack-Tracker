@@ -10,6 +10,8 @@ import { updateEventMeta } from "./store";
 
 const CLIENT_ID = process.env.TWITCH_CLIENT_ID ?? "";
 const CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET ?? "";
+const TWITCH_GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
+const TWITCH_GQL_URL = "https://gql.twitch.tv/gql";
 export const TWITCH_ENABLED = Boolean(CLIENT_ID && CLIENT_SECRET);
 
 /** Vorlauf in Sekunden: der Tod wird erst beim nächsten Poll erkannt, also im VOD etwas früher einsteigen. */
@@ -50,6 +52,11 @@ async function token(): Promise<string> {
 }
 
 async function helix<T>(path: string, params: Record<string, string>): Promise<T[]> {
+  return (await helixPage<T>(path, params)).data;
+}
+
+/** Eine Seite einer Helix-Liste mit Cursor für die nächste */
+export async function helixPage<T>(path: string, params: Record<string, string>): Promise<{ data: T[]; cursor: string | null }> {
   const q = new URLSearchParams(params).toString();
   const res = await fetch(`https://api.twitch.tv/helix/${path}?${q}`, {
     headers: { "Client-Id": CLIENT_ID, Authorization: `Bearer ${await token()}` },
@@ -58,10 +65,11 @@ async function helix<T>(path: string, params: Record<string, string>): Promise<T
   });
   if (res.status === 401) g().token = null;
   if (!res.ok) throw new Error(`Twitch ${path} HTTP ${res.status}`);
-  return ((await res.json()) as { data: T[] }).data;
+  const j = (await res.json()) as { data: T[]; pagination?: { cursor?: string } };
+  return { data: j.data, cursor: j.pagination?.cursor ?? null };
 }
 
-async function userId(login: string): Promise<string | null> {
+export async function userId(login: string): Promise<string | null> {
   const c = g();
   const key = login.toLowerCase();
   const hit = c.users.get(key);
@@ -73,7 +81,7 @@ async function userId(login: string): Promise<string | null> {
 }
 
 /** Twitch-Dauerformat „1h23m45s“ → Sekunden */
-function parseDuration(s: string) {
+export function parseDuration(s: string) {
   let total = 0;
   for (const [, n, u] of s.matchAll(/(\d+)([hms])/g)) total += Number(n) * (u === "h" ? 3600 : u === "m" ? 60 : 1);
   return total;
@@ -109,16 +117,33 @@ async function fetchVideos(key: string): Promise<Vod[]> {
   return list;
 }
 
+/**
+ * Alle Archiv-VODs eines Kanals, die [fromMs, toMs] berühren, mit Beginn und Ende. 24/7-Streams teilt Twitch in VODs
+ * von höchstens 48 Stunden, dazwischen liegen manchmal Mini-VODs von Sekunden – ein Klick braucht das VOD, das genau
+ * seinen Zeitpunkt abdeckt, nicht eins pro Stream.
+ */
+export async function vodsBetween(login: string, fromMs: number, toMs: number): Promise<{ id: string; start: number; end: number }[]> {
+  if (!TWITCH_ENABLED) return [];
+  const list = await videos(login);
+  return list
+    .map((v) => ({ id: v.id, start: v.startMs, end: v.startMs + Math.max(1, v.durationSec) * 1000 }))
+    .filter((v) => v.start <= toMs && v.end >= fromMs);
+}
+
 /** Laufender Stream laut Twitch Helix `streams` */
 export interface TwitchStream {
+  /** Twitch-Nutzer-ID des Kanals (für Shared-Chat-Abfragen) */
+  userId?: string;
   login: string;
   title: string;
   viewers: number;
   startedAt: string;
+  gameId: string;
+  gameName: string;
 }
 
-export const streamUrl = (login: string) => `https://www.twitch.tv/${encodeURIComponent(login)}`;
-export const videoUrl = (vodId: string) => `https://www.twitch.tv/videos/${encodeURIComponent(vodId)}`;
+const streamUrl = (login: string) => `https://www.twitch.tv/${encodeURIComponent(login)}`;
+const videoUrl = (vodId: string) => `https://www.twitch.tv/videos/${encodeURIComponent(vodId)}`;
 
 /**
  * Fragt für alle Logins ab, wer gerade live ist (bis zu 100 Logins pro Anfrage).
@@ -141,12 +166,92 @@ export async function fetchLiveStreams(logins: Iterable<string>): Promise<Map<st
     });
     if (res.status === 401) g().token = null;
     if (!res.ok) throw new Error(`Twitch streams HTTP ${res.status}`);
-    const data = ((await res.json()) as { data: { user_login: string; user_name: string; title: string; viewer_count: number; started_at: string; type: string }[] }).data;
+    const data = ((await res.json()) as { data: { user_id: string; user_login: string; user_name: string; title: string; viewer_count: number; started_at: string; type: string; game_id: string; game_name: string }[] }).data;
     for (const s of data) {
       if (s.type !== "live") continue;
-      out.set(s.user_login.toLowerCase(), { login: s.user_login, title: s.title, viewers: s.viewer_count, startedAt: s.started_at });
+      out.set(s.user_login.toLowerCase(), {
+        userId: s.user_id,
+        login: s.user_login,
+        title: s.title,
+        viewers: s.viewer_count,
+        startedAt: s.started_at,
+        gameId: s.game_id,
+        gameName: s.game_name,
+      });
     }
   }
+  return out;
+}
+
+export interface TwitchFollowerChannel {
+  id: string;
+  login: string;
+}
+
+const followerWarnings = new Map<string, number>();
+let followerGqlWarningAt = 0;
+
+/**
+ * Liest öffentliche Follower-Gesamtzahlen mit Twitchs GQL-Web-API. Kanäle werden gebündelt, damit
+ * ein minutenweiser Poll nicht für jeden Streamer eine eigene HTTP-Anfrage benötigt.
+ */
+export async function fetchFollowerCounts(channels: Iterable<TwitchFollowerChannel>): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const all = [...new Map(
+    [...channels]
+      .map((channel) => [channel.id, { ...channel, login: channel.login.toLowerCase() }] as const)
+      .filter(([, channel]) => /^[a-z0-9_]{1,25}$/.test(channel.login)),
+  ).values()];
+  const batches: TwitchFollowerChannel[][] = [];
+  // Twitch GQL allows at most 15 root-field aliases per operation.
+  for (let i = 0; i < all.length; i += 15) batches.push(all.slice(i, i + 15));
+
+  let next = 0;
+  const worker = async () => {
+    for (let batch = batches[next++]; batch !== undefined; batch = batches[next++]) {
+      const variables = Object.fromEntries(batch.map((channel, index) => [`login${index}`, channel.login]));
+      const declarations = batch.map((_, index) => `$login${index}: String!`).join(", ");
+      const fields = batch.map((_, index) => `channel${index}: user(login: $login${index}) { followers { totalCount } }`).join(" ");
+      try {
+        const res = await fetch(TWITCH_GQL_URL, {
+          method: "POST",
+          headers: { "Client-ID": TWITCH_GQL_CLIENT_ID, "Content-Type": "application/json" },
+          body: JSON.stringify({ query: `query(${declarations}) { ${fields} }`, variables }),
+          cache: "no-store",
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) {
+          const detail = (await res.text()).slice(0, 500);
+          throw new Error(`HTTP ${res.status}${detail ? `: ${detail}` : ""}`);
+        }
+        const result = (await res.json()) as {
+          data?: Record<string, { followers?: { totalCount?: number } | null } | null>;
+          errors?: { message: string }[];
+        };
+        if (!result.data) throw new Error("Twitch-GQL-Antwort enthält keine Daten");
+        batch.forEach((channel, index) => {
+          const value = result.data?.[`channel${index}`]?.followers?.totalCount;
+          if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+            out.set(channel.id, value);
+            followerWarnings.delete(channel.login);
+          } else {
+            const lastWarning = followerWarnings.get(channel.login) ?? 0;
+            if (Date.now() - lastWarning >= 5 * 60_000) {
+              console.warn(`[tracker] Twitch-GQL lieferte keine Followerzahl für ${channel.login}.`);
+              followerWarnings.set(channel.login, Date.now());
+            }
+          }
+        });
+        if (result.errors?.length) throw new Error(result.errors.map((error) => error.message).join("; "));
+      } catch (err) {
+        if (Date.now() - followerGqlWarningAt >= 60_000) {
+          console.warn("[tracker] Twitch-GQL-Followerabfrage fehlgeschlagen:", err instanceof Error ? err.message : err);
+          followerGqlWarningAt = Date.now();
+        }
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, batches.length) }, worker));
   return out;
 }
 
@@ -159,24 +264,31 @@ export function vodLink(vodId: string, offsetSec: number) {
 }
 
 /** Sucht das VOD, das den Zeitpunkt abdeckt. Laufende Streams haben noch eine „wachsende“ Dauer, daher Toleranz. */
-export async function findVod(login: string, atMs: number): Promise<{ vodId: string; offset: number } | null> {
+export async function findVodAt(login: string, atMs: number): Promise<{ vodId: string; offset: number } | null> {
   if (!TWITCH_ENABLED) return null;
   const list = await videos(login);
   for (const v of list) {
     const end = v.startMs + Math.max(v.durationSec, 1) * 1000 + 6 * 3600_000; // laufende Aufnahme: großzügig
     if (atMs >= v.startMs && atMs <= end) {
-      const offset = Math.max(0, (atMs - v.startMs) / 1000 - LEAD_SECONDS);
+      const offset = Math.max(0, (atMs - v.startMs) / 1000);
       return { vodId: v.id, offset };
     }
   }
   return null;
 }
 
+/** Sucht das passende VOD und steigt für Ereignislinks etwas vor dem Zeitpunkt ein. */
+async function findVod(login: string, atMs: number): Promise<{ vodId: string; offset: number } | null> {
+  const hit = await findVodAt(login, atMs);
+  return hit ? { vodId: hit.vodId, offset: Math.max(0, hit.offset - LEAD_SECONDS) } : null;
+}
+
 const NEG_CACHE_MS = 10 * 60_000;
 const negative = new Map<string, number>();
 
 /**
- * Hängt an Tod-Ereignisse live gestreamter Spieler einen VOD-Link (`meta.vodUrl`).
+ * Hängt an Tod-Ereignisse live gestreamter Spieler und an Chat-Nachrichten in live streamenden Kanälen
+ * einen VOD-Link (`meta.vodUrl`).
  * Bereits aufgelöste Ereignisse werden nicht erneut abgefragt, Treffer landen dauerhaft in der DB.
  * Rückwirkend: der Stream wird über die Stream-an/aus-Ereignisse des Spielers oder direkt über Twitch bestimmt.
  */
@@ -187,6 +299,8 @@ export async function attachVods(
   liveNow: { player: string; since: string; login: string }[] = [],
 ): Promise<void> {
   if (!TWITCH_ENABLED) return;
+  // Geschätzte Ereignisse (Schätzung) haben keinen echten Zeitpunkt, ein VOD-Link wäre irreführend
+  events = events.filter((e) => e.meta?.estimated !== true);
   // `noVod` = Twitch hatte zu einem abgeschlossenen Stream kein VOD; das alte Feld `vod:false` wurde zu großzügig gesetzt und wird ignoriert
   const todo = events.filter((e) => e.type === "death" && e.player && !e.meta?.unknown && e.meta?.vodUrl === undefined && e.meta?.noVod !== true);
   // Stream-an/aus: das VOD des Streams verlinken. Läuft der Stream noch, gibt es stattdessen den Live-Link (siehe `withLiveLinks`).
@@ -198,7 +312,11 @@ export async function attachVods(
       e.meta?.noVod !== true &&
       !(e.type === "stream_start" && liveNow.some((l) => l.player === e.player && Date.parse(e.at) >= Date.parse(l.since) - 60_000)),
   );
-  if (todo.length === 0 && streamTodo.length === 0) return;
+  // Chat zwischen Spielern: VOD des Kanals, in dem geschrieben wurde, an genau dieser Stelle
+  const chatTodo = events.filter(
+    (e) => e.type === "chat" && typeof e.meta?.channelId === "string" && e.meta?.vodUrl === undefined && e.meta?.noVod !== true,
+  );
+  if (todo.length === 0 && streamTodo.length === 0 && chatTodo.length === 0) return;
 
   // Streams pro Spieler aus den Ereignissen rekonstruieren (für alte Tode ohne live-Markierung)
   const streams = new Map<string, { start: number; end: number; login: string | null }[]>();
@@ -280,6 +398,31 @@ export async function attachVods(
       }
     }),
   );
+  await Promise.all(
+    chatTodo.map(async (e) => {
+      const at = Date.parse(e.at);
+      const channel = String(e.meta!.channelId);
+      const stream = (streams.get(channel) ?? []).find((s) => at >= s.start - 60_000 && at <= s.end + 60_000);
+      // Kanal war zu dem Zeitpunkt nicht live: kein VOD (kein API-Aufruf, keine dauerhafte Markierung)
+      if (!stream) return;
+      const login = stream.login || (typeof e.meta?.channelLogin === "string" && e.meta.channelLogin) || loginOf(channel);
+      if (!login) return;
+      const negKey = `${login}|${e.id}`;
+      const neg = negative.get(negKey);
+      if (neg && now - neg < NEG_CACHE_MS) return;
+      try {
+        const hit = await findVod(login, at);
+        if (hit) await updateEventMeta(e, { vodUrl: vodLink(hit.vodId, hit.offset), vodId: hit.vodId, vodOffset: Math.round(hit.offset) });
+        else {
+          negative.set(negKey, now);
+          if (now - at > 24 * 3600_000) await updateEventMeta(e, { noVod: true });
+        }
+      } catch (err) {
+        console.warn("[twitch] VOD-Abfrage (Chat) fehlgeschlagen:", err instanceof Error ? err.message : err);
+        negative.set(negKey, now);
+      }
+    }),
+  );
 }
 
 /**
@@ -296,4 +439,28 @@ export function withLiveLinks(events: TrackerEvent[], liveNow: { player: string;
     if (!l || Date.parse(e.at) < Date.parse(l.since) - 60_000) return e;
     return { ...e, meta: { ...e.meta, liveUrl: streamUrl(l.login) } };
   });
+}
+
+/** Laufender geteilter Chat (Stream Together) eines Kanals laut Twitch */
+interface TwitchSharedChatSession {
+  sessionId: string;
+  hostBroadcasterId: string;
+  /** Twitch-Nutzer-IDs aller beteiligten Kanäle */
+  participants: string[];
+  createdAt: string;
+}
+
+/**
+ * Fragt den geteilten Chat eines Kanals ab (GET /helix/shared_chat/session, App-Token genügt).
+ * `null`, wenn der Kanal gerade keinen geteilten Chat hat.
+ */
+export async function fetchSharedChatSession(broadcasterId: string): Promise<TwitchSharedChatSession | null> {
+  if (!TWITCH_ENABLED) return null;
+  const data = await helix<{ session_id: string; host_broadcaster_id: string; participants: { broadcaster_id: string }[]; created_at: string }>(
+    "shared_chat/session",
+    { broadcaster_id: broadcasterId },
+  );
+  const s = data[0];
+  if (!s?.session_id) return null;
+  return { sessionId: s.session_id, hostBroadcasterId: s.host_broadcaster_id, participants: s.participants.map((p) => p.broadcaster_id), createdAt: s.created_at };
 }

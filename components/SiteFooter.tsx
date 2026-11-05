@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Icon } from "./Icons";
 import { SOCIALS } from "@/lib/site";
+import { HUBS } from "@/lib/hubs";
+import { ESTIMATE } from "@/lib/estimateMode";
 
 export function SiteFooter() {
   return (
@@ -22,24 +24,24 @@ export function SiteFooter() {
           </p>
         </div>
         <ul className="site-foot__nav">
+          {HUBS.flatMap((h) => h.tabs).map((t) => (
+            <li key={t.href}>
+              <Link href={t.href}>{t.href === "/verbindungen" ? "Verbindungen" : t.label}</Link>
+            </li>
+          ))}
           <li>
-            <Link href="/">Übersicht</Link>
-          </li>
-          <li>
-            <Link href="/ereignisse">Ereignisse</Link>
-          </li>
-          <li>
-            <Link href="/spieler">Spieler</Link>
-          </li>
-          <li>
-            <Link href="/statistik">Statistik</Link>
-          </li>
-          <li>
-            <Link href="/live">Live</Link>
+            <Link href="/so-funktionierts">So funktioniert’s</Link>
           </li>
           <li>
             <a href="/api/tracker">JSON-API</a>
           </li>
+          {/* Die Schätzung (/schaetzung) ist abgeschaltet; nur ihr eigener Build verlinkt zurück */}
+          {ESTIMATE && (
+            <li>
+              {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+              <a href="/">Echte Daten</a>
+            </li>
+          )}
           <li>
             <a href="https://craftattack.one/" target="_blank" rel="noopener">
               Offizielle Seite
@@ -63,8 +65,7 @@ export function SiteFooter() {
             </ul>
           )}
           <p>
-            Der Tracker fragt die API alle 30 Sekunden ab. Alles, was dazwischen passiert, bleibt ein
-            Geheimnis.
+            Wie die Daten gesammelt werden: <Link href="/so-funktionierts">So funktioniert’s</Link>.
           </p>
           <p>
             Gebaut von{" "}

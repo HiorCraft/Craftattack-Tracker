@@ -1,6 +1,6 @@
 import type { StoredSession } from "./store";
 
-export interface Overlap {
+interface Overlap {
   player: string;
   /** Gemeinsame Online-Zeit in Sekunden */
   seconds: number;

@@ -1,4 +1,4 @@
-export function FigsSkeleton({ n = 4 }: { n?: number }) {
+function FigsSkeleton({ n = 4 }: { n?: number }) {
   return (
     <dl className={`grid st-figs${n === 6 ? " st-figs--6" : ""}`} aria-hidden="true">
       {Array.from({ length: n }).map((_, i) => (
@@ -11,7 +11,7 @@ export function FigsSkeleton({ n = 4 }: { n?: number }) {
   );
 }
 
-export function RowsSkeleton({ n = 6 }: { n?: number }) {
+function RowsSkeleton({ n = 6 }: { n?: number }) {
   return (
     <ul className="feed" aria-hidden="true">
       {Array.from({ length: n }).map((_, i) => (
@@ -31,18 +31,31 @@ export function RowsSkeleton({ n = 6 }: { n?: number }) {
   );
 }
 
-export function PageSkeleton() {
+/**
+ * Platzhalter für eine ganze Seite: echte Überschrift und Farbe sofort, darunter Kacheln und Zeilen,
+ * bis die Daten gestreamt sind. So reagiert jeder Klick auf einen Link ohne Wartezeit.
+ */
+export function PageSkeleton({ eyebrow = "Lädt", title = "…", tone = "ender", figs = 4 }: { eyebrow?: string; title?: string; tone?: string; figs?: number }) {
   return (
     <>
-      <section className="block page-head" data-tone="diamond">
+      <section className="block page-head" data-tone={tone} aria-busy="true">
         <div className="wrap">
-          <p className="eyebrow">Lädt</p>
-          <h1 className="t-1">…</h1>
+          <p className="eyebrow">{eyebrow}</p>
+          <h1 className="t-1">{title}</h1>
+          <span className="st-sk st-sk--text" style={{ width: "min(560px, 90%)", marginTop: 16 }} aria-hidden="true" />
+          <span className="sr-only" role="status">
+            {title} wird geladen …
+          </span>
         </div>
       </section>
-      <section className="block block--tight" data-tone="ink">
+      <section className="block block--tight" data-tone="ink" aria-hidden="true">
         <div className="wrap">
-          <FigsSkeleton />
+          <FigsSkeleton n={figs} />
+        </div>
+      </section>
+      <section className="block block--tight" data-tone="paper" aria-hidden="true">
+        <div className="wrap">
+          <RowsSkeleton n={8} />
         </div>
       </section>
     </>

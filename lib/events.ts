@@ -1,7 +1,49 @@
 import type { EventType, TrackerEvent } from "./types";
-import { duration, num, distance } from "./format";
+import { duration, hearts, num, distance } from "./format";
+import { BOARD_TONE, GROUP_TONE, METRIC_TONE } from "./statTone";
+import { EXTRA_STATS, FORMATTERS, type ExtraStatKey } from "./playerStats";
 
-export interface EventMeta {
+/** Zusatzwerte mit eigenem Ereignistyp (lib/extraEvents.ts) */
+export const EXTRA_EVENT_TYPES = ["blocksPlaced", "damageTaken", "raidsWon", "itemsCrafted", "itemsEnchanted", "tradedWithVillagers", "animalsKilled", "animalsBred", "fishCaught", "bellsRung"] as const satisfies readonly ExtraStatKey[];
+
+/** Zusatzwert eines Ereignisses (eigener Typ oder Meilenstein eines Zusatzwerts) */
+const extraOf = (e: TrackerEvent) => {
+  const key = ((EXTRA_EVENT_TYPES as readonly string[]).includes(e.type) ? e.type : String(e.meta?.board ?? "")) as ExtraStatKey;
+  const m = EXTRA_STATS[key];
+  return m ? { key, ...m, fmt: FORMATTERS[m.format] } : null;
+};
+/** Satz zu einem Zuwachs eines Zusatzwerts */
+function statText(e: TrackerEvent): string {
+  const x = extraOf(e);
+  const d = e.delta ?? 0;
+  if (!x) return `hat ${num(d)} erreicht`;
+  switch (x.key) {
+    case "blocksPlaced":
+      return `hat ${num(d)} Blöcke platziert`;
+    case "damageTaken":
+      return `hat ${hearts(d)} Herzen Schaden eingesteckt`;
+    case "raidsWon":
+      return d === 1 ? "hat einen Überfall abgewehrt" : `hat ${num(d)} Überfälle abgewehrt`;
+    case "itemsCrafted":
+      return `hat ${num(d)} Items hergestellt`;
+    case "itemsEnchanted":
+      return d === 1 ? "hat ein Item verzaubert" : `hat ${num(d)} Items verzaubert`;
+    case "tradedWithVillagers":
+      return `hat ${num(d)}× mit Dorfbewohnern gehandelt`;
+    case "animalsKilled":
+      return `hat ${num(d)} Tiere erlegt`;
+    case "animalsBred":
+      return `hat ${num(d)} Tiere gezüchtet`;
+    case "fishCaught":
+      return d === 1 ? "hat einen Fisch geangelt" : `hat ${num(d)} Fische geangelt`;
+    case "bellsRung":
+      return d === 1 ? "hat die Glocke geläutet" : `hat ${num(d)}× die Glocke geläutet`;
+    default:
+      return `${x.label}: +${x.fmt(d)}`;
+  }
+}
+
+interface EventMeta {
   label: string;
   tone: string;
   /** Verb/Satz hinter dem Spielernamen */
@@ -25,40 +67,40 @@ function farmEndSub(e: TrackerEvent, what: string): string | null {
 }
 
 export const EVENT_META: Record<EventType, EventMeta> = {
-  join: { label: "Join", tone: "grass", text: () => "ist auf den Server gekommen" },
+  join: { label: "Join", tone: "white", text: () => "ist auf den Server gekommen" },
   afk_start: {
     label: "AFK",
-    tone: "gold",
+    tone: METRIC_TONE.afkSeconds,
     text: () => "ist AFK",
     sub: (e) => (typeof e.meta?.since === "string" ? `Keine Bewegung seit ${new Date(e.meta.since).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" })} Uhr` : null),
   },
   afk_mobs_start: {
     label: "Mob-Farm",
-    tone: "redstone",
+    tone: METRIC_TONE.afkMobsSeconds,
     text: () => "farmt AFK Mobs",
     sub: (e) => farmStartSub(e, "Mobs"),
   },
   afk_mobs_end: {
     label: "Mob-Farm Ende",
-    tone: "redstone",
+    tone: METRIC_TONE.afkMobsSeconds,
     text: (e) => (e.meta?.byLeave ? "hat die Mob-Farm bis zum Leave laufen lassen" : e.meta?.stillAfk ? "farmt keine Mobs mehr, bleibt aber AFK" : "ist von der Mob-Farm zurück"),
     sub: (e) => farmEndSub(e, "Mobs"),
   },
   afk_blocks_start: {
     label: "Block-Farm",
-    tone: "diamond",
+    tone: METRIC_TONE.afkBlocksSeconds,
     text: () => "baut AFK Blöcke ab",
     sub: (e) => farmStartSub(e, "Blöcke"),
   },
   afk_blocks_end: {
     label: "Block-Farm Ende",
-    tone: "diamond",
+    tone: METRIC_TONE.afkBlocksSeconds,
     text: (e) => (e.meta?.byLeave ? "hat die Block-Farm bis zum Leave laufen lassen" : e.meta?.stillAfk ? "baut keine Blöcke mehr ab, bleibt aber AFK" : "ist von der Block-Farm zurück"),
     sub: (e) => farmEndSub(e, "Blöcke"),
   },
   afk_end: {
     label: "Zurück",
-    tone: "grass",
+    tone: METRIC_TONE.afkSeconds,
     text: (e) => (e.meta?.byLeave ? "war bis zum Leave AFK" : "ist wieder da"),
     // Keine Farm-Menge über die ganze Phase: die steht minutengenau in den Farm-Ende-Ereignissen
     sub: (e) => {
@@ -77,49 +119,84 @@ export const EVENT_META: Record<EventType, EventMeta> = {
   },
   death: {
     label: "Tod",
-    tone: "redstone",
+    tone: BOARD_TONE.deaths,
     text: (e) =>
       e.meta?.unknown
         ? `${e.delta === 1 ? "Jemand ist" : `${num(e.delta ?? 0)} Spieler sind`} gestorben`
         : e.delta && e.delta > 1
           ? `ist ${num(e.delta)}× gestorben`
           : "ist gestorben",
-    sub: (e) =>
-      e.meta?.unknown
-        ? typeof e.meta.candidates === "number" && e.meta.candidates > 1
+    sub: (e) => {
+      if (e.meta?.unknown) {
+        return typeof e.meta.candidates === "number" && e.meta.candidates > 1
           ? `Außerhalb der Top 10 – ${num(e.meta.candidates)} Spieler ohne Einzelstatistik waren online, daher nicht eindeutig.`
-          : "Außerhalb der Top 10 – wer genau, verrät die API nicht."
-        : [
-            e.meta?.inferred ? "Per Ausschluss zugeordnet: einziger Spieler online, den die Einzelstatistik nicht kennt" : null,
-            e.value !== undefined ? `Insgesamt ${num(e.value)} Tode` : null,
-            e.meta?.live ? "Live auf Twitch" : null,
-          ]
-            .filter(Boolean)
-            .join(" · ") || null,
+          : "Außerhalb der Top 10 – wer genau, verrät die API nicht.";
+      }
+      return [
+        typeof e.meta?.killerName === "string" ? `Von ${e.meta.killerName} getötet` : null,
+        typeof e.meta?.deathMessage === "string" ? e.meta.deathMessage : null,
+        e.meta?.inferred ? "Per Ausschluss zugeordnet: einziger Spieler online, den die Einzelstatistik nicht kennt" : null,
+        e.value !== undefined ? `Insgesamt ${num(e.value)} Tode` : null,
+        e.meta?.live ? "Live auf Twitch" : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || null;
+    },
+  },
+  achievement: {
+    label: "Achievement",
+    tone: "white",
+    text: (e) => `hat das Achievement „${e.meta?.title ?? e.meta?.advancement ?? "unbekannt"}“ erhalten`,
+    sub: (e) =>
+      [
+        typeof e.meta?.advancement === "string" ? e.meta.advancement : null,
+        typeof e.meta?.frame === "string" ? e.meta.frame : null,
+        typeof e.meta?.message === "string" ? e.meta.message : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || null,
   },
   diamonds: {
     label: "Diamanten",
-    tone: "diamond",
+    tone: BOARD_TONE.diamonds,
     text: (e) => `hat ${num(e.delta ?? 0)} Diamant${e.delta === 1 ? "en" : "en"} gefunden`,
     sub: (e) => (e.value !== undefined ? `Jetzt ${num(e.value)} insgesamt` : null),
   },
   blocksBroken: {
     label: "Blöcke",
-    tone: "gold",
+    tone: BOARD_TONE.blocksBroken,
     text: (e) => `hat ${num(e.delta ?? 0)} Blöcke abgebaut`,
     sub: (e) => (e.value !== undefined ? `Jetzt ${num(e.value)} insgesamt` : null),
   },
   mobsKilled: {
     label: "Mobs",
-    tone: "grass",
+    tone: BOARD_TONE.mobsKilled,
     text: (e) => `hat ${num(e.delta ?? 0)} Mobs erledigt`,
     sub: (e) => (e.value !== undefined ? `Jetzt ${num(e.value)} insgesamt` : null),
   },
   distance: {
     label: "Strecke",
-    tone: "pink",
+    tone: BOARD_TONE.distance,
     text: (e) => `ist ${distance(e.delta ?? 0)} gelaufen`,
     sub: (e) => (e.value !== undefined ? `Jetzt ${distance(e.value)} insgesamt` : null),
+  },
+  damageDealt: {
+    label: "Schaden",
+    tone: BOARD_TONE.damageDealt,
+    text: (e) => `hat ${hearts(e.delta ?? 0)} Herzen Schaden verursacht`,
+    sub: (e) => (e.value !== undefined ? `Jetzt ${hearts(e.value)} Herzen insgesamt` : null),
+  },
+  totemsUsed: {
+    label: "Totems",
+    tone: BOARD_TONE.totemsUsed,
+    text: (e) => `hat ${num(e.delta ?? 0)} Totems benutzt`,
+    sub: (e) => (e.value !== undefined ? `Jetzt ${num(e.value)} insgesamt` : null),
+  },
+  foodEaten: {
+    label: "Essen",
+    tone: BOARD_TONE.foodEaten,
+    text: (e) => `hat ${num(e.delta ?? 0)} Essen gegessen`,
+    sub: (e) => (e.value !== undefined ? `Jetzt ${num(e.value)} insgesamt` : null),
   },
   stream_start: {
     label: "Stream an",
@@ -129,7 +206,7 @@ export const EVENT_META: Record<EventType, EventMeta> = {
   },
   stream_end: {
     label: "Stream aus",
-    tone: "ender",
+    tone: "twitch",
     text: () => "hat den Stream beendet",
     sub: (e) => {
       const s = Number(e.meta?.streamSeconds ?? 0);
@@ -144,21 +221,81 @@ export const EVENT_META: Record<EventType, EventMeta> = {
   },
   stream_title: {
     label: "Titel",
-    tone: "amethyst",
+    tone: "twitch",
     text: () => "hat den Streamtitel geändert",
     sub: (e) => (e.meta?.title ? String(e.meta.title) : null),
+  },
+  subscription: {
+    label: "Abo",
+    tone: "twitch",
+    text: (e) => e.player ? "hat in dieser Minute Subs erhalten" : `${e.meta?.channel ?? "Ein Streamer"} hat in dieser Minute Subs erhalten`,
+    sub: () => "Minutensumme",
+  },
+  subscription_gift: {
+    label: "Geschenk-Subs",
+    tone: "twitch",
+    text: (e) => `hat ${num(e.delta ?? 0)} Subs von ${e.meta?.giftGiverName ?? "einem anderen Streamer"} geschenkt bekommen`,
+    sub: (e) => e.meta?.channel ? `im Stream von ${e.meta.channel}` : null,
+  },
+  cheer: {
+    label: "Cheer",
+    tone: "twitch",
+    text: (e) => `hat ${num(e.value ?? 0)} Bits von ${e.meta?.fromName ?? "einem Zuschauer"} bekommen`,
+    sub: (e) => (e.meta?.fromPlayerName ? `Gecheert hat Spieler ${e.meta.fromPlayerName}` : "Einzelner Cheer"),
+  },
+  clip: {
+    label: "Clip",
+    tone: "twitch",
+    text: (e) => `wurde geclippt: „${e.meta?.title ?? "Clip"}“`,
+    sub: (e) =>
+      [
+        e.value !== undefined ? `${num(e.value)} Aufrufe` : null,
+        typeof e.meta?.creatorName === "string" ? `Clip von ${e.meta.creatorName}` : null,
+        typeof e.meta?.clipSeconds === "number" ? `${e.meta.clipSeconds} s` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || null,
+  },
+  follower_burst: {
+    label: "Follower-Schub",
+    tone: "twitch",
+    text: (e) => `hat ${num(e.delta ?? 0)} Follower in ${duration(Number(e.meta?.windowSeconds ?? 60))} auf dem Server gewonnen (mehr als 20 pro Minute)`,
+    sub: (e) => `Auf dem Server insgesamt ${num(e.value ?? 0)} neue Follower erfasst`,
+  },
+  raid: {
+    label: "Raid",
+    tone: "twitch",
+    text: (e) => `hat ${e.meta?.raidTargetName ?? "einen anderen Spieler"} geraidet`,
+  },
+  chat: {
+    label: "Chat",
+    tone: "twitch",
+    text: (e) => `schreibt im Chat von ${e.meta?.channelName ?? "einem anderen Spieler"}`,
+    sub: (e) => (typeof e.meta?.message === "string" ? `„${e.meta.message}“` : null),
+  },
+  shared_chat_start: {
+    label: "Geteilter Chat",
+    tone: "twitch",
+    text: (e) => `streamt mit geteiltem Chat mit ${sharedChatWho(e)}`,
+    sub: (e) => (e.meta?.sharedChatSource === "chat" ? "Aus geteilten Chat-Nachrichten erkannt" : "Stream Together laut Twitch"),
+  },
+  shared_chat_end: {
+    label: "Geteilter Chat Ende",
+    tone: "twitch",
+    text: (e) => `hat den geteilten Chat mit ${sharedChatWho(e)} beendet`,
+    sub: (e) => (e.delta ? `Dauer ${duration(e.delta)}` : null),
   },
   server_online: { label: "Server", tone: "grass", text: () => "Der Server ist wieder online" },
   server_offline: { label: "Server", tone: "redstone", text: () => "Der Server ist offline gegangen" },
   first_join: {
     label: "Neu",
-    tone: "lava",
+    tone: "white",
     text: () => "ist zum ersten Mal auf dem Server aufgetaucht",
     sub: () => "Zumindest seit der Tracker läuft.",
   },
   rank: {
     label: "Rang",
-    tone: "gold",
+    tone: "white",
     text: (e) =>
       e.value === 1
         ? `hat die Führung bei „${e.meta?.label}“ übernommen`
@@ -167,7 +304,7 @@ export const EVENT_META: Record<EventType, EventMeta> = {
   },
   milestone: {
     label: "Meilenstein",
-    tone: "amethyst",
+    tone: "white",
     text: (e) => {
       const v = e.value ?? 0;
       switch (String(e.meta?.board ?? "")) {
@@ -183,20 +320,37 @@ export const EVENT_META: Record<EventType, EventMeta> = {
           return `hat ${num(v)} Mobs erledigt`;
         case "distance":
           return `ist ${distance(v)} gelaufen`;
-        default:
-          return `hat ${num(v)} erreicht`;
+        default: {
+          const x = extraOf(e);
+          return x ? `hat die Marke ${x.fmt(v)} bei „${x.label}“ geknackt` : `hat ${num(v)} erreicht`;
+        }
       }
     },
   },
+  // Zusatzwerte: Farbe der Gruppe des Werts (wie in Graph und Profil), Satz je Wert
+  ...(Object.fromEntries(
+    EXTRA_EVENT_TYPES.map((k) => [
+      k,
+      {
+        label: EXTRA_STATS[k].label,
+        tone: GROUP_TONE[EXTRA_STATS[k].group],
+        text: statText,
+        sub: (e: TrackerEvent) => {
+          const x = extraOf(e);
+          return x && e.value !== undefined ? `Jetzt ${x.fmt(e.value)} insgesamt` : null;
+        },
+      },
+    ]),
+  ) as Record<(typeof EXTRA_EVENT_TYPES)[number], EventMeta>),
   record: {
     label: "Rekord",
-    tone: "redstone",
+    tone: "white",
     text: (e) => `Neuer Rekord: ${num(e.value ?? 0)} ${e.meta?.label ?? ""}`,
     sub: (e) => (e.delta ? `+${num(e.delta)} gegenüber dem alten Rekord` : null),
   },
   tracker_start: {
     label: "Tracker",
-    tone: "sky",
+    tone: "white",
     text: () => "Der Tracker hat angefangen aufzuzeichnen",
     sub: (e) =>
       e.meta ? `${num(Number(e.meta.online ?? 0))} online · ${num(Number(e.meta.live ?? 0))} live` : null,
@@ -204,11 +358,13 @@ export const EVENT_META: Record<EventType, EventMeta> = {
 };
 
 export const EVENT_GROUPS: { key: string; label: string; tone: string; types: EventType[] }[] = [
-  { key: "server", label: "Server", tone: "grass", types: ["join", "leave", "afk_start", "afk_mobs_start", "afk_mobs_end", "afk_blocks_start", "afk_blocks_end", "afk_end", "server_online", "server_offline", "tracker_start"] },
-  { key: "death", label: "Tode", tone: "redstone", types: ["death"] },
-  { key: "loot", label: "Loot & Arbeit", tone: "gold", types: ["diamonds", "blocksBroken", "mobsKilled", "distance"] },
-  { key: "twitch", label: "Twitch", tone: "twitch", types: ["stream_start", "stream_end", "stream_title"] },
-  { key: "highlights", label: "Highlights", tone: "amethyst", types: ["first_join", "rank", "milestone", "record"] },
+  { key: "server", label: "Server", tone: "white", types: ["join", "leave", "afk_start", "afk_mobs_start", "afk_mobs_end", "afk_blocks_start", "afk_blocks_end", "afk_end", "server_online", "server_offline", "tracker_start"] },
+  { key: "death", label: "Tode", tone: BOARD_TONE.deaths, types: ["death"] },
+  { key: "loot", label: "Loot & Kampf", tone: "white", types: ["diamonds", "blocksBroken", "mobsKilled", "distance", "damageDealt", "totemsUsed", "foodEaten", "damageTaken", "raidsWon"] },
+  { key: "bau", label: "Bauen & Handel", tone: GROUP_TONE.items, types: ["blocksPlaced", "itemsCrafted", "itemsEnchanted", "tradedWithVillagers"] },
+  { key: "natur", label: "Tiere & Natur", tone: GROUP_TONE.tiere, types: ["animalsKilled", "animalsBred", "fishCaught", "bellsRung"] },
+  { key: "twitch", label: "Twitch", tone: "twitch", types: ["stream_start", "stream_end", "stream_title", "subscription", "subscription_gift", "cheer", "clip", "follower_burst", "raid", "chat", "shared_chat_start", "shared_chat_end"] },
+  { key: "highlights", label: "Highlights", tone: "white", types: ["achievement", "first_join", "rank", "milestone", "record"] },
 ];
 
 export function typesForGroup(key: string | undefined): EventType[] | null {
@@ -227,6 +383,11 @@ export function eventBadge(e: TrackerEvent): string | null {
       return `+${num(e.delta ?? 0)}`;
     case "distance":
       return `+${distance(e.delta ?? 0)}`;
+    case "damageDealt":
+      return `+${hearts(e.delta ?? 0)} Herzen`;
+    case "totemsUsed":
+    case "foodEaten":
+      return `+${num(e.delta ?? 0)}`;
     case "leave": {
       const s = Number(e.meta?.sessionSeconds ?? 0);
       return s > 0 ? duration(s) : null;
@@ -234,6 +395,22 @@ export function eventBadge(e: TrackerEvent): string | null {
     case "stream_start":
     case "stream_title":
       return e.value !== undefined ? `${num(e.value)} Zuschauer` : null;
+    case "subscription":
+      return `${num(e.value ?? 0)} Subs`;
+    case "subscription_gift":
+      return `${num(e.delta ?? 0)} Subs`;
+    case "cheer":
+      return `${num(e.value ?? 0)} Bits`;
+    case "clip":
+      return `${num(e.value ?? 0)} Aufrufe`;
+    case "follower_burst":
+      return `+${num(e.delta ?? 0)} Follower`;
+    case "raid":
+      return e.value !== undefined ? `${num(e.value)} Zuschauer` : null;
+    case "shared_chat_start":
+      return e.value !== undefined ? `${num(e.value)} Kanäle` : null;
+    case "shared_chat_end":
+      return e.delta ? duration(e.delta) : null;
     case "stream_end": {
       const s = Number(e.meta?.streamSeconds ?? 0);
       return s > 0 ? duration(s) : null;
@@ -251,9 +428,22 @@ export function eventBadge(e: TrackerEvent): string | null {
     case "rank":
       return `#${e.value}`;
     case "milestone":
-      return e.meta?.board === "playtimeSeconds" ? `${Math.round((e.value ?? 0) / 3600)} h` : e.meta?.board === "distance" ? distance(e.value ?? 0) : num(e.value ?? 0);
+      return e.meta?.board === "playtimeSeconds" ? `${Math.round((e.value ?? 0) / 3600)} h` : e.meta?.board === "distance" ? distance(e.value ?? 0) : e.meta?.board === "damageDealt" ? `${hearts(e.value ?? 0)} Herzen` : (extraOf(e)?.fmt(e.value ?? 0) ?? num(e.value ?? 0));
     case "record":
       return num(e.value ?? 0);
+    case "blocksPlaced":
+    case "damageTaken":
+    case "raidsWon":
+    case "itemsCrafted":
+    case "itemsEnchanted":
+    case "tradedWithVillagers":
+    case "animalsKilled":
+    case "animalsBred":
+    case "fishCaught":
+    case "bellsRung": {
+      const x = extraOf(e);
+      return x ? `+${x.fmt(e.delta ?? 0)}` : null;
+    }
     case "server_online":
       return e.meta?.onlineCount !== undefined ? `${num(Number(e.meta.onlineCount))} online` : null;
     default:
@@ -273,16 +463,30 @@ export const EVENT_TYPES: EventType[] = [
   "afk_end",
   "first_join",
   "death",
+  "achievement",
   "diamonds",
   "blocksBroken",
   "mobsKilled",
   "distance",
+  "damageDealt",
+  "totemsUsed",
+  "foodEaten",
   "stream_start",
   "stream_end",
   "stream_title",
+  "subscription",
+  "subscription_gift",
+  "cheer",
+  "clip",
+  "follower_burst",
+  "raid",
+  "chat",
+  "shared_chat_start",
+  "shared_chat_end",
   "rank",
   "milestone",
   "record",
+  ...EXTRA_EVENT_TYPES,
   "server_online",
   "server_offline",
   "tracker_start",
@@ -295,3 +499,84 @@ export const TIME_RANGES: { key: string; label: string; ms: number | null }[] = 
   { key: "7d", label: "7 Tage", ms: 7 * 24 * 3600_000 },
   { key: "alle", label: "Alles", ms: null },
 ];
+
+/**
+ * Mindest-Zuwachs, ab dem ein Zähler-Ereignis entsteht bzw. angezeigt wird (Rohwerte der API).
+ * Essen: mehr als 2 Mahlzeiten. Schaden: mehr als 20 Herzen (Rohwert ÷ 20, also mehr als 400).
+ */
+export const EVENT_MIN_DELTA = { foodEaten: 3, damageDealt: 401 } as const;
+
+/**
+ * Schwellen fürs Anzeigen in Feeds (gespeichert wird mehr, das bleibt für Graphen und Auswertungen). Gewählt nach der
+ * Verteilung der Zuwächse je Abfrage: Übrig bleiben die auffälligen ~1–5 %, statt dass Strecke, Blöcke und Abos den
+ * Feed füllen (vorher z. B. 1.600 Strecken-Ereignisse am Tag). Abos: Zahl je Minute im Kanal.
+ */
+export const FEED_MIN_DELTA: Partial<Record<TrackerEvent["type"], number>> = {
+  distance: 6000,
+  blocksBroken: 2000,
+  mobsKilled: 500,
+  damageDealt: 3000, // 150 Herzen (Rohwert ÷ 20)
+  foodEaten: 10,
+  subscription: 20,
+};
+
+/** Kleine Zähler-Ereignisse ausblenden (auch ältere, die vor der Schwelle gespeichert wurden) */
+export function isShownEvent(e: Pick<TrackerEvent, "type" | "delta"> & { value?: number; meta?: TrackerEvent["meta"] }): boolean {
+  // Zuwachs, der sich über eine Tracker-Lücke oder Zeit ohne frische Werte angesammelt hat (lib/eventQuality.ts)
+  if (e.meta?.catchUp === true) return false;
+  const min = FEED_MIN_DELTA[e.type];
+  if (min === undefined) return true;
+  return (e.type === "subscription" ? (e.value ?? e.delta ?? 0) : (e.delta ?? 0)) >= min;
+}
+
+/** Beteiligte eines geteilten Chats als Text, z. B. „Papaplatte, Trymacs und 1 weiterer Kanal" */
+function sharedChatWho(e: Pick<TrackerEvent, "meta" | "player">): string {
+  // Der Spieler des Ereignisses steht schon vorne im Satz
+  const ids = sharedChatPlayers(e);
+  const names = String(e.meta?.sharedChatNames ?? "").split(", ").filter((name, i) => name && ids[i] !== e.player);
+  const others = Number(e.meta?.sharedChatOthers ?? 0);
+  const parts = [...names, ...(others > 0 ? [`${others} ${others === 1 ? "weiterer Kanal" : "weitere Kanäle"}`] : [])];
+  return parts.length <= 1 ? (parts[0] ?? "") : `${parts.slice(0, -1).join(", ")} und ${parts[parts.length - 1]}`;
+}
+
+/** Spieler-IDs, die an einem Geteilter-Chat-Ereignis beteiligt sind */
+export function sharedChatPlayers(e: Pick<TrackerEvent, "meta">): string[] {
+  return String(e.meta?.sharedChatPlayers ?? "").split(",").filter(Boolean);
+}
+
+/**
+ * Alle an einem Ereignis beteiligten Spieler, der Handelnde zuerst: Opfer und Täter eines Tods, Raid-Ziel,
+ * Sub-Schenker, Kanal einer Chatnachricht und die Spieler eines geteilten Chats.
+ */
+export function eventPlayers(e: Pick<TrackerEvent, "player" | "type" | "meta">): string[] {
+  const ids = [
+    e.player,
+    e.type === "death" ? e.meta?.killerId : null,
+    e.meta?.raidTargetPlayerId,
+    e.meta?.giftGiverPlayerId,
+    e.type === "chat" ? e.meta?.channelId : null,
+    ...sharedChatPlayers(e),
+  ];
+  return [...new Set(ids.filter((x): x is string => typeof x === "string" && x !== ""))];
+}
+
+/**
+ * Ziel eines Klicks auf ein Ereignis: die Ereignisse-Seite mit diesem Spieler und dieser Art, auf der Seite des
+ * Ereignisses und dorthin gescrollt.
+ */
+export function eventHref(e: Pick<TrackerEvent, "id" | "player" | "type">): string {
+  const p = new URLSearchParams();
+  if (e.player) p.set("spieler", e.player);
+  p.set("t", e.type);
+  p.set("ev", e.id);
+  return `/ereignisse?${p}#ev-${e.id}`;
+}
+
+/** VOD-Links der Chat-Ereignisse je Chat-Nachricht (ID ohne `chat-`), für klickbare Nachrichten im Chat-Verlauf */
+export function chatVodLinks(events: TrackerEvent[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const e of events) {
+    if (e.type === "chat" && typeof e.meta?.vodUrl === "string") out.set(e.id.slice("chat-".length), e.meta.vodUrl);
+  }
+  return out;
+}

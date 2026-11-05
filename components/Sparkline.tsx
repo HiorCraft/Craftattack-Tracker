@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { boardValue, num } from "@/lib/format";
+import { boardValue, eur, num } from "@/lib/format";
+import { EstimateRects, EstimateTip, useEstimateGaps, type EstimateZone } from "./Estimates";
 
 export interface SparkPoint {
   at: string;
@@ -31,6 +32,7 @@ export function Sparkline({
   step = false,
   invert = false,
   label,
+  zones,
 }: {
   points: SparkPoint[];
   width?: number;
@@ -38,13 +40,17 @@ export function Sparkline({
   /** Nur aus Client-Komponenten nutzbar (Funktionen sind nicht serialisierbar) */
   format?: (v: number) => string;
   /** Für Server-Komponenten: Formatierung per Schlüssel */
-  kind?: "num" | "playtimeSeconds" | "distance" | "rank";
+  kind?: "num" | "eur" | "playtimeSeconds" | "distance" | "damageDealt" | "rank";
   step?: boolean;
   /** Kleine Werte oben zeichnen (z. B. Rang: Platz 1 ist oben) */
   invert?: boolean;
   label?: string;
+  /** Schätzung: geschätzte Bereiche (Standard: die Tracker-Lücken) */
+  zones?: EstimateZone[];
 }) {
-  const fmt = format ?? (kind === "num" ? num : kind === "rank" ? (v: number) => `Platz ${num(v)}` : (v: number) => boardValue(kind, v));
+  const gaps = useEstimateGaps();
+  const est = zones ?? gaps;
+  const fmt = format ?? (kind === "num" ? num : kind === "eur" ? eur : kind === "rank" ? (v: number) => `Platz ${num(v)}` : (v: number) => boardValue(kind, v));
   const ref = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<number | null>(null);
 
@@ -109,6 +115,7 @@ export function Sparkline({
         onPointerMove={onMove}
         onPointerLeave={() => setHover(null)}
       >
+        <EstimateRects zones={est} x={x} t0={t0} t1={t1} height={height} />
         <path d={area} className="spark__area" />
         <path d={d} className="spark__line" vectorEffect="non-scaling-stroke" />
         {hover !== null && (
@@ -124,6 +131,7 @@ export function Sparkline({
         >
           <span className="num spark__tip-val">{fmt(hp.v)}</span>
           <span className="spark__tip-time">{sameDay ? `${tf.format(new Date(hp.at))} Uhr` : df.format(new Date(hp.at))}</span>
+          <EstimateTip zones={est} t={Date.parse(hp.at)} />
         </div>
       )}
     </div>

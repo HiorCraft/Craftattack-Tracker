@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: craftattack-tracker
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: CRON_SECRET
+        sync: false

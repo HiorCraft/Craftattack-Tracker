@@ -1,0 +1,42 @@
+/** Kalendertage in Berlin (ohne `server-only`, läuft auch im Browser) */
+const DAY_FMT = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin", year: "numeric", month: "2-digit", day: "2-digit" });
+
+/** Berlin weicht nur um volle Stunden von UTC ab: Der Tag hängt nur von der UTC-Stunde ab. Formatieren ist teuer
+ * (läuft im Feed-Filter für jedes Ereignis), also je Stunde nur einmal. */
+const DAY_BY_HOUR = new Map<number, string>();
+
+/** Tag in Berlin als „YYYY-MM-DD“ */
+export function berlinDay(ms: number): string {
+  const hour = Math.floor(ms / 3_600_000);
+  let day = DAY_BY_HOUR.get(hour);
+  if (day === undefined) {
+    day = DAY_FMT.format(ms);
+    if (DAY_BY_HOUR.size > 50_000) DAY_BY_HOUR.clear();
+    DAY_BY_HOUR.set(hour, day);
+  }
+  return day;
+}
+
+/** Abstand Berlin zu UTC in Millisekunden zu diesem Zeitpunkt (+1 Std Winter, +2 Std Sommer) */
+function offsetMs(ms: number): number {
+  const d = new Date(ms);
+  const local = Date.parse(d.toLocaleString("en-US", { timeZone: "Europe/Berlin" }));
+  const utc = Date.parse(d.toLocaleString("en-US", { timeZone: "UTC" }));
+  return local - utc;
+}
+
+/** Nächste Mitternacht (Berlin) nach `ms` */
+export function nextBerlinMidnight(ms: number): number {
+  const start = Date.parse(`${berlinDay(ms)}T00:00:00Z`) + 86_400_000;
+  return start - offsetMs(start - 3 * 3600_000);
+}
+
+/** Zeitraum [from, to) in Stücke je Berliner Tag zerlegen */
+export function splitByBerlinDay(from: number, to: number, each: (day: string, from: number, to: number) => void) {
+  let a = from;
+  while (a < to) {
+    const next = Math.min(to, nextBerlinMidnight(a));
+    each(berlinDay(a), a, next);
+    a = next;
+  }
+}

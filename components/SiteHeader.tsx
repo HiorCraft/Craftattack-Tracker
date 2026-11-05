@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { NavLinks } from "./NavLinks";
+import { HubTabs, NavLinks } from "./NavLinks";
+import { PageAge } from "./PageAge";
 
 export function SiteHeader() {
   return (
@@ -18,6 +19,16 @@ export function SiteHeader() {
             <NavLinks />
           </Suspense>
         </nav>
+      </div>
+      <div className="subbar">
+        <div className="wrap subbar__in">
+          <Suspense fallback={<span />}>
+            <HubTabs />
+          </Suspense>
+          <Suspense fallback={null}>
+            <PageAge />
+          </Suspense>
+        </div>
       </div>
     </header>
   );

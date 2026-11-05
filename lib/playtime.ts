@@ -8,8 +8,8 @@ export function trackedSecondsOf(p: Pick<PlayerState, "trackedSeconds" | "online
 export type PlaytimeSource = "api" | "estimate" | "tracker";
 
 /**
- * Spielzeit eines Spielers. Die API liefert Spielzeit nur für die Top 10; wer herausfällt, behält seinen letzten
- * API-Wert. Darauf wird die seitdem vom Tracker gemessene Online-Zeit (Join/Leave) addiert („estimate“).
+ * Spielzeit eines Spielers. Die Top 10 liefert die API jede Minute, alle anderen über /api/player höchstens alle
+ * 15 Minuten. Zwischen zwei API-Werten wird die seitdem vom Tracker gemessene Online-Zeit (Join/Leave) addiert („estimate“).
  * Ohne jeden API-Wert bleibt nur die vom Tracker gemessene Online-Zeit („tracker“).
  */
 export function playtimeOf(p: PlayerState, nowMs: number): { seconds: number; source: PlaytimeSource } {

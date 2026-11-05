@@ -1,11 +1,13 @@
 import type { PlayerPoint, PlayerState, TrackerEvent } from "@/lib/types";
+import { Fold } from "./Fold";
 import type { StoredSession } from "@/lib/store";
 import { RATE_KEYS, type PlayerRates, type RateKey } from "@/lib/analytics";
 import { distance, duration, num, dateTime } from "@/lib/format";
 import { BOARD_ICON, Icon } from "./Icons";
+import { BOARD_TONE } from "@/lib/statTone";
 
 const LABEL: Record<RateKey, string> = { deaths: "Tode", diamonds: "Diamanten", blocksBroken: "Blöcke", mobsKilled: "Mobs", distance: "Strecke" };
-const TONE: Record<RateKey, string> = { deaths: "redstone", diamonds: "diamond", blocksBroken: "gold", mobsKilled: "grass", distance: "pink" };
+const TONE: Record<RateKey, string> = BOARD_TONE;
 
 const nf1 = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 const fmtRate = (k: RateKey, v: number) => (k === "distance" ? distance(v) : k === "blocksBroken" || k === "mobsKilled" ? num(v) : nf1.format(v));
@@ -108,9 +110,7 @@ export function PlayerInsights({
   return (
     <section className="block block--tight" data-tone="paper" aria-labelledby="ins-h">
       <div className="wrap">
-        <h2 className="sr-only" id="ins-h">
-          Auswertung
-        </h2>
+        <Fold id="profil.auswertung" titleId="ins-h" title="Auswertung">
         <div className="grid" style={{ "--min": "300px", "--gap": "24px" } as React.CSSProperties}>
           {/* Raten */}
           <div className="box" data-tone="white">
@@ -118,7 +118,7 @@ export function PlayerInsights({
               Pro Online-Stunde
             </p>
             <p className="muted" style={{ fontSize: ".875rem", marginBottom: 12 }}>
-              {rates && rates.hours >= 0.5 ? `Zuwachs seit Tracker-Start geteilt durch ${duration(rates.hours * 3600)} gemessene Online-Zeit, daneben der Serverdurchschnitt.` : "Noch zu wenig gemessene Online-Zeit für belastbare Raten."}
+              {rates && rates.hours >= 0.5 ? `Pro Stunde in ${duration(rates.hours * 3600)} gemessener Online-Zeit, daneben der Server.` : "Noch zu wenig gemessene Online-Zeit für belastbare Raten."}
             </p>
             {rates && rates.hours >= 0.5 && (
               <ul className="rates">
@@ -247,6 +247,7 @@ export function PlayerInsights({
             )}
           </div>
         </div>
+        </Fold>
       </div>
     </section>
   );
