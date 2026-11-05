@@ -7216,3 +7216,126 @@ a.st-board__mvlink:focus-visible {
     flex: 1;
   }
 }
+
+/* Graph: Spieler-Chip mit Profil-Link (Name) und Entfernen (×) */
+.gb__chip--split {
+  padding: 0;
+  gap: 0;
+}
+.gb__chip-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 12px;
+  min-height: 34px;
+  color: inherit;
+  text-decoration: none;
+}
+.gb__chip-main svg {
+  opacity: 0.7;
+}
+.gb__chip-x {
+  align-self: stretch;
+  padding: 0 10px;
+  border: 0;
+  border-left: 2px solid color-mix(in srgb, var(--fg, var(--paper)) 30%, transparent);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .gb__chip-main:hover {
+    text-decoration: underline;
+  }
+  .gb__chip-main:hover svg {
+    opacity: 1;
+  }
+  .gb__chip-x:hover {
+    background: color-mix(in srgb, var(--fg, var(--paper)) 20%, transparent);
+  }
+}
+
+/* Graph: VODs als Streifen unter der Zeitachse, Hinweis im Tooltip, Auswahl bei mehreren */
+.gb-twitch {
+  flex: none;
+  vertical-align: -1px;
+}
+.gb-chart__plot[data-vod] .gb-chart__svg {
+  cursor: pointer;
+}
+.gb-chart__vods {
+  display: grid;
+  gap: 3px;
+  margin-top: 8px;
+}
+.gb-chart__vodlane {
+  position: relative;
+  height: 6px;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+.gb-chart__vodlane a {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+}
+@media (hover: hover) {
+  .gb-chart__vodlane a:hover {
+    outline: 2px solid var(--ink);
+  }
+}
+.gb-chart__vodkey {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
+}
+.gb-chart__vodkey .gb-twitch {
+  color: var(--twitch);
+}
+.gb-chart__tip-vod {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--paper) 25%, transparent);
+  font-size: 0.8125rem;
+}
+.gb-chart__vodpop {
+  position: absolute;
+  top: 8px;
+  z-index: 4;
+  display: grid;
+  gap: 8px;
+  min-width: 240px;
+  max-width: min(360px, 90vw);
+  padding: 10px 12px;
+  margin: 0;
+  font-size: 0.875rem;
+}
+.gb-chart__vodpop .gb-chart__tip-time {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.gb-chart__vodrow {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+.gb-chart__vodrow i {
+  width: 12px;
+  height: 12px;
+  box-shadow: 0 0 0 2px var(--line);
+}
+.gb-chart__vodrow .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+}
