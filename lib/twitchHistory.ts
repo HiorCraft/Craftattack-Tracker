@@ -19,6 +19,11 @@ import type { TrackerEvent } from "./types";
 /** Beginn der Staffel: ältere VODs und Clips sind uninteressant */
 const SEASON_START = Date.parse(process.env.CA_SEASON_START ?? "2026-10-10T10:00:00Z");
 const SYNC_MS = 3 * 3600_000;
+/**
+ * VOD-Liste (Zeit, Länge, Titel) öfter: Manche Kanäle löschen VODs nach etwa einem Tag, dann wäre ohne frühe Abfrage
+ * nicht einmal die Länge bekannt. Eine Helix-Anfrage je Kanal, gespeicherte VODs bleiben auch nach dem Löschen.
+ */
+const VOD_SYNC_MS = 30 * 60_000;
 /** Clip-Ereignisse: je Kanal und Tag die meistgesehenen, mindestens so viele Aufrufe */
 const CLIPS_PER_DAY = 3;
 const CLIP_MIN_VIEWS = Number(process.env.CA_CLIP_MIN_VIEWS ?? 100);
@@ -37,8 +42,8 @@ interface VodRow {
   title: string;
 }
 
-/** Alle Archiv-VODs und Clips der Spieler seit Staffelbeginn holen und speichern */
-async function fetchHistory(): Promise<{ vods: number; clips: number }> {
+/** Alle Archiv-VODs (und mit `withClips` die Clips) der Spieler seit Staffelbeginn holen und speichern */
+async function fetchHistory(withClips = true): Promise<{ vods: number; clips: number }> {
   const db = await getDb();
   const players = (await db.query<{ id: string; twitch_login: string }>(`SELECT id, twitch_login FROM players WHERE twitch_login IS NOT NULL AND twitch_login <> ''`)).rows;
   const lastClip = new Map(
@@ -70,6 +75,10 @@ async function fetchHistory(): Promise<{ vods: number; clips: number }> {
       cursor = res.cursor;
       if (!cursor || keep.length < res.data.length) break;
       await pause(150);
+    }
+    if (!withClips) {
+      await pause(150);
+      continue;
     }
     // Clips: ab dem letzten bekannten (zwei Tage zurück, Aufrufe ändern sich noch) bzw. ab Staffelbeginn
     const from = Math.max(SEASON_START, (lastClip.get(p.id) ?? 0) - 2 * 86400_000);
@@ -270,7 +279,27 @@ export function startTwitchHistorySync() {
   const gl = globalThis as typeof globalThis & { __acTwitchHistory?: boolean };
   if (gl.__acTwitchHistory || !TWITCH_ENABLED) return;
   gl.__acTwitchHistory = true;
-  const run = () => void syncTwitchHistory().catch((err: unknown) => console.warn("[twitch] Verlauf-Abgleich fehlgeschlagen:", err instanceof Error ? err.message : err));
-  setTimeout(run, 3 * 60_000).unref();
-  setInterval(run, SYNC_MS).unref();
+  let lastFull = 0;
+  let running = false;
+  // Alle 30 Min die VOD-Liste, alle 3 Std zusätzlich Clips und die daraus abgeleiteten Ereignisse
+  const run = async () => {
+    if (running) return;
+    running = true;
+    try {
+      if (Date.now() - lastFull >= SYNC_MS) {
+        lastFull = Date.now();
+        await syncTwitchHistory();
+      } else {
+        const t0 = Date.now();
+        const { vods } = await fetchHistory(false);
+        console.log(`[twitch] VOD-Liste: ${vods} VODs abgeglichen (${Math.round((Date.now() - t0) / 1000)} s)`);
+      }
+    } catch (err) {
+      console.warn("[twitch] Verlauf-Abgleich fehlgeschlagen:", err instanceof Error ? err.message : err);
+    } finally {
+      running = false;
+    }
+  };
+  setTimeout(() => void run(), 3 * 60_000).unref();
+  setInterval(() => void run(), VOD_SYNC_MS).unref();
 }

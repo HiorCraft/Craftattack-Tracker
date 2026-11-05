@@ -20,8 +20,12 @@
  * Auf dem Server (Zuschauer-Abo-Minuten, Cheer-Ereignisse) gilt, wenn der Streamer laut Verlauf online war.
  * Doppelte gegenüber dem Live-Chat werden über Inhalt und Zeitnähe erkannt und übersprungen.
  *
- * Tempo: so langsam wie möglich, aber bis zur Frist fertig (geschätzt aus der bisherigen Chat-Dichte); mindestens
- * MIN_DELAY_MS zwischen zwei Anfragen. Bei Fehlern lange Pausen. Fortschritt in vod_chat_progress.
+ * Tempo: so schnell wie vertretbar (MIN_DELAY_MS zwischen zwei Anfragen), damit nichts verloren geht, bevor Twitch
+ * oder der Streamer das VOD löscht. Bei Fehlern lange Pausen, bei 429 wird der Abstand größer. Fortschritt in
+ * vod_chat_progress. Die Frist dient nur noch der Anzeige.
+ *
+ * Reihenfolge nach Ablaufrisiko: zuerst Kanäle, die VODs schon vorzeitig gelöscht haben (verschwinden oft nach einem
+ * Tag), dann Kanäle mit kurzer Aufbewahrung (7 Tage), dann alle übrigen nach Ablaufdatum (Partner: 60 Tage).
  */
 import pg from "pg";
 import { createHash } from "node:crypto";
@@ -42,7 +46,13 @@ const CHAT_START = Date.parse(process.env.VOD_CHAT_FULL_UNTIL ?? "2026-10-19T10:
 const IRC_GAP_MS = 30 * 60_000;
 /** Neueste Stunden noch nicht lesen (Live-Chat ist dort zuständig, VODs wachsen noch) */
 const RECENT_MS = 3 * 3600_000;
-const MIN_DELAY_MS = 2_500;
+const MIN_DELAY_MS = Number(process.env.VOD_CHAT_MIN_DELAY_MS ?? 1_000);
+/** Aufbewahrung von VODs bei Twitch: Partner (und Turbo/Prime) 60 Tage, sonst 7 */
+const DAY_MS = 86400_000;
+const LONG_KEEP_MS = 60 * DAY_MS;
+const SHORT_KEEP_MS = 7 * DAY_MS;
+/** VOD gilt als nicht mehr gelistet, wenn die VOD-Liste (alle 30 Min) es so lange nicht mehr gesehen hat */
+const UNLISTED_MS = 3 * 3600_000;
 const MAX_DELAY_MS = 60_000;
 const GQL_URL = "https://gql.twitch.tv/gql";
 const GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
@@ -100,6 +110,18 @@ async function ircOutages() {
 /** Je VOD die Abschnitte (Sekunden ab VOD-Beginn), die gelesen werden müssen */
 async function plan() {
   const outages = await ircOutages();
+  // Je Kanal: Aufbewahrung (ältestes noch gelistetes VOD) und ob schon VODs vorzeitig verschwunden sind
+  const channels = new Map(
+    (
+      await q(
+        `SELECT player,
+                max(extract(epoch FROM now() - created_at)) FILTER (WHERE fetched_at > now() - make_interval(secs => $1)) AS oldest_listed_s,
+                bool_or(fetched_at <= now() - make_interval(secs => $1) AND created_at > now() - interval '50 days') AS deletes
+           FROM twitch_vods GROUP BY player`,
+        [UNLISTED_MS / 1000],
+      )
+    ).rows.map((r) => [r.player, { long: Number(r.oldest_listed_s ?? 0) >= 8 * 86400, deletes: r.deletes === true }]),
+  );
   const vods = (
     await q(
       `SELECT v.id, v.player, v.login, v.created_at, v.duration_s, coalesce(p.position_s, 0) AS position_s, coalesce(p.done, false) AS done
@@ -125,7 +147,10 @@ async function plan() {
       .map(([a, b]) => [Math.max(a, v.position_s), b])
       .filter(([a, b]) => b > a);
     const finished = start + v.duration_s * 1000 < limit;
-    work.push({ ...v, start, ranges: sec, finished });
+    const ch = channels.get(v.player) ?? { long: false, deletes: false };
+    // Spätester sicherer Zeitpunkt: löschfreudige Kanäle sofort nach dem Ende, sonst nach Aufbewahrung
+    const expires = ch.deletes ? start + v.duration_s * 1000 + DAY_MS / 2 : start + (ch.long ? LONG_KEEP_MS : SHORT_KEEP_MS);
+    work.push({ ...v, start, ranges: sec, finished, expires, risk: ch.deletes ? 0 : ch.long ? 2 : 1 });
   }
   return work;
 }
@@ -350,19 +375,20 @@ async function main() {
       const remainingSec = work.reduce((s, w) => s + w.ranges.reduce((t, [a, b]) => t + (b - a), 0), 0);
       const dens = await density();
       const remainingReq = (remainingSec / 3600) * dens;
-      const timeLeft = Math.max(3600_000, DEADLINE - Date.now());
-      // Langsam, aber bis zur Frist fertig (mit 25 % Reserve)
-      delay = Math.min(MAX_DELAY_MS, Math.max(MIN_DELAY_MS, (timeLeft * 0.75) / Math.max(1, remainingReq)));
+      // So schnell wie vertretbar; nach 429 langsamer, mit der Zeit wieder schneller
+      delay = Math.max(MIN_DELAY_MS, Math.min(MAX_DELAY_MS, delay * 0.8));
       lastPlan = Date.now();
-      log(`${work.length} VODs offen, ${Math.round(remainingSec / 3600)} VOD-Stunden, ~${Math.round(remainingReq)} Anfragen (${dens.toFixed(0)}/h), ${(delay / 1000).toFixed(1)} s Abstand, Frist ${new Date(DEADLINE).toISOString().slice(0, 10)}`);
+      const etaH = (remainingReq * (delay + 400)) / 3600_000;
+      const atRisk = work.filter((w) => w.risk < 2).length;
+      log(`${work.length} VODs offen (${atRisk} gefährdet), ${Math.round(remainingSec / 3600)} VOD-Stunden, ~${Math.round(remainingReq)} Anfragen (${dens.toFixed(0)}/h), ${(delay / 1000).toFixed(1)} s Abstand, fertig in ~${etaH < 48 ? `${Math.round(etaH)} Std` : `${Math.round(etaH / 24)} Tagen`}${Date.now() + etaH * 3600_000 > DEADLINE ? ` (nach der Frist ${new Date(DEADLINE).toISOString().slice(0, 10)})` : ""}`);
       if (!work.length) {
         if (ONCE) break;
         await sleep(3 * 3600_000);
         continue;
       }
     }
-    // Zeitlich gleichauf: der Abschnitt, dessen nächster Zeitpunkt am frühesten liegt
-    work.sort((a, b) => a.start + a.ranges[0][0] * 1000 - (b.start + b.ranges[0][0] * 1000));
+    // Zuerst, was am ehesten verschwindet; bei gleichem Risiko zeitlich gleichauf (frühester offener Zeitpunkt)
+    work.sort((a, b) => a.risk - b.risk || a.expires - b.expires || a.start + a.ranges[0][0] * 1000 - (b.start + b.ranges[0][0] * 1000));
     const w = work[0];
     const owner = players.get(w.player);
     const [from, to] = w.ranges[0];
@@ -372,6 +398,8 @@ async function main() {
       errors = 0;
     } catch (err) {
       errors++;
+      // Zu schnell (429): Abstand dauerhaft vergrößern, damit es nicht wieder passiert
+      if (/HTTP 429/.test(err.message)) delay = Math.min(MAX_DELAY_MS, delay * 2);
       const wait = err instanceof Blocked ? 6 * 3600_000 : Math.min(3600_000, 60_000 * 2 ** Math.min(6, errors));
       log(`Fehler (${err.message}), Pause ${Math.round(wait / 60_000)} Min`);
       await sleep(wait);
