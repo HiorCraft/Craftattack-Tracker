@@ -44,6 +44,20 @@ const localMs = (s: string) => (s ? Date.parse(s) : NaN);
 /** Millisekunden → `datetime-local`-Wert in lokaler Zeit (minutengenau) */
 /** Jetzt (nur in Klick-Handlern aufrufen, nicht beim Rendern) */
 const nowMs = () => Date.now();
+/** Aktuelle Zeit für das Rendern, minütlich aufgefrischt (null bis nach dem ersten Rendern im Browser) */
+function useNow(everyMs = 60_000): number | null {
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    const first = setTimeout(tick, 0);
+    const id = setInterval(tick, everyMs);
+    return () => {
+      clearTimeout(first);
+      clearInterval(id);
+    };
+  }, [everyMs]);
+  return now;
+}
 const toLocalInput = (ms: number) => {
   const d = new Date(ms);
   return new Date(ms - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
@@ -266,6 +280,10 @@ function MultiChart({
   const [hover, setHover] = useState<number | null>(null); // Zeitpunkt (ms)
   /** Laufende Auswahl beim Ziehen (Zeitpunkte in ms) */
   const [drag, setDrag] = useState<{ a: number; b: number } | null>(null);
+  /** Ziehen mit der rechten Maustaste wählt den erklärten Bereich (Vorschau, übernommen beim Loslassen) */
+  const [rdrag, setRdrag] = useState<{ a: number; b: number } | null>(null);
+  /** Nach einem Rechts-Ziehen das Kontextmenü-Ereignis (Windows: kommt erst beim Loslassen) nicht als Klick werten */
+  const skipContextUntil = useRef(0);
   /** Griff des Bands wird gezogen: Vorschau, übernommen beim Loslassen */
   const [resize, setResize] = useState<{ edge: "from" | "to"; from: number; to: number } | null>(null);
   /** Touch: lange drücken erklärt (kein Rechtsklick auf dem Handy) */
@@ -332,11 +350,17 @@ function MultiChart({
     setHover(t);
     if (press.current && Math.abs(e.clientX - press.current.x) > 8) cancelPress();
     if (drag) setDrag({ ...drag, b: t });
+    if (rdrag) setRdrag({ ...rdrag, b: t });
   };
   const onDown = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (e.button !== 0) return;
     const t = timeAt(e.clientX);
     if (t === null) return;
+    if (e.button === 2 && onSelect) {
+      ref.current?.setPointerCapture(e.pointerId);
+      setRdrag({ a: t, b: t });
+      return;
+    }
+    if (e.button !== 0) return;
     if (e.pointerType === "touch" && onPick) {
       const at = t;
       press.current = { x: e.clientX, fired: false, timer: setTimeout(() => {
@@ -349,7 +373,18 @@ function MultiChart({
     ref.current?.setPointerCapture(e.pointerId);
     setDrag({ a: t, b: t });
   };
-  const onUp = () => {
+  const onUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (rdrag) {
+      // Rechts gezogen: diesen Bereich erklären (auf ganze Bündel gerundet); nur geklickt: das macht das Kontextmenü
+      if (Math.abs(x(rdrag.b) - x(rdrag.a)) > 12 && onSelect) {
+        skipContextUntil.current = e.timeStamp + 400;
+        const a = Math.floor(Math.min(rdrag.a, rdrag.b) / step) * step;
+        const b = Math.ceil(Math.max(rdrag.a, rdrag.b) / step) * step;
+        onSelect(a, Math.max(b, a + step));
+      }
+      setRdrag(null);
+      return;
+    }
     const fired = press.current?.fired;
     cancelPress();
     // Ziehen vergrößert; ein einfacher Klick tut nichts (Erklären per Rechtsklick)
@@ -359,11 +394,12 @@ function MultiChart({
   const onContext = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!onPick) return;
     e.preventDefault();
+    if (e.timeStamp < skipContextUntil.current) return;
     const t = timeAt(e.clientX);
     if (t !== null) onPick(t);
   };
   /* Griffe am Band: ziehen verschiebt den Rand im Raster der Bündel, mindestens ein Bündel breit */
-  const band = resize ?? selected;
+  const band = rdrag && Math.abs(x(rdrag.b) - x(rdrag.a)) > 2 ? { from: Math.min(rdrag.a, rdrag.b), to: Math.max(rdrag.a, rdrag.b) } : (resize ?? selected);
   const snap = (t: number) => Math.round(t / step) * step;
   const onHandleDown = (edge: "from" | "to") => (e: React.PointerEvent<HTMLSpanElement>) => {
     if (!selected || e.button !== 0) return;
@@ -430,7 +466,7 @@ function MultiChart({
           onPointerMove={onMove}
           onPointerDown={onDown}
           onPointerUp={onUp}
-          onPointerCancel={() => (cancelPress(), setDrag(null))}
+          onPointerCancel={() => (cancelPress(), setDrag(null), setRdrag(null))}
           onPointerLeave={() => !drag && setHover(null)}
           onContextMenu={onContext}
         >
@@ -501,7 +537,7 @@ function MultiChart({
               />
             );
           })}
-        {tip && tipT !== null && !resize && (
+        {tip && tipT !== null && !resize && !rdrag && (
           <div className="gb-chart__tip" style={{ left: `${tipLeft * 100}%`, transform: `translateX(${tipLeft > 0.7 ? "-100%" : tipLeft < 0.3 ? "0" : "-50%"})` }} role="status">
             <span className="gb-chart__tip-time">{dtf.format(tipT)} Uhr</span>
             <EstimateTip zones={zones} t={tipT} />
@@ -676,8 +712,9 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
     return { q: vq, lines, bucketMinutes, key: toSearch(vq).toString(), rangeFrom, rangeTo };
   }, [viewQ, q.achse, q.modus, q.ansicht, cache, meta]);
   const lines = view?.lines ?? [];
-  /** Spätester Messpunkt: bis dahin reicht „später →“ */
-  const latestPoint = Math.max(0, ...lines.flatMap((l) => l.points.slice(-1).map((p) => Date.parse(p.at))));
+  /** „später →“ geht bis jetzt (nicht nur bis zum letzten geladenen Punkt, der liegt immer am Ende des Zeitraums) */
+  const renderNow = useNow();
+  const laterDisabled = q.zeit !== "eigen" || !Number.isFinite(localMs(q.bis)) || (renderNow !== null && localMs(q.bis) >= renderNow - 2 * 60_000);
 
   const set = (patch: Partial<GraphQuery>) => {
     // Das aktuelle Bild bleibt stehen, bis die neue Auswahl geladen ist
@@ -1057,7 +1094,7 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
               <button type="button" className="tag" onClick={zoomOut} title="Doppelten Zeitraum zeigen">
                 − herauszoomen
               </button>
-              <button type="button" className="tag" onClick={() => pan(1)} disabled={q.zeit !== "eigen" || localMs(q.bis) >= latestPoint - 60_000} title="Halben Zeitraum später">
+              <button type="button" className="tag" onClick={() => pan(1)} disabled={laterDisabled} title="Halben Zeitraum später">
                 später →
               </button>
               {pastRanges.length > 0 && (
@@ -1068,7 +1105,7 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
               <button type="button" className="tag" onClick={() => setExplain({ from: currentRange()[0], to: currentRange()[1] })} title="Wer hat im gezeigten Zeitraum am meisten beigetragen?">
                 ? Zeitraum erklären
               </button>
-              <span className="muted gb-zoom__hint">Ziehen vergrößert · Rechtsklick (Handy: lange drücken) erklärt die Stelle · Ränder des Bereichs ziehen zum Anpassen</span>
+              <span className="muted gb-zoom__hint">Ziehen vergrößert · Rechtsklick (Handy: lange drücken) erklärt die Stelle, mit rechts ziehen einen Bereich · Ränder des Bereichs ziehen zum Anpassen</span>
             </div>
             <MultiChart
               lines={lines}
