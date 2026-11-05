@@ -9,6 +9,7 @@ import { BOARD_KEYS } from "./types";
 import { EXTRA_HISTORY_KEYS, extraStatSql, type ExtraStatKey } from "./playerStats";
 import type { TopCategory } from "./leaderboards";
 import { createSwrCache } from "./swrCache";
+import { snapshot } from "./snapshots";
 
 /* ============================================================ Tage (Europe/Berlin) */
 
@@ -535,12 +536,22 @@ export async function loadAfkSpans(from: number, to: number, now: number): Promi
   return out;
 }
 
-/** AFK-Phasen aller Spieler über die gesamte Laufzeit (für Bestenliste und Graph). */
+/**
+ * AFK-Phasen aller Spieler über die gesamte Laufzeit (für Bestenliste und Graph). Liest den ganzen Spieler-Verlauf
+ * (über eine Million Zeilen), deshalb rechnet das der Tracker alle 10 Min vor (lib/snapshotJobs.ts); die Website liest
+ * nur das Ergebnis. Ob jemand gerade AFK ist, kommt aus dem Live-Zustand, nicht aus der Vorberechnung.
+ */
+export const AFK_SNAPSHOT = "afk-spans";
+export const AFK_SNAPSHOT_MS = 10 * 60_000;
+
+/** Ohne Request-Kontext (auch im Tracker nutzbar) */
+export function computeAllAfkSpans(): Promise<Map<string, Span[]>> {
+  const now = Date.now();
+  return loadAfkSpans(0, now, now);
+}
+
 async function getAllAfkSpans(): Promise<Map<string, Span[]>> {
-  return cached("afk:all", 60_000, async () => {
-    const now = Date.now();
-    return getAfkSpans(0, now, now);
-  });
+  return cached("afk:all", 60_000, async () => (await snapshot(AFK_SNAPSHOT, computeAllAfkSpans, AFK_SNAPSHOT_MS)).value);
 }
 
 /** AFK-Bestenliste: Summe der AFK-Phasen je Spieler (optional nur einer Art), optional nur bis zu einem Zeitpunkt (für ▲/▼). */
@@ -554,7 +565,7 @@ export async function getAfkBoard(kind?: AfkKind, untilMsAgo = 0): Promise<{ id:
     let afkNow = false;
     for (const [a, b] of list) {
       sum += Math.max(0, Math.min(b, until) - a) / 1000;
-      if (untilMsAgo === 0 && b >= until - 90_000 && state.players[id]?.online) afkNow = true;
+      if (untilMsAgo === 0 && b >= until - AFK_SNAPSHOT_MS - 90_000 && state.players[id]?.online && state.players[id]?.afkSince) afkNow = true;
     }
     if (sum <= 0) continue;
     const p = state.players[id];
@@ -901,8 +912,8 @@ export async function getStatsExtras(): Promise<StatsExtras> {
       }
     }
     // AFK-Phasen über die ganze Laufzeit: je Spieler, je Tag, längste Phase
-    const firstAt = hourly.rows.length ? new Date(hourly.rows[0].h).getTime() : now;
-    const afkSpans = await getAfkSpans(firstAt, now, now);
+    // Ganze Staffel: vorberechnet im Tracker (dieselben Phasen wie für die Bestenliste)
+    const afkSpans = await getAllAfkSpans();
     const afkPerDay = new Map<string, number>();
     const afkPerPlayer = new Map<string, number>();
     const farmPerPlayer: Record<AfkKind, Map<string, number>> = { mobs: new Map(), blocks: new Map() };

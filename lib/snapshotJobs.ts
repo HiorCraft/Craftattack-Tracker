@@ -1,6 +1,9 @@
 import "server-only";
 import { getDailyNetwork, getNetwork, NETWORK_RANGES } from "./connections";
 import { getFlows, SNAPSHOT_MS } from "./viewerMigration";
+import { snapshot } from "./snapshots";
+import { AFK_SNAPSHOT, AFK_SNAPSHOT_MS, computeAllAfkSpans } from "./analytics";
+import { BOARD_TOTALS_MS, BOARD_TOTALS_SNAPSHOT, computeBoardTotals } from "./store";
 
 /**
  * Im Tracker: teure Auswertungen regelmäßig vorberechnen und ablegen (lib/snapshots.ts). Nacheinander, mit Pausen,
@@ -11,6 +14,8 @@ const JOBS: [string, () => Promise<unknown>][] = [
   ["Zuschauerwanderung", () => getFlows()],
   ...NETWORK_RANGES.map((r): [string, () => Promise<unknown>] => [`Netz ${r.label}`, () => getNetwork(r.hours)]),
   ["Netz je Tag", () => getDailyNetwork()],
+  ["AFK-Phasen", () => snapshot(AFK_SNAPSHOT, computeAllAfkSpans, AFK_SNAPSHOT_MS)],
+  ["Summen-Kurven", () => snapshot(BOARD_TOTALS_SNAPSHOT, computeBoardTotals, BOARD_TOTALS_MS)],
 ];
 
 let started = false;

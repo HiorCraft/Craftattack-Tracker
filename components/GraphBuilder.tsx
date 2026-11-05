@@ -242,6 +242,8 @@ function MultiChart({
   onZoom,
   onPick,
   selected = null,
+  onSelect,
+  step = 60_000,
 }: {
   lines: Line[];
   hidden: Set<string>;
@@ -249,10 +251,14 @@ function MultiChart({
   percent: boolean;
   /** Ziehen im Graphen wählt einen Zeitraum (ms) */
   onZoom?: (from: number, to: number) => void;
-  /** Klick (ohne Ziehen): diese Stelle erklären */
+  /** Rechtsklick (Touch: lange drücken): diese Stelle erklären */
   onPick?: (at: number) => void;
-  /** Gerade erklärter Zeitraum (als Band markiert) */
+  /** Gerade erklärter Zeitraum (als Band markiert, an den Rändern mit Griffen verstellbar) */
   selected?: { from: number; to: number } | null;
+  /** Band über die Griffe verändert (beim Loslassen) */
+  onSelect?: (from: number, to: number) => void;
+  /** Raster der Griffe (ein Bündel des Graphen, ms) */
+  step?: number;
 }) {
   const W = 1000;
   const H = 300;
@@ -260,6 +266,10 @@ function MultiChart({
   const [hover, setHover] = useState<number | null>(null); // Zeitpunkt (ms)
   /** Laufende Auswahl beim Ziehen (Zeitpunkte in ms) */
   const [drag, setDrag] = useState<{ a: number; b: number } | null>(null);
+  /** Griff des Bands wird gezogen: Vorschau, übernommen beim Loslassen */
+  const [resize, setResize] = useState<{ edge: "from" | "to"; from: number; to: number } | null>(null);
+  /** Touch: lange drücken erklärt (kein Rechtsklick auf dem Handy) */
+  const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; fired: boolean } | null>(null);
   const zones = useEstimateGaps();
 
   const visible = lines.filter((l) => !hidden.has(l.id) && l.points.length > 0);
@@ -312,23 +322,72 @@ function MultiChart({
     if (!rect || rect.width === 0) return null;
     return t0 + (Math.min(rect.width, Math.max(0, clientX - rect.left)) / rect.width) * span;
   };
+  const cancelPress = () => {
+    if (press.current) clearTimeout(press.current.timer);
+    press.current = null;
+  };
   const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
     const t = timeAt(e.clientX);
     if (t === null) return;
     setHover(t);
+    if (press.current && Math.abs(e.clientX - press.current.x) > 8) cancelPress();
     if (drag) setDrag({ ...drag, b: t });
   };
   const onDown = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (!onZoom || e.button !== 0) return;
+    if (e.button !== 0) return;
     const t = timeAt(e.clientX);
     if (t === null) return;
+    if (e.pointerType === "touch" && onPick) {
+      const at = t;
+      press.current = { x: e.clientX, fired: false, timer: setTimeout(() => {
+        if (press.current) press.current.fired = true;
+        setDrag(null);
+        onPick(at);
+      }, 550) };
+    }
+    if (!onZoom) return;
     ref.current?.setPointerCapture(e.pointerId);
     setDrag({ a: t, b: t });
   };
   const onUp = () => {
-    if (drag && onZoom && Math.abs(x(drag.b) - x(drag.a)) > 12) onZoom(Math.min(drag.a, drag.b), Math.max(drag.a, drag.b));
-    else if (drag && onPick) onPick(drag.a);
+    const fired = press.current?.fired;
+    cancelPress();
+    // Ziehen vergrößert; ein einfacher Klick tut nichts (Erklären per Rechtsklick)
+    if (!fired && drag && onZoom && Math.abs(x(drag.b) - x(drag.a)) > 12) onZoom(Math.min(drag.a, drag.b), Math.max(drag.a, drag.b));
     setDrag(null);
+  };
+  const onContext = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!onPick) return;
+    e.preventDefault();
+    const t = timeAt(e.clientX);
+    if (t !== null) onPick(t);
+  };
+  /* Griffe am Band: ziehen verschiebt den Rand im Raster der Bündel, mindestens ein Bündel breit */
+  const band = resize ?? selected;
+  const snap = (t: number) => Math.round(t / step) * step;
+  const onHandleDown = (edge: "from" | "to") => (e: React.PointerEvent<HTMLSpanElement>) => {
+    if (!selected || e.button !== 0) return;
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setResize({ edge, from: selected.from, to: selected.to });
+  };
+  const onHandleMove = (e: React.PointerEvent<HTMLSpanElement>) => {
+    if (!resize) return;
+    const t = timeAt(e.clientX);
+    if (t === null) return;
+    const v = snap(t);
+    setResize(resize.edge === "from" ? { ...resize, from: Math.min(v, resize.to - step) } : { ...resize, to: Math.max(v, resize.from + step) });
+  };
+  const onHandleUp = () => {
+    if (resize && onSelect && (resize.from !== selected?.from || resize.to !== selected?.to)) onSelect(resize.from, resize.to);
+    setResize(null);
+  };
+  const handleKey = (edge: "from" | "to") => (e: React.KeyboardEvent<HTMLSpanElement>) => {
+    if (!selected || !onSelect || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+    e.preventDefault();
+    const d = (e.key === "ArrowLeft" ? -1 : 1) * step;
+    if (edge === "from") onSelect(Math.min(selected.from + d, selected.to - step), selected.to);
+    else onSelect(selected.from, Math.max(selected.to + d, selected.from + step));
   };
 
   // Werte je Linie zum Hover-Zeitpunkt (nächster Messpunkt)
@@ -371,8 +430,9 @@ function MultiChart({
           onPointerMove={onMove}
           onPointerDown={onDown}
           onPointerUp={onUp}
-          onPointerCancel={() => setDrag(null)}
+          onPointerCancel={() => (cancelPress(), setDrag(null))}
           onPointerLeave={() => !drag && setHover(null)}
+          onContextMenu={onContext}
         >
           <EstimateRects zones={zones} x={x} t0={t0} t1={t1} height={H} />
           {drag && Math.abs(x(drag.b) - x(drag.a)) > 2 && (
@@ -398,11 +458,11 @@ function MultiChart({
               />
             ))}
           </g>
-          {selected && selected.to > t0 && selected.from < t1 && (
+          {band && band.to > t0 && band.from < t1 && (
             <g className="gb-chart__sel" aria-hidden="true">
-              <rect x={x(Math.max(t0, selected.from))} y={0} width={Math.max(3, x(Math.min(t1, selected.to)) - x(Math.max(t0, selected.from)))} height={H} />
-              <line x1={x(Math.max(t0, selected.from))} x2={x(Math.max(t0, selected.from))} y1={0} y2={H} vectorEffect="non-scaling-stroke" />
-              <line x1={x(Math.min(t1, selected.to))} x2={x(Math.min(t1, selected.to))} y1={0} y2={H} vectorEffect="non-scaling-stroke" />
+              <rect x={x(Math.max(t0, band.from))} y={0} width={Math.max(3, x(Math.min(t1, band.to)) - x(Math.max(t0, band.from)))} height={H} />
+              <line x1={x(Math.max(t0, band.from))} x2={x(Math.max(t0, band.from))} y1={0} y2={H} vectorEffect="non-scaling-stroke" />
+              <line x1={x(Math.min(t1, band.to))} x2={x(Math.min(t1, band.to))} y1={0} y2={H} vectorEffect="non-scaling-stroke" />
             </g>
           )}
           {tip && tipT !== null && (
@@ -415,7 +475,33 @@ function MultiChart({
             </>
           )}
         </svg>
-        {tip && tipT !== null && (
+        {band && onSelect && band.to > t0 && band.from < t1 &&
+          (["from", "to"] as const).map((edge) => {
+            const at = edge === "from" ? Math.max(t0, band.from) : Math.min(t1, band.to);
+            return (
+              <span
+                key={edge}
+                className="gb-chart__handle"
+                data-edge={edge}
+                data-active={resize?.edge === edge || undefined}
+                style={{ left: `${(x(at) / W) * 100}%` }}
+                role="slider"
+                tabIndex={0}
+                aria-label={edge === "from" ? "Beginn des erklärten Bereichs" : "Ende des erklärten Bereichs"}
+                aria-valuemin={t0}
+                aria-valuemax={t1}
+                aria-valuenow={at}
+                aria-valuetext={dtf.format(at)}
+                title="Ziehen: Bereich vergrößern oder verkleinern"
+                onPointerDown={onHandleDown(edge)}
+                onPointerMove={onHandleMove}
+                onPointerUp={onHandleUp}
+                onPointerCancel={() => setResize(null)}
+                onKeyDown={handleKey(edge)}
+              />
+            );
+          })}
+        {tip && tipT !== null && !resize && (
           <div className="gb-chart__tip" style={{ left: `${tipLeft * 100}%`, transform: `translateX(${tipLeft > 0.7 ? "-100%" : tipLeft < 0.3 ? "0" : "-50%"})` }} role="status">
             <span className="gb-chart__tip-time">{dtf.format(tipT)} Uhr</span>
             <EstimateTip zones={zones} t={tipT} />
@@ -632,7 +718,8 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
     const end = Math.min(nowMs(), b + ((b - a) / 2) * dir);
     goRange(end - (b - a), end);
   };
-  /* Erklärung einer Veränderung: Klick in den Graphen erklärt das Bündel unter dem Zeiger (im Graphen als Band markiert) */
+  /* Erklärung einer Veränderung: Rechtsklick in den Graphen erklärt das Bündel unter dem Zeiger (im Graphen als Band
+     markiert, an den Rändern mit Griffen zu vergrößern und zu verkleinern) */
   const [explain, setExplain] = useState<ExplainTarget | null>(null);
   const pick = (at: number) => {
     const bucket = Math.max(1, view?.bucketMinutes || 5) * 60_000;
@@ -981,9 +1068,19 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
               <button type="button" className="tag" onClick={() => setExplain({ from: currentRange()[0], to: currentRange()[1] })} title="Wer hat im gezeigten Zeitraum am meisten beigetragen?">
                 ? Zeitraum erklären
               </button>
-              <span className="muted gb-zoom__hint">Ziehen vergrößert · Klicken erklärt die Stelle</span>
+              <span className="muted gb-zoom__hint">Ziehen vergrößert · Rechtsklick (Handy: lange drücken) erklärt die Stelle · Ränder des Bereichs ziehen zum Anpassen</span>
             </div>
-            <MultiChart lines={lines} hidden={hidden} dataKey={view.key} percent={q.achse === "prozent"} onZoom={goRange} onPick={pick} selected={explain} />
+            <MultiChart
+              lines={lines}
+              hidden={hidden}
+              dataKey={view.key}
+              percent={q.achse === "prozent"}
+              onZoom={goRange}
+              onPick={pick}
+              selected={explain}
+              onSelect={(from, to) => setExplain({ from, to })}
+              step={Math.max(1, view?.bucketMinutes || 5) * 60_000}
+            />
             {explain && <GraphExplain target={explain} metrics={explainMetrics} players={q.spieler} onClose={() => setExplain(null)} />}
           </>
         ) : (

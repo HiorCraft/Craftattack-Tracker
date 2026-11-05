@@ -58,7 +58,9 @@ async function Dashboard() {
   // Globale Zuschauer: nur Streams von Spielern, die gerade auf dem Server sind
   const viewers = liveList.filter((l) => l.onServer !== false).reduce((a, l) => a + l.viewers, 0);
   const isShown = await getFeedFilter();
-  const recent = [...events].reverse().filter(isShown).slice(0, 25);
+  // Von hinten suchen, bis 25 gefunden sind (nicht alle Ereignisse der Staffel filtern)
+  const recent: typeof events = [];
+  for (let i = events.length - 1; i >= 0 && recent.length < 25; i--) if (isShown(events[i])) recent.push(events[i]);
   // Gesamte Laufzeit (gebündelt), nicht nur die letzten Stunden
   const hist = histAll.points.length >= 2 ? histAll.points : state.history;
   const trackedPlayers = Object.keys(state.players).length;

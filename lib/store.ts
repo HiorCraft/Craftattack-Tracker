@@ -4,6 +4,7 @@ import { onServerSql } from "./onServer";
 import { getDb, type Db } from "./db";
 import { playtimeOf } from "./playtime";
 import { createSwrCache } from "./swrCache";
+import { snapshot } from "./snapshots";
 import { getEarningsSeries, getPlayerSubs, getSubsSeries, getSubsTotals } from "./earnings";
 import { runsTracker } from "./mode";
 import { ESTIMATE } from "./estimateMode";
@@ -1688,8 +1689,18 @@ interface TotalsSeriesPoint {
 }
 
 /** Summe aller Spieler je Zähler über die Zeit (letzter Wert je Spieler wird fortgeschrieben). */
+/** Summen-Kurven aller Spieler: liest den gesamten Spieler-Verlauf, deshalb im Tracker vorberechnet (lib/snapshotJobs.ts) */
+export const BOARD_TOTALS_SNAPSHOT = "board-totals";
+export const BOARD_TOTALS_MS = 10 * 60_000;
+
 export async function getBoardTotalsOverTime(): Promise<{ points: TotalsSeriesPoint[]; bucketMinutes: number }> {
-  return cached("boardTotals", 120_000, async () => {
+  await connection();
+  return cached("boardTotals", 60_000, async () => (await snapshot(BOARD_TOTALS_SNAPSHOT, computeBoardTotals, BOARD_TOTALS_MS)).value);
+}
+
+/** Ohne Request-Kontext (auch im Tracker nutzbar) */
+export async function computeBoardTotals(): Promise<{ points: TotalsSeriesPoint[]; bucketMinutes: number }> {
+  {
     await ensureLoaded();
     const db = await getDb();
     const first = (await db.query<{ at: Date }>(`SELECT min(at) AS at FROM player_history`)).rows[0]?.at ?? null;
@@ -1740,7 +1751,7 @@ export async function getBoardTotalsOverTime(): Promise<{ points: TotalsSeriesPo
       points.push(sum);
     }
     return { points, bucketMinutes: minutes };
-  });
+  }
 }
 
 interface DayCount {

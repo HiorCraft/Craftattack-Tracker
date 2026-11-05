@@ -1,4 +1,5 @@
 import "server-only";
+import { berlinDay } from "./berlin";
 import { getDb } from "./db";
 import { FEED_MIN_DELTA, isShownEvent } from "./events";
 import type { TrackerEvent } from "./types";
@@ -15,7 +16,7 @@ const CACHE_MS = 30 * 60_000;
 let cache: { at: number; map: Map<string, number> } | null = null;
 let loading: Promise<Map<string, number>> | null = null;
 
-const dayOf = (iso: string) => new Date(iso).toLocaleDateString("sv-SE", { timeZone: "Europe/Berlin" });
+const dayOf = (iso: string) => berlinDay(Date.parse(iso));
 
 async function load(): Promise<Map<string, number>> {
   const db = await getDb();

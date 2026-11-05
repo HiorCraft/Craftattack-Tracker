@@ -608,7 +608,7 @@ async function TimelineSection({ params }: { params: Params }) {
   ].sort((a, b) => Date.parse(b.start) - Date.parse(a.start));
   // Verlauf: alles, woran der Spieler beteiligt ist – auch als Täter, Raid-Ziel, Schenker oder Kanal
   const isShown = await getFeedFilter();
-  const shown = events.filter((e) => isShown(e) && eventPlayers(e).includes(id));
+  const shown = events.filter((e) => eventPlayers(e).includes(id) && isShown(e));
   // Sichtbar sind ohnehin nur die ersten (ShowMore); der Rest steht unter „Alle …“ in /ereignisse
   const recent = [...shown].reverse().slice(0, 50);
   const getTimeState = await getPlayerEventTimeState({
