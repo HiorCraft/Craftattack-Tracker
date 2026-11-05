@@ -6716,3 +6716,143 @@ a.st-board__mvlink:focus-visible {
   min-width: 0;
   margin: 0;
 }
+
+/* Verbindungen: eine Seitenleiste für alle Ansichten, Abschnitte einzeln einklappbar */
+.conn__layout[data-nosidebar] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.conn__layout[data-nosidebar] > .conn__main {
+  grid-column: 1;
+}
+.cs {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+@media (width >= 1100px) {
+  .conn__layout > .cs {
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+}
+.cs__sec {
+  border-top: 2px solid color-mix(in srgb, var(--ink) 10%, transparent);
+}
+.cs__sec:first-of-type {
+  border-top: 0;
+}
+.cs__sec > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 0;
+  cursor: pointer;
+  list-style: none;
+}
+.cs__sec > summary::-webkit-details-marker {
+  display: none;
+}
+.cs__sec > summary::before {
+  content: "▸";
+  font-size: 0.75rem;
+  transition: transform 0.15s;
+}
+.cs__sec[open] > summary::before {
+  transform: rotate(90deg);
+}
+.cs__sum {
+  margin-left: auto;
+  font-size: 0.8125rem;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cs__sec[open] > summary > .cs__sum {
+  display: none;
+}
+.cs__body {
+  display: grid;
+  gap: 10px;
+  padding: 0 0 12px;
+}
+.cs__body .gb__seg {
+  flex-wrap: wrap;
+  margin: 0;
+}
+.cs__body .conn__weight {
+  grid-template-columns: minmax(0, 1fr) 3.5rem;
+}
+.cs__body .conn__weight input[type="range"] {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+.cs__time {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cs__time input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+.cs__focus {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0 10px;
+  border-bottom: 2px solid color-mix(in srgb, var(--ink) 10%, transparent);
+}
+.cs__focus > span {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+.cs__focus .muted {
+  font-size: 0.8125rem;
+}
+.cs .conn__reset {
+  justify-self: start;
+  margin-top: 6px;
+}
+.comm__player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.comm__toggle {
+  margin-left: auto;
+}
+.conn__empty {
+  padding: 40px 16px;
+  text-align: center;
+}
+.conn__person[data-active] span {
+  font-weight: 700;
+  text-decoration: underline;
+}
+.linkbtn {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+}
+.linkbtn.grp__card-head,
+.grp__heads .linkbtn {
+  text-decoration: none;
+}
+/* Verbindungen schmal: eingeklappte Einstellungen über dem Graphen, nicht erst nach allen Tabellen */
+@media (width < 1100px) {
+  .conn__layout > .cs {
+    order: -2;
+  }
+}

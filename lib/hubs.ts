@@ -40,7 +40,7 @@ export const HUBS: Hub[] = [
     key: "community",
     label: "Community",
     tabs: [
-      { href: "/verbindungen", label: "Netz", also: ["/gruppen"] },
+      { href: "/verbindungen", label: "Verbindungen", also: ["/gruppen"] },
       { href: "/zuschauer", label: "Zuschauer" },
     ],
   },
