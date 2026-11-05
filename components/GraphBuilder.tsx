@@ -433,7 +433,7 @@ function MultiChart({
     else if (!fired && e.button === 0) {
       const t = timeAt(e.clientX);
       const hits = t === null ? [] : vodsAt(t);
-      if (t !== null && hits.length === 1 && e.pointerType === "mouse") openTab(vodUrl(hits[0].vod, t));
+      if (t !== null && hits.length === 1 && e.pointerType === "mouse") openTab(vodUrl(hits[0].vod, t, 0));
       else if (t !== null && hits.length) {
         const rect = plotRef.current?.getBoundingClientRect();
         setVodPick({ at: t, left: rect ? (e.clientX - rect.left) / rect.width : 0.5 });
@@ -600,7 +600,7 @@ function MultiChart({
             ))}
             {hover !== null && vodsAt(hover).length > 0 && (
               <span className="gb-chart__tip-vod">
-                <TwitchIcon /> Klick: {vodsAt(hover).length === 1 ? `VOD von ${vodsAt(hover)[0].name}` : `VOD wählen (${vodsAt(hover).length})`}
+                <TwitchIcon /> Klick: {vodsAt(hover).length === 1 ? `VOD von ${vodsAt(hover)[0].name} ab ${tf.format(hover)}` : `VOD wählen (${vodsAt(hover).length})`}
               </span>
             )}
           </div>
@@ -617,7 +617,7 @@ function MultiChart({
               <span key={r.player} className="gb-chart__vodrow">
                 <i style={{ background: r.color }} />
                 <span className="gb-chart__tip-name">{r.name}</span>
-                <a className="tag" data-tone="twitch" href={vodUrl(r.vod, vodPick.at)} target="_blank" rel="noopener noreferrer" onClick={() => setVodPick(null)}>
+                <a className="tag" data-tone="twitch" href={vodUrl(r.vod, vodPick.at, 0)} target="_blank" rel="noopener noreferrer" onClick={() => setVodPick(null)}>
                   <TwitchIcon /> VOD
                 </a>
                 <a className="tag" data-tone="white" href={`${BASE_PATH}/spieler/${encodeURIComponent(r.player)}`}>
@@ -635,16 +635,33 @@ function MultiChart({
         {vodRows.length > 0 && (
           <div className="gb-chart__vods" aria-label="Twitch-VODs">
             {vodRows.map((r) => (
-              <div key={r.player} className="gb-chart__vodlane" title={`VODs von ${r.name}: in den Graphen klicken öffnet das VOD an der Stelle`}>
+              <div
+                key={r.player}
+                className="gb-chart__vodlane"
+                // Der Streifen folgt dem Zeiger wie der Graph: Linie und Tooltip zeigen die Stelle, die ein Klick öffnet
+                onPointerMove={(e) => {
+                  const t = timeAt(e.clientX);
+                  if (t !== null) setHover(t);
+                }}
+                onPointerLeave={() => setHover(null)}
+              >
                 {r.spans.map((v) => {
                   const a = Math.max(t0, v.from);
                   const b = Math.min(t1, v.to);
                   return (
                     <a
                       key={v.vodId}
-                      href={vodUrl(v, a)}
+                      href={vodUrl(v, a, 0)}
                       target="_blank"
                       rel="noopener noreferrer"
+                      title={hover !== null && hover >= v.from && hover <= v.to ? `VOD von ${r.name} ab ${dtf.format(hover)} Uhr öffnen` : `VOD von ${r.name}`}
+                      onClick={(e) => {
+                        // Genau an der Stelle des Zeigers öffnen (Tastatur: Anfang des VODs im Zeitraum)
+                        const t = e.detail > 0 ? timeAt(e.clientX) : null;
+                        if (t === null) return;
+                        e.preventDefault();
+                        openTab(vodUrl(v, Math.min(v.to, Math.max(v.from, t)), 0));
+                      }}
                       style={{ left: `${(x(a) / W) * 100}%`, width: `${Math.max(0.4, ((x(b) - x(a)) / W) * 100)}%`, background: r.color }}
                       aria-label={`VOD von ${r.name} ab ${dtf.format(a)}`}
                     />

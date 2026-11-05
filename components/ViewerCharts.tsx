@@ -202,8 +202,8 @@ export function openTab(url: string) {
   a.remove();
 }
 
-export function vodUrl(v: ViewVod, at: number) {
-  const o = Math.max(0, Math.floor((at - v.vodStart) / 1000) - VOD_LEAD_S);
+export function vodUrl(v: ViewVod, at: number, leadS = VOD_LEAD_S) {
+  const o = Math.max(0, Math.floor((at - v.vodStart) / 1000) - leadS);
   return `https://www.twitch.tv/videos/${encodeURIComponent(v.vodId)}?t=${Math.floor(o / 3600)}h${Math.floor((o % 3600) / 60)}m${o % 60}s`;
 }
 
