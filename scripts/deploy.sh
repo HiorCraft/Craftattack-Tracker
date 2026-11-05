@@ -43,6 +43,9 @@ if [[ -d .next-static-archive ]]; then
 fi
 # Nur der ungenutzte Ordner wird geleert (fester Name, nie leer)
 rm -rf -- "./$target"
+# Erzeugte Typen älterer Builds verweisen auf gelöschte Seiten und lassen die Typprüfung scheitern; zur Laufzeit
+# werden sie nicht gebraucht und beim Bauen neu erzeugt
+rm -rf -- ./.next-a/types ./.next-b/types ./.next-schaetzung/types
 set -a
 # shellcheck disable=SC1090
 . "$ENV_FILE"
