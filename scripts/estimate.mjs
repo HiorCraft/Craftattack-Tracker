@@ -35,7 +35,8 @@ import { readFileSync } from "node:fs";
 /** Start von CraftAttack 14: Samstag, 10.10.2026, 12:00 Uhr deutscher Zeit (alle Spielzeiten beginnen hier bei 0) */
 const START = Date.parse("2026-10-10T10:00:00Z");
 /** Offtage (Server zu): Montag, 26.10.2026, ganzer Tag deutscher Zeit (nach der Zeitumstellung UTC+1) */
-const OFFDAYS = [[Date.parse("2026-10-25T23:00:00Z"), Date.parse("2026-10-26T23:00:00Z")]];
+// FOMO-Offday: Server zu vom 26.10. 02:00 bis 27.10. 09:00 deutscher Zeit
+const OFFDAYS = [[Date.parse("2026-10-26T01:00:00Z"), Date.parse("2026-10-27T08:00:00Z")]];
 /** Ab dieser Lücke im globalen Verlauf gilt der Tracker als aus */
 const GAP_MS = 4 * 60_000;
 /** Neueste Minuten bleiben echt (der Tracker schreibt eventuell noch nach) */
