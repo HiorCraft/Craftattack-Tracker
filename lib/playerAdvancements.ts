@@ -3,6 +3,7 @@ import { getDb } from "./db";
 import { createSwrCache } from "./swrCache";
 import { ADVANCEMENTS, ADV_BY_ID } from "./advancements";
 import type { PlayerState } from "./types";
+import eventRaces from "./data/eventRaces.json";
 
 /**
  * Fortschritte je Spieler. Sicher ist nur, was der Feed von craftattack.one gemeldet hat (seit dem 10. Okt., und nur,
@@ -10,6 +11,10 @@ import type { PlayerState } from "./types";
  * - aus dem Baum: Wer einen Fortschritt hat, hat sehr wahrscheinlich auch die davor (Netheritrüstung → im Nether),
  * - aus Statistiken und Top-Listen: Diamanten abgebaut, Totem benutzt, gehandelt, Netherrack abgebaut, …
  * Vermutungen sind als solche gekennzeichnet und haben einen Grund.
+ *
+ * Dazu kommen die Ranglisten der Nether- und End-Events (craftattack.one/api/nether und /api/end, ändern sich nicht
+ * mehr, einmalig importiert): die ersten zehn je Fortschritt mit Zeitpunkt, die Gesamtzahl der Spieler, die ihn haben,
+ * und wer am meisten antiken Schutt abgebaut hat.
  */
 
 export interface AdvStatus {
@@ -38,10 +43,20 @@ function loadReported(): Promise<Map<string, Map<string, number>>> {
         WHERE type = 'achievement' AND player IS NOT NULL AND meta->>'advancement' IS NOT NULL GROUP BY 1, 2`,
     );
     const out = new Map<string, Map<string, number>>();
-    for (const row of r.rows) (out.get(row.player) ?? out.set(row.player, new Map()).get(row.player)!).set(row.adv, row.at.getTime());
+    const put = (player: string, adv: string, at: number) => {
+      const m = out.get(player) ?? out.set(player, new Map()).get(player)!;
+      if (!(m.get(adv)! <= at)) m.set(adv, at);
+    };
+    for (const row of r.rows) put(row.player, row.adv, row.at.getTime());
+    for (const race of eventRaces.races) for (const [player, at] of race.entries) put(player, race.id, Date.parse(at));
     return out;
   });
 }
+
+/** Nether-Event: abgebauter antiker Schutt der zehn Spieler mit dem meisten */
+const DEBRIS = new Map(eventRaces.debris as [string, number][]);
+/** Laut Event-Ranglisten: so viele Spieler haben den Fortschritt (unterer Wert, später können mehr dazugekommen sein) */
+const EVENT_TOTAL = new Map(eventRaces.races.map((r) => [r.id, r.total]));
 
 const has = (tops: { key: string }[] | undefined, keys: string[]) => (tops ?? []).some((t) => keys.includes(t.key));
 
@@ -72,6 +87,8 @@ function fromStats(p: PlayerState): [string, string][] {
   if (has(mobs, ["shulker"])) add("end/find_end_city", "hat Shulker getötet");
   if (has(mobs, ["piglin_brute"])) add("nether/find_bastion", "hat Piglin-Barbaren getötet");
   if (has(mobs, ["warden"])) add("adventure/kill_a_mob", "hat einen Wärter getötet");
+  const debris = DEBRIS.get(p.id);
+  if (debris) add("nether/obtain_ancient_debris", `hat im Nether-Event ${debris} antiken Schutt abgebaut`);
   return out;
 }
 
@@ -101,6 +118,13 @@ export async function getAdvancementBoard(id: string, players: Record<string, Pl
     if (!Object.keys(st).length) continue;
     count++;
     for (const [aid, s] of Object.entries(st)) if (others[aid]) others[aid][s.at ? 0 : 1]++;
+  }
+  // Die Event-Zahlen sind sicher und oft höher als das, was der Feed mitbekam: dann gelten so viele als gemeldet
+  for (const [aid, total] of EVENT_TOTAL) {
+    const o = others[aid];
+    if (!o || total <= o[0]) continue;
+    o[1] = Math.max(0, Math.min(o[1], count - total));
+    o[0] = Math.min(total, count);
   }
   return { mine: statusOf(players[id], reported.get(id)), others, players: count };
 }
