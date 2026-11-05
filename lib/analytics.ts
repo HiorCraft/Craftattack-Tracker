@@ -139,6 +139,9 @@ export interface DayNav {
   day: string;
   prev: string | null;
   next: string | null;
+  /** Erster Tag mit Daten und heute (für die Tagesauswahl) */
+  firstDay: string;
+  today: string;
   from: number;
   to: number;
   /** Ab wann an diesem Tag Daten vorliegen (null = ganzer Tag) */
@@ -156,6 +159,8 @@ async function dayNav(day: string | undefined, now: number): Promise<DayNav> {
     day: d,
     prev: d > firstDay ? shiftDay(d, -1) : null,
     next: d < today ? shiftDay(d, 1) : null,
+    firstDay,
+    today,
     from,
     to,
     dataFrom: first !== null && first > from && first < to ? first : null,
