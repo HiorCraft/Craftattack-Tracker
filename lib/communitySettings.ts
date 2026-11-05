@@ -23,8 +23,10 @@ export interface CommunitySettings {
   groupMode: "feinheit" | "anzahl";
   resolution: number;
   count: number;
-  /** Netz und Nähe in Gruppenfarben */
-  colorGroups: boolean;
+  /** Gruppen einblenden: Flächen im Netz, Farben in der Distanz, Gruppen-Details */
+  groups: boolean;
+  /** Mit Gruppen ohne gewählten Spieler: ein Kopf je Gruppe statt aller Spieler */
+  groupMap: boolean;
   /** Umfeld des gewählten Spielers in Netz und Gruppe: 0 = nur die Gruppe, 1/2 Schritte, 99 = ganzes Netz */
   around: number;
   scale: RingScale;
@@ -44,7 +46,8 @@ export const SETTINGS_DEFAULTS: CommunitySettings = {
   groupMode: "feinheit",
   resolution: 1,
   count: 10,
-  colorGroups: true,
+  groups: false,
+  groupMap: false,
   around: 99,
   scale: "naehe",
   maxNodes: 0,
@@ -70,14 +73,15 @@ export function parseSettings(raw: Record<string, unknown> | null): CommunitySet
   for (const k of LINK_KINDS) w[k] = range(rw?.[k], 0, 5, w[k]);
   return {
     weights: w,
-    min: range(raw.min, 0, 20, d.min),
+    min: range(raw.min, 0, 500, d.min),
     show: pick(raw.show, ["alle", "online", "live"] as const, d.show),
     mutual: raw.mutual === true,
     dir: pick(raw.dir, ["von", "zu", "gegenseitig"] as const, d.dir),
     groupMode: pick(raw.groupMode, ["feinheit", "anzahl"] as const, d.groupMode),
     resolution: range(raw.resolution, 0.25, 16, d.resolution),
     count: Math.round(range(raw.count, 2, 60, d.count)),
-    colorGroups: raw.colorGroups !== false,
+    groups: raw.groups === true,
+    groupMap: raw.groupMap === true,
     around: [0, 1, 2, 99].includes(raw.around as number) ? (raw.around as number) : d.around,
     scale: pick(raw.scale, ["naehe", "schritte"] as const, d.scale),
     maxNodes: Math.round(range(raw.maxNodes, 0, 500, d.maxNodes)),

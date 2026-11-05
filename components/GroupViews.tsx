@@ -4,7 +4,7 @@ import { Explain } from "./Explain";
 import { useMemo, useState } from "react";
 import { ConnectionGraph, type GraphEdge, type GraphNode } from "./ConnectionGraph";
 import { Head } from "./Head";
-import { Person, around as aroundOf } from "./CommunityViews";
+import { Person } from "./CommunityViews";
 import type { CommunityCtx } from "./communityCtx";
 import { emptyLink, weigh, type LinkCounts, type Weights } from "@/lib/connectionWeights";
 import { explainGroup, reasonText, ROLE_LABEL, ROLE_TONE, type Group, type GroupAnalysis, type Member, type Role } from "@/lib/groups";
@@ -27,49 +27,19 @@ function Pick({ c, id, children, className }: { c: CommunityCtx; id: string; chi
   );
 }
 
-/** Übersicht aller Gruppen: Karte der Gruppen (Anführer-Köpfe) und eine Karte je Gruppe. Anklicken wählt aus. */
-export function GroupsOverview({ c }: { c: CommunityCtx }) {
-  const { analysis, weights, counts, weighted, byId, name } = c;
-  const [view, setView] = useState<"karte" | "alle">("karte");
-
-  // Karte: je Gruppe ein Knoten (Kopf des Anführers), Linien = Verbindungen zwischen Gruppen
+/** Ein Kopf je Gruppe (ihr Anführer), Linien = Verbindungen zwischen den Gruppen. Anklicken wählt den Anführer aus. */
+export function GroupMap({ c }: { c: CommunityCtx }) {
+  const { analysis, weights, counts, byId } = c;
   const { mapNodes, mapEdges, leaderGroup } = useMemo(() => groupMap(analysis, byId, weights, counts), [analysis, byId, weights, counts]);
   const colorOf = useMemo(() => (id: string) => analysis.groups[leaderGroup.get(id) ?? 0]?.color ?? GROUP_COLORS[0], [leaderGroup, analysis.groups]);
-  // Alle Spieler: jeder Kopf auf der Fläche seiner Gruppe, Rolle als Rahmen
-  const allNodes = useMemo(() => c.nodes.filter((n) => analysis.groupOf.has(n.id)), [c.nodes, analysis.groupOf]);
-  const roleOf = useMemo(() => {
-    const roles = new Map(analysis.groups.flatMap((g) => g.members.map((m) => [m.id, m.role] as const)));
-    return (id: string) => roles.get(id) ?? null;
-  }, [analysis.groups]);
+  return <ConnectionGraph nodes={mapNodes} edges={mapEdges} territoryOf={colorOf} onSelect={c.select} hrefOf={(id) => `/spieler/${encodeURIComponent(id)}`} />;
+}
 
+/** Eine Karte je Gruppe */
+export function GroupCards({ c }: { c: CommunityCtx }) {
+  const { analysis, weights, counts, byId, name } = c;
   return (
-    <>
-      <div className="box conn__box" data-tone="white">
-        <div className="grp__toolbar">
-          <div className="gb__seg" role="group" aria-label="Darstellung">
-            <button type="button" aria-pressed={view === "karte"} onClick={() => setView("karte")} title="Ein Kopf je Gruppe (ihr Anführer)">
-              Gruppen
-            </button>
-            <button type="button" aria-pressed={view === "alle"} onClick={() => setView("alle")} title="Jeder Spieler auf der Fläche seiner Gruppe">
-              Alle Spieler
-            </button>
-          </div>
-        </div>
-        {view === "karte" ? (
-          <ConnectionGraph nodes={mapNodes} edges={mapEdges} territoryOf={colorOf} onSelect={c.select} hrefOf={(id) => `/spieler/${encodeURIComponent(id)}`} />
-        ) : (
-          <ConnectionGraph nodes={allNodes} edges={weighted} territoryOf={c.groupColor} roleOf={roleOf} onSelect={c.select} />
-        )}
-        <p className="muted conn__legend">
-          {view === "karte" ? "Ein Kopf je Gruppe" : `${num(allNodes.length)} Spieler in ${num(analysis.groups.length)} Gruppen`}{" "}
-          <Explain label="Was zeigt das Netz?">
-            {view === "karte"
-              ? "Ein Kopf je Gruppe (ihr Anführer), Größe = Stärke der Gruppe, Linien = Verbindungen zwischen den Gruppen (Raids, Titel, Nachrichten, geteilte Chats aller Mitglieder). Anklicken zeigt die Gruppe, Rechtsklick öffnet das Profil des Anführers."
-              : "Jeder verbundene Spieler, die Fläche zeigt seine Gruppe. Rahmen: Krone = Anführer, dick = Kern, gestrichelt = Rand. Anklicken zeigt seine Gruppe, Rechtsklick öffnet das Profil."}
-          </Explain>
-        </p>
-      </div>
-      <ul className="grp__cards">
+    <ul className="grp__cards">
         {analysis.groups.map((g) => {
           const byRole = (r: Role) => g.members.filter((m) => m.role === r);
           return (
@@ -101,8 +71,7 @@ export function GroupsOverview({ c }: { c: CommunityCtx }) {
             </li>
           );
         })}
-      </ul>
-    </>
+    </ul>
   );
 }
 
@@ -164,23 +133,16 @@ function Bar({ parts }: { parts: { v: number; color: string; label: string }[] }
   );
 }
 
-/** Gruppe des gewählten Spielers: Anführer und warum, Netz der Mitglieder, Rollen, Zugehörigkeit, Matrix, Nachbargruppen */
-export function GroupView({ c }: { c: CommunityCtx }) {
-  const { analysis, weights, counts, weighted, byId, name, focus: member, s } = c;
-  const [hover, setHover] = useState<string | null>(null);
+/** Gruppe des gewählten Spielers: Anführer und warum, Rollen, Zugehörigkeit, Matrix, Nachbargruppen (das Netz zeigt die Verbindungs-Ansicht) */
+export function GroupDetail({ c }: { c: CommunityCtx }) {
+  const { analysis, weights, counts, byId, name, focus: member } = c;
+  const hover = c.hover;
+  const setHover = c.setHover;
   const [sort, setSort] = useState<"rolle" | "zugehoerigkeit" | "rang">("rolle");
 
   const gi = analysis.groupOf.get(member);
   const g = gi === undefined ? null : analysis.groups[gi];
-  const ids = useMemo(() => new Set(g?.members.map((m) => m.id) ?? []), [g]);
   const memberOf = useMemo(() => new Map(g?.members.map((m) => [m.id, m]) ?? []), [g]);
-  // Umfeld: auch Spieler außerhalb der Gruppe, bis zu `around` Schritte von einem Mitglied entfernt
-  const shown = useMemo(() => aroundOf(ids, weighted, s.around), [ids, s.around, weighted]);
-  const gNodes = useMemo(() => c.nodes.filter((n) => shown.has(n.id)), [c.nodes, shown]);
-  const gEdges: GraphEdge[] = useMemo(() => weighted.filter((e) => shown.has(e.a) && shown.has(e.b)), [weighted, shown]);
-  // Farbe = Gruppe (als Gebiet hinter den Köpfen), Rahmenform = Rolle in der eigenen Gruppe (auch bei Außenstehenden)
-  const roleAll = useMemo(() => new Map(analysis.groups.flatMap((x) => x.members.map((m) => [m.id, m.role] as const))), [analysis.groups]);
-  const roleOf = useMemo(() => (id: string) => roleAll.get(id) ?? null, [roleAll]);
 
   if (!g) return <p className="muted">{name(member)} ist mit diesen Einstellungen mit niemandem verbunden.</p>;
   const leader = memberOf.get(g.leader)!;
@@ -240,40 +202,6 @@ export function GroupView({ c }: { c: CommunityCtx }) {
           )}
         </div>
       </section>
-
-      <div className="box conn__box" data-tone="white">
-        <div className="gb__seg" role="group" aria-label="Umfeld" style={{ marginBottom: 12 }}>
-          {(
-            [
-              [0, "Nur die Gruppe"],
-              [1, "+ direkte Nachbarn"],
-              [2, "+ 2 Schritte"],
-              [99, "Ganzes Netz"],
-            ] as const
-          ).map(([k, l]) => (
-            <button key={k} type="button" aria-pressed={s.around === k} onClick={() => c.set({ around: k })}>
-              {l}
-            </button>
-          ))}
-        </div>
-        <ConnectionGraph nodes={gNodes} edges={gEdges} focus={hover ?? member} territoryOf={c.groupColor} roleOf={roleOf} onSelect={c.select} />
-        <ul className="conn__legend muted">
-          <li>
-            <i style={{ background: `var(${g.color})`, opacity: 0.5 }} /> Fläche = Gruppe
-          </li>
-          {ROLE_ORDER.map((r) => (
-            <li key={r}>
-              <span className={`gx-role gx-role--${r}`} aria-hidden="true" /> {ROLE_LABEL[r]}
-            </li>
-          ))}
-          <li>
-            {s.around === 0
-              ? "Nur Verbindungen innerhalb der Gruppe"
-              : `${num(gNodes.length - g.members.length)} Spieler außerhalb, auf der Fläche ihrer Gruppe`}{" "}
-            · Anklicken wählt aus, Rechtsklick öffnet das Profil
-          </li>
-        </ul>
-      </div>
 
       <section className="box grp__explain" data-tone="white" aria-labelledby="warum-h" style={{ "--grp": `var(${g.color})` } as React.CSSProperties}>
         <h3 className="t-3" id="warum-h">

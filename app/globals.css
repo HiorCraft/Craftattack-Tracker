@@ -6856,3 +6856,61 @@ a.st-board__mvlink:focus-visible {
     order: -2;
   }
 }
+/* Verbindungen: Ansicht, Spieler, Filter und Gruppen oben in der Seitenleiste */
+.cs__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 8px;
+}
+.cs__head .gb__seg {
+  margin: 0;
+  flex: 1;
+}
+.cs__head .gb__seg button {
+  flex: 1;
+}
+.cs__hide {
+  display: inline-flex;
+  padding: 4px;
+}
+.cs > .comm__player {
+  flex: none;
+}
+.cs > .gb__seg {
+  margin: 4px 0;
+  flex-wrap: wrap;
+}
+.cs__focusline {
+  margin: 0;
+  font-size: 0.8125rem;
+}
+.cs__groups {
+  padding: 6px 0 8px;
+}
+.conn__main {
+  position: relative;
+}
+.cs__open {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+}
+@media (width < 1100px) {
+  .cs__hide {
+    display: none;
+  }
+}
+.conn__main > .grp__hero {
+  margin-top: 32px;
+}
+.cs__open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.comm__views button[aria-selected="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}

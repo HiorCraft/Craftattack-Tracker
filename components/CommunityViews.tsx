@@ -8,6 +8,8 @@ import { Explain } from "./Explain";
 import { Head } from "./Head";
 import { ShowMore } from "./ShowMore";
 import type { CommunityCtx } from "./communityCtx";
+import { GroupCards, GroupDetail, GroupMap } from "./GroupViews";
+import { ROLE_LABEL, type Role } from "@/lib/groups";
 import { adjacency, centralities, closeness, directed, distancesFrom } from "@/lib/network";
 import { duration, num } from "@/lib/format";
 
@@ -46,59 +48,97 @@ export function around(ids: Set<string>, edges: GraphEdge[], steps: number): Set
   return set;
 }
 
+const ROLE_ORDER: Role[] = ["anfuehrer", "kern", "mitglied", "rand"];
+
 export const AROUND_NET: [number, string][] = [
   [1, "Direkte"],
   [2, "+ 2 Schritte"],
   [99, "Ganzes Netz"],
 ];
 
-/** Netz: alle Verbindungen (allgemein) oder das Umfeld des gewählten Spielers, darunter die stärksten Verbindungen */
+/**
+ * Verbindungen: alle (allgemein) oder das Umfeld des gewählten Spielers, darunter die stärksten Verbindungen.
+ * Mit Gruppen: Flächen und Rollen im Netz, darunter die Gruppen bzw. die Gruppe des Spielers.
+ */
 export function NetzView({ c }: { c: CommunityCtx }) {
-  const { focus, weighted, s } = c;
+  const { focus, weighted, s, analysis } = c;
+  const groups = s.groups;
   const steps = Math.max(1, s.around);
   const { gNodes, gEdges } = useMemo(() => {
-    if (!focus || steps >= 99) {
-      const ids = new Set(weighted.flatMap((e) => [e.a, e.b]));
-      return { gNodes: c.nodes.filter((n) => ids.has(n.id)), gEdges: weighted };
-    }
-    const ids = around(new Set([focus]), weighted, steps);
+    let ids: Set<string>;
+    if (!focus || s.around >= 99) ids = new Set(weighted.flatMap((e) => [e.a, e.b]));
+    else if (groups && s.around === 0) {
+      const gi = analysis.groupOf.get(focus);
+      ids = new Set(gi === undefined ? [focus] : analysis.groups[gi].members.map((m) => m.id));
+    } else ids = around(new Set([focus]), weighted, steps);
     return { gNodes: c.nodes.filter((n) => ids.has(n.id)), gEdges: weighted.filter((e) => ids.has(e.a) && ids.has(e.b)) };
-  }, [focus, steps, weighted, c.nodes]);
+  }, [focus, steps, weighted, c.nodes, groups, s.around, analysis]);
+  const roleOf = useMemo(() => {
+    const roles = new Map(analysis.groups.flatMap((g) => g.members.map((m) => [m.id, m.role] as const)));
+    return (id: string) => roles.get(id) ?? null;
+  }, [analysis.groups]);
   const top = useMemo(
     () => weighted.filter((e) => !focus || e.a === focus || e.b === focus).sort((a, b) => b.weight - a.weight || b.chatSeconds - a.chatSeconds),
     [weighted, focus],
   );
   const inNet = !focus || gNodes.some((n) => n.id === focus);
+  const map = groups && !focus && s.groupMap;
 
   return (
     <>
       <div className="box conn__box" data-tone="white">
-        {inNet ? (
-          <ConnectionGraph nodes={gNodes} edges={gEdges} focus={focus || null} colorOf={s.colorGroups ? c.groupColor : null} onSelect={c.select} />
+        {map ? (
+          <GroupMap c={c} />
+        ) : inNet ? (
+          <ConnectionGraph
+            nodes={gNodes}
+            edges={gEdges}
+            focus={c.hover ?? (focus || null)}
+            territoryOf={groups ? c.groupColor : null}
+            roleOf={groups ? roleOf : null}
+            onSelect={c.select}
+          />
         ) : (
           <p className="muted conn__empty">{c.name(focus)} ist mit diesen Einstellungen mit niemandem verbunden.</p>
         )}
         <ul className="conn__legend muted">
-          <li>
-            <i style={{ background: "var(--twitch)" }} /> vor allem Raids
-          </li>
-          <li>
-            <i style={{ background: "var(--diamond)" }} /> vor allem geteilter Chat
-          </li>
-          <li>
-            <i style={{ background: "var(--grass)" }} /> vor allem Stream-Titel
-          </li>
-          <li>
-            <i style={{ background: "var(--gold)" }} /> vor allem Chat-Nachrichten
-          </li>
+          {map ? (
+            <li>Ein Kopf je Gruppe (ihr Anführer), Größe = Stärke der Gruppe, Linien = Verbindungen zwischen den Gruppen</li>
+          ) : groups ? (
+            <>
+              <li>Fläche = Gruppe</li>
+              {ROLE_ORDER.map((r) => (
+                <li key={r}>
+                  <span className={`gx-role gx-role--${r}`} aria-hidden="true" /> {ROLE_LABEL[r]}
+                </li>
+              ))}
+            </>
+          ) : (
+            <>
+              <li>
+                <i style={{ background: "var(--twitch)" }} /> vor allem Raids
+              </li>
+              <li>
+                <i style={{ background: "var(--diamond)" }} /> vor allem geteilter Chat
+              </li>
+              <li>
+                <i style={{ background: "var(--grass)" }} /> vor allem Stream-Titel
+              </li>
+              <li>
+                <i style={{ background: "var(--gold)" }} /> vor allem Chat-Nachrichten
+              </li>
+            </>
+          )}
           <li>
             <Explain label="Bedienung">
               Kopf anklicken wählt den Spieler aus (Touch: einmal tippen zeigt den Namen, zweimal wählt aus), Rechtsklick öffnet sein Profil. Kopf ziehen zum
-              Verschieben. {s.colorGroups ? "Rahmenfarbe = Gruppe" : "Lila Rahmen: live"} · grünes Kästchen: auf dem Server.
+              Verschieben. Lila Rahmen: live · grünes Kästchen: auf dem Server.
             </Explain>
           </li>
         </ul>
       </div>
+
+      {groups && (focus ? <GroupDetail c={c} /> : <GroupCards c={c} />)}
 
       <div className="section-head" style={{ marginTop: 32 }}>
         <h2 className="t-2">
@@ -181,14 +221,15 @@ export function NetzView({ c }: { c: CommunityCtx }) {
   );
 }
 
-/** Nähe: ohne Spieler die Zentralität aller, mit Spieler die Ringe um ihn */
+/** Distanz: ohne Spieler die Zentralität aller, mit Spieler die Ringe um ihn */
 export function NaeheView({ c }: { c: CommunityCtx }) {
   const { focus, s, counts, weights, analysis } = c;
   const out = useMemo(() => adjacency(counts, weights), [counts, weights]);
   const ids = useMemo(() => [...new Set(counts.flatMap((e) => [e.a, e.b]))], [counts]);
   const netNodes = useMemo(() => c.nodes.filter((n) => ids.includes(n.id)), [c.nodes, ids]);
-  const colorOf = s.colorGroups ? c.groupColor : null;
+  const colorOf = s.groups ? c.groupColor : null;
   const groupLabel = (id: string) => {
+    if (!s.groups) return null;
     const gi = analysis.groupOf.get(id);
     if (gi === undefined) return null;
     const g = analysis.groups[gi];
@@ -255,7 +296,7 @@ export function NaeheView({ c }: { c: CommunityCtx }) {
                       <th className="num">Zentralität</th>
                       <th className="num">Direkt verbunden</th>
                       <th className="num">Erreichbar</th>
-                      <th>Gruppe</th>
+                      {s.groups && <th>Gruppe</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -272,7 +313,7 @@ export function NaeheView({ c }: { c: CommunityCtx }) {
                         </td>
                         <td className="num">{num(r.direct)}</td>
                         <td className="num">{num(r.reached)}</td>
-                        <td>{groupLabel(r.id)}</td>
+                        {s.groups && <td>{groupLabel(r.id)}</td>}
                       </tr>
                     ))}
                   </tbody>
@@ -343,7 +384,7 @@ export function NaeheView({ c }: { c: CommunityCtx }) {
                     <th className="num">Nähe</th>
                     <th className="num">Schritte</th>
                     <th>Weg</th>
-                    <th>Gruppe</th>
+                    {s.groups && <th>Gruppe</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -359,7 +400,7 @@ export function NaeheView({ c }: { c: CommunityCtx }) {
                       </td>
                       <td className="num">{r.hops === 1 ? "direkt" : num(r.hops)}</td>
                       <td className="muted conn__path">{(s.dir === "zu" ? [...r.path].reverse() : r.path).map(c.name).join(s.dir === "gegenseitig" ? " ↔ " : " → ")}</td>
-                      <td>{groupLabel(r.id)}</td>
+                      {s.groups && <td>{groupLabel(r.id)}</td>}
                     </tr>
                   ))}
                 </tbody>

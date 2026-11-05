@@ -880,7 +880,7 @@ async function NetworkSection({ params }: { params: Params }) {
           titleId="net-h"
           title="Verbindungen"
           aside={
-            <Link className="btn btn--small" data-tone="white" href={`/verbindungen?ansicht=naehe&spieler=${encodeURIComponent(id)}`}>
+            <Link className="btn btn--small" data-tone="white" href={`/verbindungen?ansicht=distanz&spieler=${encodeURIComponent(id)}`}>
               Ringe ansehen
             </Link>
           }
@@ -906,7 +906,7 @@ async function NetworkSection({ params }: { params: Params }) {
               <div className="box pnet__group" data-tone="white" style={{ "--grp": `var(${g.color})` } as React.CSSProperties}>
                 <h3 className="eyebrow">Gruppe</h3>
                 <p className="t-3">
-                  <Link href={`/verbindungen?ansicht=gruppen&spieler=${encodeURIComponent(id)}`}>Gruppe um {name(g.leader)}</Link>
+                  <Link href={`/verbindungen?gruppen=1&spieler=${encodeURIComponent(id)}`}>Gruppe um {name(g.leader)}</Link>
                 </p>
                 <p className="muted">
                   {ROLE_LABEL[me.role]} · {num(g.members.length)} Mitglieder · {Math.round(me.belonging * 100)} % der Verbindungen in der Gruppe
