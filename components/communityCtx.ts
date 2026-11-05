@@ -21,4 +21,7 @@ export interface CommunityCtx {
   /** Gewählter Spieler oder leer (allgemeine Ansicht) */
   focus: string;
   select: (id: string) => void;
+  /** Kurz hervorgehobener Spieler (z. B. beim Überfahren einer Mitglieder-Zeile) */
+  hover: string | null;
+  setHover: (id: string | null) => void;
 }

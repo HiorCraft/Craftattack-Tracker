@@ -14,13 +14,13 @@ const nextConfig: NextConfig = {
   // Frühere interne Seiten und die alte Netz-Adresse leben jetzt unter „Community“
   async redirects() {
     return [
-      { source: "/intern/netz", destination: "/verbindungen?ansicht=naehe", permanent: false },
-      { source: "/intern/gruppen", destination: "/verbindungen?ansicht=gruppen", permanent: false },
+      { source: "/intern/netz", destination: "/verbindungen?ansicht=distanz", permanent: false },
+      { source: "/intern/gruppen", destination: "/verbindungen?gruppen=1", permanent: false },
       // Nähe und Gruppen sind Ansichten auf /verbindungen (?spieler= wird mitgenommen); eine Gruppe = Gruppen-Ansicht mit gewähltem Spieler
-      { source: "/naehe", destination: "/verbindungen?ansicht=naehe", permanent: false },
-      { source: "/gruppen", destination: "/verbindungen?ansicht=gruppen", permanent: false },
-      { source: "/gruppen/:id", destination: "/verbindungen?ansicht=gruppen&spieler=:id", permanent: false },
-      { source: "/intern/gruppen/:id", destination: "/verbindungen?ansicht=gruppen&spieler=:id", permanent: false },
+      { source: "/naehe", destination: "/verbindungen?ansicht=distanz", permanent: false },
+      { source: "/gruppen", destination: "/verbindungen?gruppen=1", permanent: false },
+      { source: "/gruppen/:id", destination: "/verbindungen?gruppen=1&spieler=:id", permanent: false },
+      { source: "/intern/gruppen/:id", destination: "/verbindungen?gruppen=1&spieler=:id", permanent: false },
       { source: "/intern/zuschauerwanderung", destination: "/zuschauer", permanent: false },
       { source: "/netz", destination: "/verbindungen", permanent: false },
     ];

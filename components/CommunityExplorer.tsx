@@ -3,10 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NetzView, NaeheView, AROUND_NET } from "./CommunityViews";
-import { GroupsOverview, GroupView, recolor } from "./GroupViews";
+import { recolor } from "./GroupViews";
 import { FigValue } from "./FigValue";
 import { Explain } from "./Explain";
-import { Head } from "./Head";
 import { PlayerSearch } from "./PlayerSearch";
 import type { GraphEdge, GraphNode } from "./ConnectionGraph";
 import type { CommunityCtx } from "./communityCtx";
@@ -17,11 +16,10 @@ import { isMutual, type Direction } from "@/lib/network";
 import { loadOpen, loadSettings, parseSettings, sameWeights, saveOpen, saveSettings, SETTINGS_DEFAULTS, type CommunitySettings, type Show, type Win } from "@/lib/communitySettings";
 import { num } from "@/lib/format";
 
-export type CommunityView = "netz" | "naehe" | "gruppen";
+export type CommunityView = "netz" | "distanz";
 const VIEWS: { key: CommunityView; label: string; hint: string }[] = [
-  { key: "netz", label: "Netz", hint: "Alle Verbindungen als Netz; mit Spieler sein Umfeld und seine Verbindungen" },
-  { key: "naehe", label: "Nähe", hint: "Wer allen am nächsten steht; mit Spieler alle nach ihrer Nähe zu ihm" },
-  { key: "gruppen", label: "Gruppen", hint: "Wer untereinander deutlich enger verbunden ist; mit Spieler seine Gruppe" },
+  { key: "netz", label: "Verbindungen", hint: "Alle Verbindungen als Netz; mit Spieler sein Umfeld und seine Verbindungen" },
+  { key: "distanz", label: "Distanz", hint: "Wer allen am nächsten steht; mit Spieler alle nach ihrer Distanz zu ihm" },
 ];
 
 const WINDOWS: { key: Win; label: string; hint: string }[] = [
@@ -54,17 +52,20 @@ const RES_STEPS = 40;
 const resOfStep = (s: number) => Math.round(0.25 * Math.pow(64, s / RES_STEPS) * 100) / 100;
 const stepOfRes = (r: number) => Math.round((Math.log(r / 0.25) / Math.log(64)) * RES_STEPS);
 
+/** Mindeststärke in Stufen: fein bei kleinen Werten, bis zu den stärksten Verbindungen */
+const MIN_STEPS = [0, 0.5, 1, 2, 3, 5, 7.5, 10, 15, 20, 30, 40, 50, 75, 100, 150, 200, 300, 500];
+
 const dec = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
 const DAY = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", timeZone: "UTC" });
 const dayLabel = (d: string) => DAY.format(Date.parse(`${d}T12:00:00Z`));
 
 /** Abschnitte der Seitenleiste und ob sie anfangs offen sind (breit / schmal) */
 type Section = "zeit" | "gewicht" | "filter" | "ansicht" | "gruppen";
-const OPEN_WIDE: Record<Section, boolean> = { zeit: true, gewicht: true, filter: true, ansicht: true, gruppen: false };
+const OPEN_WIDE: Record<Section, boolean> = { zeit: true, gewicht: true, filter: true, ansicht: true, gruppen: true };
 const OPEN_NARROW: Record<Section, boolean> = { zeit: true, gewicht: false, filter: false, ansicht: false, gruppen: false };
 
 /**
- * Verbindungen: Netz, Nähe und Gruppen sind nur verschiedene Blicke auf dieselben Daten. Alle Einstellungen
+ * Verbindungen: Netz und Distanz (Gruppen zuschaltbar) sind nur verschiedene Blicke auf dieselben Daten. Alle Einstellungen
  * (Zeitraum, Gewichtung, Filter, Gruppen) gelten für jede Ansicht; ein gewählter Spieler bleibt beim Wechsel
  * gewählt und macht jede Ansicht spielerspezifisch. Ansicht, Filter und Spieler stehen in der Adresse, die übrigen
  * Einstellungen bleiben im Browser gespeichert.
@@ -76,6 +77,7 @@ export function CommunityExplorer({
   initialView,
   initialServer,
   initialFocus,
+  initialGroups,
 }: {
   nodes: GraphNode[];
   daily: DailyNetwork;
@@ -83,6 +85,8 @@ export function CommunityExplorer({
   initialView: CommunityView;
   initialServer: boolean;
   initialFocus: string;
+  /** Aus der Adresse (?gruppen=1); sonst gilt die gespeicherte Einstellung */
+  initialGroups: boolean | null;
 }) {
   const [view, setView] = useState<CommunityView>(initialView);
   const [server, setServer] = useState(initialServer);
@@ -99,12 +103,12 @@ export function CommunityExplorer({
     const narrow = window.matchMedia("(width < 1100px)").matches;
     const o = loadOpen();
     /* eslint-disable react-hooks/set-state-in-effect -- einmalig nach dem Hydrieren */
-    if (saved) setS(saved);
+    if (saved || initialGroups !== null) setS({ ...(saved ?? SETTINGS_DEFAULTS), ...(initialGroups !== null ? { groups: initialGroups } : {}) });
     setOpen({ ...(narrow ? OPEN_NARROW : OPEN_WIDE), ...(o && !narrow ? (o as Record<Section, boolean>) : {}) });
     if (o?.leiste === false && !narrow) setSidebar(false);
     setLoaded(true);
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (loaded) saveSettings(s);
   }, [s, loaded]);
@@ -119,8 +123,9 @@ export function CommunityExplorer({
     put("ansicht", view === "netz" ? "" : view);
     put("server", server ? "1" : "");
     put("spieler", focus);
+    if (loaded) put("gruppen", s.groups ? "1" : "");
     window.history.replaceState(window.history.state, "", u);
-  }, [view, server, focus]);
+  }, [view, server, focus, s.groups, loaded]);
 
   const data = server ? dailyServer : daily;
   const last = data.days.length - 1;
@@ -163,6 +168,12 @@ export function CommunityExplorer({
   );
   const raw = useMemo(() => (last < 0 ? [] : sumDays(data, from, to)), [data, from, to, last]);
   const counts = useMemo(() => filter(raw), [filter, raw]);
+  // Mindeststärke-Stufen bis zur stärksten Verbindung (darüber bliebe nichts übrig)
+  const minSteps = useMemo(() => {
+    const top = Math.max(0, ...raw.map((e) => weigh(e, s.weights).weight));
+    const steps = MIN_STEPS.filter((v) => v <= top);
+    return s.min > (steps.at(-1) ?? 0) ? [...steps, s.min] : steps;
+  }, [raw, s.weights, s.min]);
   const weighted: GraphEdge[] = useMemo(() => counts.map((e) => ({ ...e, ...weigh(e, s.weights) })), [counts, s.weights]);
   const resolution = useMemo(() => (s.groupMode === "anzahl" ? resolutionForCount(counts, s.weights, s.count) : s.resolution), [counts, s.weights, s.groupMode, s.count, s.resolution]);
   // Gruppenfarben aus der ganzen Staffel (gleiche Einstellungen), damit Gruppen beim Durchspielen ihre Farbe behalten
@@ -181,7 +192,8 @@ export function CommunityExplorer({
   const groupColor = useCallback((id: string) => analysis.groups[analysis.groupOf.get(id) ?? -1]?.color ?? null, [analysis]);
 
   const select = useCallback((id: string) => setFocus((cur) => (cur === id && id ? cur : id)), []);
-  const c: CommunityCtx = { nodes, byId, name, counts, weighted, weights: s.weights, analysis, groupColor, s, set, focus, select };
+  const [hover, setHover] = useState<string | null>(null);
+  const c: CommunityCtx = { nodes, byId, name, counts, weighted, weights: s.weights, analysis, groupColor, s, set, focus, select, hover, setHover };
 
   const raids = counts.reduce((a, e) => a + e.raidsAB + e.raidsBA, 0);
   const chats = counts.reduce((a, e) => a + e.chats, 0);
@@ -205,11 +217,11 @@ export function CommunityExplorer({
   );
 
   const viewSection =
-    view === "naehe"
+    view === "distanz"
       ? focus
         ? sec(
             "ansicht",
-            "Nähe",
+            "Distanz",
             `${s.scale === "naehe" ? "nach Nähe" : "nach Schritten"} · ${DIRECTIONS.find((d) => d.key === s.dir)!.label}`,
             <>
               <Seg label="Richtung" items={DIRECTIONS} value={s.dir} onPick={(dir) => set({ dir })} />
@@ -238,18 +250,18 @@ export function CommunityExplorer({
             DIRECTIONS.find((d) => d.key === s.dir)!.label,
             <>
               <Seg label="Richtung" items={DIRECTIONS} value={s.dir} onPick={(dir) => set({ dir })} />
-              <p className="muted">Spieler oben auswählen oder im Bild anklicken für die Nähe aller zu ihm.</p>
+              <p className="muted">Spieler auswählen oder im Bild anklicken für die Distanz aller zu ihm.</p>
             </>,
           )
       : focus
         ? sec(
             "ansicht",
             `Umfeld von ${name(focus)}`,
-            (view === "gruppen" ? AROUND_GROUP : AROUND_NET).find(([k]) => k === (view === "netz" ? Math.max(1, s.around) : s.around))?.[1],
+            (s.groups ? AROUND_GROUP : AROUND_NET).find(([k]) => k === (s.groups ? s.around : Math.max(1, s.around)))?.[1],
             <Seg
               label="Umfeld"
-              items={(view === "gruppen" ? AROUND_GROUP : AROUND_NET).map(([k, l]) => ({ key: String(k), label: l, hint: "" }))}
-              value={String(view === "netz" ? Math.max(1, s.around) : s.around)}
+              items={(s.groups ? AROUND_GROUP : AROUND_NET).map(([k, l]) => ({ key: String(k), label: l, hint: "" }))}
+              value={String(s.groups ? s.around : Math.max(1, s.around))}
               onPick={(k) => set({ around: Number(k) })}
             />,
           )
@@ -257,40 +269,6 @@ export function CommunityExplorer({
 
   return (
     <div className="stack" style={{ "--stack": "16px" } as React.CSSProperties}>
-      <div className="box comm__bar" data-tone="white">
-        <div className="gb__seg comm__views" role="tablist" aria-label="Ansicht">
-          {VIEWS.map((v) => (
-            <button key={v.key} type="button" role="tab" aria-selected={view === v.key} title={v.hint} onClick={() => setView(v.key)}>
-              {v.label}
-            </button>
-          ))}
-        </div>
-        <div className="comm__player">
-          <PlayerSearch players={nodes} value={focus} onChange={select} label="Spieler auswählen" empty={{ label: "Alle Spieler" }} />
-          {focus && (
-            <Link className="more__all" href={`/spieler/${encodeURIComponent(focus)}`}>
-              Profil
-            </Link>
-          )}
-        </div>
-        <div className="gb__seg" role="group" aria-label="Welche Verbindungen">
-          <button type="button" aria-pressed={!server} onClick={() => setServer(false)} title="Alles, was auf Twitch zwischen Spielern passiert ist">
-            Alle Verbindungen
-          </button>
-          <button
-            type="button"
-            aria-pressed={server}
-            onClick={() => setServer(true)}
-            title="Nur, während mindestens einer der beiden auf dem Server war: Raids und Nachrichten zu dem Zeitpunkt, geteilter Chat und Titel nur für diese Zeit"
-          >
-            Nur auf dem Server
-          </button>
-        </div>
-        <button type="button" className="btn btn--small comm__toggle" data-tone="white" aria-expanded={sidebar} aria-controls="comm-settings" onClick={() => setSidebar(!sidebar)}>
-          {sidebar ? "Einstellungen ausblenden" : "Einstellungen"}
-        </button>
-      </div>
-
       <dl className="grid st-figs st-figs--6">
         <div className="box st-fig" data-tone="twitch">
           <dt>Raids</dt>
@@ -313,26 +291,60 @@ export function CommunityExplorer({
           <FigValue>{num(counts.length)}</FigValue>
         </div>
         <div className="box st-fig" data-tone="sky">
-          <dt>{fg !== undefined ? "Gruppe" : "Gruppen"}</dt>
-          <FigValue unit={fg !== undefined ? "Spieler" : undefined}>{fg !== undefined ? num(analysis.groups[fg].members.length) : num(analysis.groups.length)}</FigValue>
+          <dt>{!s.groups ? "Spieler im Netz" : fg !== undefined ? "Gruppe" : "Gruppen"}</dt>
+          <FigValue unit={s.groups && fg !== undefined ? "Spieler" : undefined}>{!s.groups ? num(linked) : fg !== undefined ? num(analysis.groups[fg].members.length) : num(analysis.groups.length)}</FigValue>
         </div>
       </dl>
 
       <div className="conn__layout" data-nosidebar={!sidebar || undefined}>
         {sidebar && (
           <aside className="conn__side box cs" data-tone="white" id="comm-settings" aria-label="Einstellungen">
-            {focus && (
-              <div className="cs__focus">
-                <Head id={focus} uuid={byId.get(focus)?.uuid} name={name(focus)} size={28} decorative />
-                <span>
-                  <b>{name(focus)}</b>
-                  <span className="muted">{fg !== undefined ? `Gruppe um ${name(analysis.groups[fg].leader)}` : "in diesem Zeitraum ohne Verbindung"}</span>
-                </span>
-                <button type="button" className="pick__x" onClick={() => setFocus("")} aria-label="Auswahl aufheben" title="Alle Spieler">
-                  ×
-                </button>
+            <div className="cs__head">
+              <div className="gb__seg comm__views" role="tablist" aria-label="Ansicht">
+                {VIEWS.map((v) => (
+                  <button key={v.key} type="button" role="tab" aria-selected={view === v.key} title={v.hint} onClick={() => setView(v.key)}>
+                    {v.label}
+                  </button>
+                ))}
               </div>
+              <button type="button" className="pick__x cs__hide" onClick={() => setSidebar(false)} aria-label="Einstellungen ausblenden" title="Einstellungen ausblenden">
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3l5 5-5 5" fill="none" stroke="currentColor" strokeWidth="2.5" /></svg>
+              </button>
+            </div>
+            <div className="comm__player">
+              <PlayerSearch players={nodes} value={focus} onChange={select} label="Spieler auswählen" empty={{ label: "Alle Spieler" }} />
+              {focus && (
+                <Link className="more__all" href={`/spieler/${encodeURIComponent(focus)}`}>
+                  Profil
+                </Link>
+              )}
+            </div>
+            {focus && (
+              <p className="muted cs__focusline">{fg !== undefined ? `${name(focus)}: Gruppe um ${name(analysis.groups[fg].leader)}` : `${name(focus)}: in diesem Zeitraum ohne Verbindung`}</p>
             )}
+            <Seg
+              label="Welche Verbindungen"
+              items={[
+                { key: "alle", label: "Alle Verbindungen", hint: "Alles, was auf Twitch zwischen Spielern passiert ist" },
+                {
+                  key: "server",
+                  label: "Nur auf dem Server",
+                  hint: "Nur, während mindestens einer der beiden auf dem Server war: Raids und Nachrichten zu dem Zeitpunkt, geteilter Chat und Titel nur für diese Zeit",
+                },
+              ]}
+              value={server ? "server" : "alle"}
+              onPick={(k) => setServer(k === "server")}
+            />
+            <label className="conn__row cs__groups" title="Wer untereinander deutlich enger verbunden ist als mit dem Rest">
+              <input
+                type="checkbox"
+                checked={s.groups}
+                onChange={(e) => {
+                  set({ groups: e.target.checked });
+                  if (e.target.checked) setOpen((o) => ({ ...o, gruppen: true }));
+                }}
+              /> <b>Gruppen anzeigen</b>
+            </label>
             {last >= 0 &&
               sec(
                 "zeit",
@@ -416,9 +428,17 @@ export function CommunityExplorer({
               "Filter",
               [s.min ? `ab ${dec.format(s.min)} P.` : null, s.mutual ? "gegenseitig" : null, s.show !== "alle" ? SHOW.find((x) => x.key === s.show)!.label : null].filter(Boolean).join(" · ") || "keine",
               <>
-                <label className="conn__weight" title="Schwächere Verbindungen ausblenden (auch für Nähe und Gruppen)">
+                <label className="conn__weight" title="Schwächere Verbindungen ausblenden (auch für Distanz und Gruppen)">
                   <span className="conn__weight-name">Mindeststärke</span>
-                  <input type="range" min={0} max={10} step={0.5} value={s.min} onChange={(e) => set({ min: Number(e.target.value) })} />
+                  <input
+                    type="range"
+                    min={0}
+                    max={minSteps.length - 1}
+                    step={1}
+                    value={Math.max(0, minSteps.findIndex((v) => v >= s.min))}
+                    onChange={(e) => set({ min: minSteps[Number(e.target.value)] })}
+                    aria-valuetext={s.min === 0 ? "alle" : `ab ${dec.format(s.min)} Punkten`}
+                  />
                   <b className="num conn__weight-val">{s.min === 0 ? "alle" : `ab ${dec.format(s.min)} P.`}</b>
                 </label>
                 <Seg
@@ -436,7 +456,8 @@ export function CommunityExplorer({
                 </p>
               </>,
             )}
-            {sec(
+            {s.groups &&
+              sec(
               "gruppen",
               "Gruppen",
               `${num(analysis.groups.length)} Gruppen`,
@@ -464,11 +485,19 @@ export function CommunityExplorer({
                 )}
                 <p className="muted">
                   {num(analysis.groups.length)} Gruppen · größte {num(sizes[0] ?? 0)} Spieler · {num(sizes.filter((n) => n === 1).length)} allein{" "}
-                  <Explain>Louvain: die Aufteilung, bei der möglichst viel Verbindungsstärke innerhalb der Gruppen liegt. Gilt für alle Ansichten (Farben in Netz und Nähe).</Explain>
+                  <Explain>Louvain: die Aufteilung, bei der möglichst viel Verbindungsstärke innerhalb der Gruppen liegt, benannt nach dem Mitglied mit der meisten Aufmerksamkeit. Sagt nichts über echte Freundschaften.</Explain>
                 </p>
-                <label className="conn__row">
-                  <input type="checkbox" checked={s.colorGroups} onChange={(e) => set({ colorGroups: e.target.checked })} /> Netz und Nähe in Gruppenfarben
-                </label>
+                {view === "netz" && !focus && (
+                  <Seg
+                    label="Darstellung"
+                    items={[
+                      { key: "alle", label: "Alle Spieler", hint: "Jeder Spieler auf der Fläche seiner Gruppe" },
+                      { key: "karte", label: "Ein Kopf je Gruppe", hint: "Nur die Anführer, Linien = Verbindungen zwischen den Gruppen" },
+                    ]}
+                    value={s.groupMap ? "karte" : "alle"}
+                    onPick={(k) => set({ groupMap: k === "karte" })}
+                  />
+                )}
               </>,
             )}
             {changed && (
@@ -480,16 +509,17 @@ export function CommunityExplorer({
         )}
 
         <div className="conn__main">
+          {!sidebar && (
+            <button type="button" className="btn btn--small cs__open" data-tone="white" onClick={() => setSidebar(true)} aria-controls="comm-settings" aria-expanded="false">
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M11 3L6 8l5 5" fill="none" stroke="currentColor" strokeWidth="2.5" /></svg> Einstellungen
+            </button>
+          )}
           {last < 0 ? (
             <p className="muted">Noch keine Verbindungen erfasst.</p>
           ) : view === "netz" ? (
             <NetzView c={c} />
-          ) : view === "naehe" ? (
-            <NaeheView c={c} />
-          ) : focus ? (
-            <GroupView c={c} />
           ) : (
-            <GroupsOverview c={c} />
+            <NaeheView c={c} />
           )}
         </div>
       </div>
