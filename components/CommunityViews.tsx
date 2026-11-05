@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { ConnectionGraph, type GraphEdge } from "./ConnectionGraph";
+import { ConnectionGraph } from "./ConnectionGraph";
 import { RadialGraph } from "./RadialGraph";
 import { CentralRings } from "./CentralRings";
 import { Explain } from "./Explain";
@@ -25,54 +25,19 @@ export function Person({ c, id, size = 22 }: { c: CommunityCtx; id: string; size
   );
 }
 
-/** Spieler bis `steps` Schritte um `ids` (über die gezeigten Verbindungen) */
-export function around(ids: Set<string>, edges: GraphEdge[], steps: number): Set<string> {
-  const set = new Set(ids);
-  let frontier = [...ids];
-  for (let i = 0; i < steps && frontier.length; i++) {
-    const f = new Set(frontier);
-    const next: string[] = [];
-    for (const e of edges) {
-      for (const [x, y] of [
-        [e.a, e.b],
-        [e.b, e.a],
-      ]) {
-        if (f.has(x) && !set.has(y)) {
-          set.add(y);
-          next.push(y);
-        }
-      }
-    }
-    frontier = next;
-  }
-  return set;
-}
-
 const ROLE_ORDER: Role[] = ["anfuehrer", "kern", "mitglied", "rand"];
 
-export const AROUND_NET: [number, string][] = [
-  [1, "Direkte"],
-  [2, "+ 2 Schritte"],
-  [99, "Ganzes Netz"],
-];
-
 /**
- * Verbindungen: alle (allgemein) oder das Umfeld des gewählten Spielers, darunter die stärksten Verbindungen.
+ * Verbindungen: das ganze Netz (ein gewählter Spieler ist hervorgehoben), darunter die stärksten Verbindungen bzw. seine.
  * Mit Gruppen: Flächen und Rollen im Netz, darunter die Gruppen bzw. die Gruppe des Spielers.
  */
 export function NetzView({ c }: { c: CommunityCtx }) {
   const { focus, weighted, s, analysis } = c;
   const groups = s.groups;
-  const steps = Math.max(1, s.around);
   const { gNodes, gEdges } = useMemo(() => {
-    let ids: Set<string>;
-    if (!focus || s.around >= 99) ids = new Set(weighted.flatMap((e) => [e.a, e.b]));
-    else if (groups && s.around === 0) {
-      const gi = analysis.groupOf.get(focus);
-      ids = new Set(gi === undefined ? [focus] : analysis.groups[gi].members.map((m) => m.id));
-    } else ids = around(new Set([focus]), weighted, steps);
-    return { gNodes: c.nodes.filter((n) => ids.has(n.id)), gEdges: weighted.filter((e) => ids.has(e.a) && ids.has(e.b)) };
-  }, [focus, steps, weighted, c.nodes, groups, s.around, analysis]);
+    const ids = new Set(weighted.flatMap((e) => [e.a, e.b]));
+    return { gNodes: c.nodes.filter((n) => ids.has(n.id)), gEdges: weighted };
+  }, [weighted, c.nodes]);
   const roleOf = useMemo(() => {
     const roles = new Map(analysis.groups.flatMap((g) => g.members.map((m) => [m.id, m.role] as const)));
     return (id: string) => roles.get(id) ?? null;

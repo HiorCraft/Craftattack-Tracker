@@ -6754,8 +6754,12 @@ a.st-board__mvlink:focus-visible {
   display: none;
 }
 .cs__sec > summary::before {
-  content: "▸";
-  font-size: 0.75rem;
+  /* Dreieck aus Rändern: das Zeichen ▸ fehlt in der Pixel-Schrift */
+  content: "";
+  align-self: center;
+  border-left: 7px solid currentColor;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
   transition: transform 0.15s;
 }
 .cs__sec[open] > summary::before {
@@ -6788,15 +6792,6 @@ a.st-board__mvlink:focus-visible {
 .cs__body .conn__weight input[type="range"] {
   grid-column: 1 / -1;
   grid-row: 2;
-}
-.cs__time {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.cs__time input[type="range"] {
-  flex: 1;
-  min-width: 0;
 }
 .cs__focus {
   display: flex;
@@ -6881,13 +6876,6 @@ a.st-board__mvlink:focus-visible {
   margin: 4px 0;
   flex-wrap: wrap;
 }
-.cs__focusline {
-  margin: 0;
-  font-size: 0.8125rem;
-}
-.cs__groups {
-  padding: 6px 0 8px;
-}
 .conn__main {
   position: relative;
 }
@@ -6911,6 +6899,239 @@ a.st-board__mvlink:focus-visible {
   gap: 6px;
 }
 .comm__views button[aria-selected="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* Verbindungen, Seitenleiste kompakt: Schalter, einzeilige Regler, Zeitraum mit zwei Griffen */
+.cs .gb__seg button {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 0.8125rem;
+}
+.cs__toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.cs > .cs__toggles {
+  padding: 4px 0 6px;
+}
+.cs__toggles .gb__seg {
+  margin: 0;
+}
+.cs__toggle {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 0;
+  box-shadow: var(--outline);
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-display);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+.cs__toggle[aria-pressed="false"] {
+  background: color-mix(in srgb, var(--ink) 8%, var(--white));
+  color: color-mix(in srgb, var(--ink) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 25%, transparent);
+}
+@media (hover: hover) {
+  .cs__toggle[aria-pressed="false"]:hover {
+    color: var(--ink);
+  }
+}
+.cs__row {
+  display: grid;
+  grid-template-columns: 9.5rem minmax(0, 1fr) 2.75rem;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+.cs__row input[type="range"] {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--ink);
+}
+.cs__row > b {
+  text-align: right;
+}
+.cs__row[data-off] > input,
+.cs__row[data-off] > b {
+  opacity: 0.45;
+}
+.cs__kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px;
+  margin-left: -4px;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cs__kind i {
+  width: 18px;
+  height: 4px;
+  flex: none;
+}
+.cs__kind[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+@media (hover: hover) {
+  .cs__kind:not([aria-pressed="true"]):hover {
+    text-decoration: underline;
+  }
+}
+.cs__balance,
+.cs__reset {
+  justify-self: start;
+  font-size: 0.8125rem;
+}
+.cs__reset {
+  margin-top: 6px;
+}
+.cs__groupbar {
+  display: grid;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+.cs__groupbar > .cs__toggle {
+  justify-self: start;
+}
+.cs__profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  margin: 2px 0 4px;
+  box-shadow: var(--outline);
+  background: var(--paper);
+  color: var(--ink);
+  text-decoration: none;
+}
+.cs__profile > span {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+}
+.cs__profile > span > b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cs__profile small {
+  font-size: 0.75rem;
+}
+@media (hover: hover) {
+  .cs__profile:hover {
+    background: var(--ink);
+    color: var(--paper);
+  }
+  .cs__profile:hover .muted {
+    color: inherit;
+  }
+}
+.cs__time {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 2px 8px;
+  padding: 6px 0 10px;
+  border-top: 2px solid color-mix(in srgb, var(--ink) 10%, transparent);
+}
+.cs__dates {
+  text-align: right;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.cs__range {
+  grid-column: 1 / -1;
+  position: relative;
+  height: 26px;
+}
+.cs__range::before,
+.cs__range::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  height: 6px;
+  transform: translateY(-50%);
+}
+.cs__range::before {
+  left: 9px;
+  right: 9px;
+  background: color-mix(in srgb, var(--ink) 15%, transparent);
+}
+.cs__range::after {
+  left: calc(9px + var(--a) * (100% - 18px));
+  right: calc(9px + (1 - var(--b)) * (100% - 18px));
+  min-width: 2px;
+  background: var(--ink);
+}
+.cs__range input {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: none;
+  pointer-events: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.cs__range input::-webkit-slider-runnable-track {
+  background: none;
+  height: 100%;
+}
+.cs__range input::-moz-range-track {
+  background: none;
+}
+.cs__range input::-webkit-slider-thumb {
+  pointer-events: auto;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 4px;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 0;
+  cursor: grab;
+}
+.cs__range input::-moz-range-thumb {
+  pointer-events: auto;
+  width: 12px;
+  height: 12px;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 0;
+  cursor: grab;
+}
+.cs__range input:focus-visible::-webkit-slider-thumb {
+  outline: 3px solid var(--diamond);
+}
+.cs__range input:focus-visible::-moz-range-thumb {
+  outline: 3px solid var(--diamond);
+}
+.cs__body > .cs__toggle {
+  justify-self: start;
+}
+/* Gewählte Ansicht bleibt auch beim Überfahren dunkel */
+.comm__views.gb__seg button[aria-selected="true"] {
   background: var(--ink);
   color: var(--paper);
 }
