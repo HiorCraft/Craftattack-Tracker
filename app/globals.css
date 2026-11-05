@@ -6699,3 +6699,20 @@ a.st-board__mvlink:focus-visible {
 .vf__evrange .muted {
   font-size: 0.75rem;
 }
+
+/* Netz-Seite: gemeinsame Leiste für Ansicht, Filter und Zeitraum über Netz, Nähe und Gruppen */
+.comm__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 12px 14px;
+}
+.comm__views button {
+  font-weight: 700;
+}
+.comm__time {
+  flex: 1 1 420px;
+  min-width: 0;
+  margin: 0;
+}

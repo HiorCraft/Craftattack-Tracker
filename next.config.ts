@@ -14,8 +14,11 @@ const nextConfig: NextConfig = {
   // Frühere interne Seiten und die alte Netz-Adresse leben jetzt unter „Community“
   async redirects() {
     return [
-      { source: "/intern/netz", destination: "/naehe", permanent: false },
-      { source: "/intern/gruppen", destination: "/gruppen", permanent: false },
+      { source: "/intern/netz", destination: "/verbindungen?ansicht=naehe", permanent: false },
+      { source: "/intern/gruppen", destination: "/verbindungen?ansicht=gruppen", permanent: false },
+      // Nähe und Gruppen sind Ansichten auf /verbindungen (?spieler= wird mitgenommen); Detailseiten je Gruppe bleiben
+      { source: "/naehe", destination: "/verbindungen?ansicht=naehe", permanent: false },
+      { source: "/gruppen", destination: "/verbindungen?ansicht=gruppen", permanent: false },
       { source: "/intern/gruppen/:id", destination: "/gruppen/:id", permanent: false },
       { source: "/intern/zuschauerwanderung", destination: "/zuschauer", permanent: false },
       { source: "/netz", destination: "/verbindungen", permanent: false },

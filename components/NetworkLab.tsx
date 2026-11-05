@@ -16,8 +16,8 @@ import { duration, num } from "@/lib/format";
 const pct = (v: number) => `${Math.round(v * 100)} %`;
 
 /**
- * Nähe (/naehe): ein Spieler in der Mitte, alle anderen nach ihrer Nähe zu ihm (Ringe).
- * Gruppen haben eine eigene Seite (/gruppen); hier färben sie nur die Rahmen. Die Mitte steht in der Adresse (`?spieler=`).
+ * Nähe (Ansicht auf /verbindungen): ein Spieler in der Mitte, alle anderen nach ihrer Nähe zu ihm (Ringe).
+ * Gruppen färben hier nur die Rahmen. Die Mitte steht in der Adresse (`?spieler=`).
  * Gerichtet ausgewertet: Raids und Chat-Nachrichten gelten nur in ihre Richtung.
  */
 export function NetworkLab({
@@ -30,8 +30,9 @@ export function NetworkLab({
   nodes: GraphNode[];
   edges: LinkCounts[];
   initialFocus?: string;
-  ranges: { key: string; label: string }[];
-  range: string;
+  /** Eigene Zeitraum-Auswahl (Links); fehlt, wenn die Seite den Zeitraum selbst steuert */
+  ranges?: { key: string; label: string }[];
+  range?: string;
 }) {
   const { analysis, weights, controls } = useGroupSettings(edges);
   const [dir, setDir] = useState<Direction>("von");
@@ -59,7 +60,7 @@ export function NetworkLab({
   }, [focus]);
   const rangeHref = (key: string) => {
     const q = new URLSearchParams({ ...(key === "alle" ? {} : { zeit: key }), ...(focus ? { spieler: focus } : {}) }).toString();
-    return q ? `/naehe?${q}` : "/naehe";
+    return q ? `/verbindungen?ansicht=naehe&${q}` : "/verbindungen?ansicht=naehe";
   };
   const name = (id: string) => byId.get(id)?.name ?? id;
 
@@ -100,16 +101,18 @@ export function NetworkLab({
     <div className="conn__layout">
       <div className="conn__side stack" style={{ "--stack": "12px" } as React.CSSProperties}>
         <div className="box conn__controls" data-tone="white">
-          <fieldset className="conn__group">
-            <legend className="eyebrow">Zeitraum</legend>
-            <div className="gb__seg" role="group" aria-label="Zeitraum">
-              {ranges.map((r) => (
-                <Link key={r.key} href={rangeHref(r.key)} aria-current={range === r.key ? "true" : undefined} scroll={false}>
-                  {r.label}
-                </Link>
-              ))}
-            </div>
-          </fieldset>
+          {ranges && (
+            <fieldset className="conn__group">
+              <legend className="eyebrow">Zeitraum</legend>
+              <div className="gb__seg" role="group" aria-label="Zeitraum">
+                {ranges.map((r) => (
+                  <Link key={r.key} href={rangeHref(r.key)} aria-current={range === r.key ? "true" : undefined} scroll={false}>
+                    {r.label}
+                  </Link>
+                ))}
+              </div>
+            </fieldset>
+          )}
           <fieldset className="conn__group">
             <legend className="eyebrow">Mitte</legend>
             <PlayerSearch players={nodes} value={center} onChange={(id) => setFocus(id)} label="Spieler in der Mitte" />

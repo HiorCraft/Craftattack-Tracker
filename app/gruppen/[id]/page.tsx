@@ -32,7 +32,7 @@ async function Group({ params }: { params: PageProps<"/gruppen/[id]">["params"] 
       <section className="block block--tight" data-tone="amethyst">
         <div className="wrap">
           <p className="eyebrow">
-            <Link href="/gruppen">← Alle Gruppen</Link>
+            <Link href="/verbindungen?ansicht=gruppen">← Alle Gruppen</Link>
           </p>
         </div>
       </section>

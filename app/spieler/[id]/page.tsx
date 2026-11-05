@@ -880,7 +880,7 @@ async function NetworkSection({ params }: { params: Params }) {
           titleId="net-h"
           title="Verbindungen"
           aside={
-            <Link className="btn btn--small" data-tone="white" href={`/naehe?spieler=${encodeURIComponent(id)}`}>
+            <Link className="btn btn--small" data-tone="white" href={`/verbindungen?ansicht=naehe&spieler=${encodeURIComponent(id)}`}>
               Ringe ansehen
             </Link>
           }

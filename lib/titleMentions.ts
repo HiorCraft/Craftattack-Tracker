@@ -76,6 +76,8 @@ export function titleSeconds(
   live: Set<string>,
   /** Optional: Sekunden je Paar und Tag (nach der Obergrenze), z. B. für den Verlauf über die Zeit */
   onDay?: (key: string, day: string, seconds: number) => void,
+  /** Optional: nur diese Teile eines Abschnitts zählen (z. B. nur, während einer der beiden auf dem Server war) */
+  clip?: (src: string, dst: string, from: number, to: number) => [number, number][],
 ): Map<string, { seconds: number; last: number }> {
   const byPlayer = new Map<string, TitleChange[]>();
   for (const c of changes) (byPlayer.get(c.player) ?? byPlayer.set(c.player, []).get(c.player)!).push(c);
@@ -105,7 +107,10 @@ export function titleSeconds(
       const from = Math.max(c.at, since);
       const to = Math.min(nextAt, until, c.at + 72 * 3600_000);
       if (to <= from) continue;
-      for (const dst of match(c.title, player)) add(`${player}|${dst}`, from, to);
+      for (const dst of match(c.title, player)) {
+        if (clip) for (const [a, b] of clip(player, dst, from, to)) add(`${player}|${dst}`, a, b);
+        else add(`${player}|${dst}`, from, to);
+      }
     }
   }
   for (const v of out.values()) v.seconds = Math.round(v.seconds);
