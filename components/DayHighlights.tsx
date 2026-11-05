@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Fold } from "./Fold";
+import { DayPicker } from "./DayPicker";
 import { Explain } from "./Explain";
 import type { PlayerState } from "@/lib/types";
 import { EVENT_META } from "@/lib/events";
@@ -9,15 +10,7 @@ import { berlinDay, type DaySummary, type Highlight } from "@/lib/highlights";
 import { EVENT_ICON, Icon } from "./Icons";
 import { Head } from "./Head";
 
-const dayLabelFmt = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/Berlin" });
 const FRAME_LABEL: Record<string, string> = { challenge: "Aufgabe", goal: "Ziel", task: "Fortschritt" };
-
-/** "Heute", "Gestern" oder "Mi., 21. Okt." */
-function dayLabel(day: string, now: number): string {
-  if (day === berlinDay(now)) return "Heute";
-  if (day === berlinDay(now - 24 * 3600_000)) return "Gestern";
-  return dayLabelFmt.format(new Date(`${day}T12:00:00Z`));
-}
 
 /** Satz und Zusatz eines Highlights aus Sicht des Spielers */
 function describe(h: Highlight, players: Record<string, PlayerState>): { text: string; sub: string | null; other: { id: string; name: string; uuid?: string } | null } {
@@ -86,15 +79,9 @@ export function DayHighlights({
           }
         >
         {days.length > 1 && (
-          <ul className="filters filters--scroll" aria-label="Tag wählen">
-            {days.map((d) => (
-              <li key={d}>
-                <Link className="tag" data-tone="white" aria-current={d === day ? "true" : undefined} href={href(d)} scroll={false}>
-                  {dayLabel(d, now)}
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <div className="hl__daypick">
+            <DayPicker hrefs={Object.fromEntries(days.map((d) => [d, href(d)]))} day={day} label="Tag mit Aktivität wählen" today={berlinDay(now)} />
+          </div>
         )}
         {facts.length > 0 && (
           <ul className="hl__facts" aria-label="Tagesbilanz">

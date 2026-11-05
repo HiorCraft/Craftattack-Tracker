@@ -2109,25 +2109,6 @@ a.spark-card--link:hover .eyebrow {
 }
 
 /* ---------- Zeitstrahl / Zeitraffer / Staffel-Statistik ---------- */
-.daynav {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.daynav__input {
-  min-height: 40px;
-  padding: 4px 10px;
-  margin: var(--px);
-  border: 0;
-  background: var(--white);
-  box-shadow: var(--outline);
-  font-family: var(--font-display);
-  font-size: 1rem;
-}
-.daynav__off {
-  opacity: 0.35;
-  pointer-events: none;
-}
 .legend {
   display: flex;
   flex-wrap: wrap;
@@ -5939,17 +5920,6 @@ a.st-board__mvlink:focus-visible {
 }
 
 /* ---------- Zuschauerwanderung (Fluss) ---------- */
-.vf__daynav {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.vf__daynav b {
-  font-family: var(--font-display);
-  text-transform: uppercase;
-}
 .vf__list {
   margin: 0;
   padding: 0;
@@ -7134,4 +7104,115 @@ a.st-board__mvlink:focus-visible {
 .comm__views.gb__seg button[aria-selected="true"] {
   background: var(--ink);
   color: var(--paper);
+}
+
+/* Tagesauswahl (Zeitstrahl, Zuschauer, Tageshighlights): Pfeile, Tag, aufklappbarer Kalender */
+.daypick {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  box-shadow: var(--outline);
+  background: var(--white);
+}
+.daypick__arrow,
+.daypick__day {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.daypick__arrow {
+  width: 40px;
+}
+.daypick__arrow[data-off] {
+  opacity: 0.25;
+  cursor: default;
+}
+.daypick__day {
+  gap: 8px;
+  padding: 4px 14px;
+  border-left: 3px solid var(--line);
+  border-right: 3px solid var(--line);
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  .daypick a.daypick__arrow:hover,
+  .daypick__day:hover {
+    background: var(--paper);
+  }
+}
+.daypick__day[aria-expanded="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+.daypick__pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  width: max-content;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 12px 14px;
+  margin: 0;
+}
+.daypick__month .eyebrow {
+  margin: 0 0 6px;
+}
+.daypick__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 34px);
+  gap: 3px;
+}
+.daypick__wd {
+  font-size: 0.75rem;
+  text-align: center;
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+}
+.daypick__cell {
+  display: grid;
+  place-items: center;
+  height: 32px;
+  font-family: var(--font-display);
+  font-size: 0.875rem;
+  color: var(--ink);
+  text-decoration: none;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+.daypick__cell[data-off] {
+  background: none;
+  color: color-mix(in srgb, var(--ink) 30%, transparent);
+}
+.daypick__cell[data-today] {
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+.daypick__cell[aria-current="date"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+@media (hover: hover) {
+  a.daypick__cell:not([aria-current="date"]):hover {
+    background: var(--gold);
+  }
+}
+.hl__daypick {
+  margin: 0 0 16px;
+}
+@media (width <= 640px) {
+  .daypick {
+    display: flex;
+  }
+  .daypick__day {
+    flex: 1;
+  }
 }

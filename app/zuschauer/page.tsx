@@ -9,6 +9,7 @@ import { DataAge } from "@/components/DataAge";
 import { Fold } from "@/components/Fold";
 import { ShowMore } from "@/components/ShowMore";
 import { PlayerSearch } from "@/components/PlayerSearch";
+import { DayPicker } from "@/components/DayPicker";
 import { DayStackChart, RetentionChart, SeasonChart, StreamerDayChart, type ViewBand, type ViewMarker } from "@/components/ViewerCharts";
 import { FlowList, HourlyChart, MethodNote, PairTable, RampChart, SourceTable, StartTable, pct, type Names } from "@/components/ViewerFlow";
 import { loadTracker } from "@/lib/data";
@@ -92,25 +93,11 @@ async function Viewers({ searchParams }: { searchParams: PageProps<"/zuschauer">
 
 /* ------------------------------------------------------------------ Tag */
 
+/** Tagesauswahl: `days` wie von getDays (neuester zuerst) */
 function DayNav({ days, current, mk }: { days: string[]; current: string; mk: (d: string) => string }) {
-  const i = days.indexOf(current);
   return (
-    <div className="vf__daynav">
-      {i < days.length - 1 ? (
-        <Link className="tag" href={mk(days[i + 1])} scroll={false}>
-          ← {dayLong.format(dayBounds(days[i + 1])[0] + 3_600_000)}
-        </Link>
-      ) : (
-        <span />
-      )}
-      <b>{dayLong.format(dayBounds(current)[0] + 3_600_000)}</b>
-      {i > 0 ? (
-        <Link className="tag" href={mk(days[i - 1])} scroll={false}>
-          {dayLong.format(dayBounds(days[i - 1])[0] + 3_600_000)} →
-        </Link>
-      ) : (
-        <span />
-      )}
+    <div className="vf__daypick">
+      <DayPicker hrefs={Object.fromEntries(days.map((d) => [d, mk(d)]))} day={current} />
     </div>
   );
 }

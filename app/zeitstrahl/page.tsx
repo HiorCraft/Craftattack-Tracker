@@ -3,9 +3,10 @@ import { Suspense } from "react";
 import { PageSkeleton } from "@/components/Skeletons";
 import type { Metadata } from "next";
 import { loadTracker } from "@/lib/data";
-import { dayKey, getDayTimeline, getTimelapse } from "@/lib/analytics";
+import { getDayTimeline, getTimelapse } from "@/lib/analytics";
 import { duration, num, time } from "@/lib/format";
-import { DateNav } from "@/components/DateNav";
+import { DayPicker } from "@/components/DayPicker";
+import { dayRange } from "@/lib/dayRange";
 import { Timelapse } from "@/components/Timelapse";
 import { GanttLiveSegment } from "@/components/GanttLiveSegment";
 import { findVodAt } from "@/lib/twitch";
@@ -53,6 +54,16 @@ async function Timeline(props: PageProps<"/zeitstrahl">) {
     const s = q.toString();
     return `/zeitstrahl${s ? `?${s}` : ""}#balken`;
   };
+  // Tag wechseln, Sortierung behalten
+  const dayHrefs = Object.fromEntries(
+    dayRange(nav.firstDay, nav.today).map((d) => {
+      const q = new URLSearchParams();
+      if (d !== nav.today) q.set("tag", d);
+      if (sort !== "spielzeit") q.set("sortieren", sort);
+      const s = q.toString();
+      return [d, `/zeitstrahl${s ? `?${s}` : ""}`];
+    }),
+  );
   const span = nav.to - nav.from;
   const pct = (t: number) => Math.max(0, Math.min(100, ((t - nav.from) / span) * 100));
   const nowPct = now < nav.to && now > nav.from ? pct(now) : null;
@@ -88,7 +99,7 @@ async function Timeline(props: PageProps<"/zeitstrahl">) {
                 {num(rows.length)} Spieler · {duration(total)} Spielzeit zusammen{afkTotal > 0 ? ` (davon ${duration(afkTotal)} AFK${farmTotal > 0 ? `, ${duration(farmTotal)} AFK-Farm` : ""})` : ""} · {num(liveCount)} mit Stream · Spitze {num(peak)} gleichzeitig
               </p>
             </div>
-            <DateNav base="/zeitstrahl" day={nav.day} prev={nav.prev} next={nav.next} max={dayKey(now)} />
+            <DayPicker hrefs={dayHrefs} day={nav.day} today={nav.today} />
           </div>
 
           <div className="box" data-tone="white" id="zeitraffer" style={{ marginBottom: 24 }}>
