@@ -1453,6 +1453,47 @@ a.spark-card--link:hover .eyebrow {
   min-height: 420px;
   border: 0;
 }
+/* Zwei-Klick-Platzhalter: nimmt die Fläche von Player und Chat ein, lädt nichts von Twitch */
+.twitch .twitch__gate {
+  grid-column: 1 / -1;
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 12px;
+  min-height: 280px;
+  padding: 24px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.twitch__gate p {
+  margin: 0;
+  max-width: 60ch;
+}
+.twitch__gate-title {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+}
+.twitch__gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+}
+.twitch__gate-actions label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.twitch__revoke {
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
 @media (width <= 860px) {
   .twitch {
     grid-template-columns: 1fr;

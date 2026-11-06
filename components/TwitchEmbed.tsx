@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { TwitchGate } from "./TwitchGate";
 
 /**
  * Twitch-Player + Live-Chat. Twitch verlangt den Hostnamen der einbettenden Seite als `parent`,
@@ -19,24 +20,11 @@ export async function TwitchEmbed({ login, name }: { login: string; name: string
             Auf Twitch öffnen
           </a>
         </div>
-        <div className="twitch">
-          <div className="box twitch__player" data-tone="white">
-            <iframe
-              src={`https://player.twitch.tv/?channel=${encodeURIComponent(login)}&${q}&muted=true&autoplay=true`}
-              title={`Stream von ${name}`}
-              allowFullScreen
-              allow="autoplay; fullscreen; picture-in-picture"
-              loading="lazy"
-            />
-          </div>
-          <div className="box twitch__chat" data-tone="white">
-            <iframe
-              src={`https://www.twitch.tv/embed/${encodeURIComponent(login)}/chat?${q}&darkpopout`}
-              title={`Chat von ${name}`}
-              loading="lazy"
-            />
-          </div>
-        </div>
+        <TwitchGate
+          name={name}
+          playerSrc={`https://player.twitch.tv/?channel=${encodeURIComponent(login)}&${q}&muted=true&autoplay=true`}
+          chatSrc={`https://www.twitch.tv/embed/${encodeURIComponent(login)}/chat?${q}&darkpopout`}
+        />
         <p className="muted" style={{ marginTop: 12, fontSize: ".9375rem" }}>
           Player startet stumm. Chat-Nachrichten schreiben geht nur eingeloggt direkt auf Twitch.
         </p>
