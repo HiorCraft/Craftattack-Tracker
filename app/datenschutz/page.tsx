@@ -97,11 +97,37 @@ export default function Datenschutz() {
                 Grundlage von Art. 6 Abs. 1 lit. a DSGVO und § 25 Abs. 1 TDDDG, soweit die Einwilligung die Speicherung von Cookies oder den Zugriff auf
                 Informationen im Endgerät des Nutzers (z. B. Device-Fingerprinting) im Sinne des TDDDG umfasst. Die Einwilligung ist jederzeit widerrufbar.
               </p>
+              <h3>Cloudflare</h3>
+              <p>
+                Wir nutzen den Dienst Cloudflare. Anbieter ist die Cloudflare, Inc., 101 Townsend St., San Francisco, CA 94107, USA (nachfolgend Cloudflare).
+              </p>
+              <p>
+                Cloudflare bietet ein weltweit verteiltes Content Delivery Network mit DNS an. Dabei wird der Informationstransfer zwischen Ihrem Browser und
+                unserer Website technisch über das Netzwerk von Cloudflare geleitet. Das versetzt Cloudflare in die Lage, den Datenverkehr zwischen Ihrem Browser
+                und unserer Website zu analysieren und als Filter zwischen unseren Servern und potenziell bösartigem Datenverkehr aus dem Internet zu dienen.
+                Hierbei kann Cloudflare auch Cookies oder sonstige Technologien zur Wiedererkennung von Internetnutzern einsetzen, die jedoch allein zum hier
+                beschriebenen Zweck verwendet werden. Dabei verarbeitet Cloudflare insbesondere Ihre IP-Adresse, die aufgerufene Adresse, Datum und Uhrzeit sowie
+                Angaben zu Browser und Betriebssystem.
+              </p>
+              <p>
+                Der Einsatz von Cloudflare beruht auf unserem berechtigten Interesse an einer möglichst fehlerfreien und sicheren Bereitstellung unseres
+                Webangebotes (Art. 6 Abs. 1 lit. f DSGVO). Cookies, die Cloudflare zur Abwehr automatisierter Angriffe setzt, sind für den sicheren Betrieb
+                unbedingt erforderlich (§ 25 Abs. 2 Nr. 2 TDDDG).
+              </p>
+              <p>
+                Die Datenübertragung in die USA wird auf die Standardvertragsklauseln der EU-Kommission gestützt. Details finden Sie unter{" "}
+                <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener">
+                  https://www.cloudflare.com/privacypolicy/
+                </a>
+                . Das Unternehmen verfügt zudem über eine Zertifizierung nach dem „EU-US Data Privacy Framework“ (DPF). Der DPF ist ein Übereinkommen zwischen der
+                Europäischen Union und den USA, der die Einhaltung europäischer Datenschutzstandards bei Datenverarbeitungen in den USA gewährleisten soll.
+              </p>
+
               <h3>Auftragsverarbeitung</h3>
               <p>
-                Wir haben einen Vertrag über Auftragsverarbeitung (AVV) zur Nutzung des oben genannten Dienstes geschlossen. Hierbei handelt es sich um einen
-                datenschutzrechtlich vorgeschriebenen Vertrag, der gewährleistet, dass dieser die personenbezogenen Daten unserer Websitebesucher nur nach unseren
-                Weisungen und unter Einhaltung der DSGVO verarbeitet.
+                Wir haben Verträge über Auftragsverarbeitung (AVV) zur Nutzung der oben genannten Dienste geschlossen. Hierbei handelt es sich um
+                datenschutzrechtlich vorgeschriebene Verträge, die gewährleisten, dass die Anbieter die personenbezogenen Daten unserer Websitebesucher nur nach
+                unseren Weisungen und unter Einhaltung der DSGVO verarbeiten.
               </p>
             </section>
 
@@ -284,7 +310,7 @@ export default function Datenschutz() {
 
               <h3>Lokaler Speicher statt Cookies</h3>
               <p>
-                Diese Website setzt keine eigenen Cookies. Im lokalen Speicher Ihres Browsers (<code>localStorage</code>) werden nur Einstellungen abgelegt, die Sie
+                Diese Website setzt keine eigenen Cookies (zu technisch notwendigen Cookies von Cloudflare siehe Abschnitt 2). Im lokalen Speicher Ihres Browsers (<code>localStorage</code>) werden nur Einstellungen abgelegt, die Sie
                 selbst vornehmen: helles oder dunkles Design, auf- und zugeklappte Abschnitte, die Ansichtseinstellungen auf der Seite{" "}
                 <Link href="/verbindungen">Verbindungen</Link> und, falls Sie das wählen, Ihre Zustimmung zur Twitch-Einbettung. Diese Werte verlassen Ihren Browser nicht und werden nicht an uns übertragen. Rechtsgrundlage ist §
                 25 Abs. 2 Nr. 2 TDDDG, da die Speicherung für den von Ihnen ausdrücklich gewünschten Dienst unbedingt erforderlich ist. Sie können die Einträge
