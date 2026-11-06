@@ -6,6 +6,7 @@ import { SiteFooter } from "@/components/SiteFooter";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { HeadTip } from "@/components/HeadTip";
 import { ThemeScript } from "@/components/ThemeToggle";
+import { FoldScript } from "@/components/Fold";
 import { EstimateBanner, EstimateProvider } from "@/components/Estimates";
 import { ESTIMATE } from "@/lib/estimateMode";
 
@@ -49,6 +50,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body>
         <ThemeScript />
+        <FoldScript />
         <a className="skip" href="#inhalt">
           Zum Inhalt
         </a>
