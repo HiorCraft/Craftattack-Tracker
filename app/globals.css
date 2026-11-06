@@ -7433,3 +7433,133 @@ a.st-board__mvlink:focus-visible {
   text-decoration: underline;
   text-decoration-thickness: 2px;
 }
+
+/* ---------- Spielertypen (app/spielertypen, components/Rhythm.tsx) ---------- */
+.rh-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  vertical-align: middle;
+}
+.rh-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  font: 700 0.75rem/1.3 var(--font-body, inherit);
+  white-space: nowrap;
+  color: var(--ink);
+  text-decoration: none;
+  background: color-mix(in srgb, var(--tone, var(--line)) 22%, var(--paper));
+  box-shadow: inset 3px 0 0 var(--tone, var(--line)), inset 0 0 0 1px color-mix(in srgb, var(--ink) 18%, transparent);
+  padding-left: 9px;
+}
+a.rh-badge:hover,
+a.rh-badge:focus-visible {
+  background: color-mix(in srgb, var(--tone, var(--line)) 45%, var(--paper));
+}
+.rh-badge[data-plain] {
+  --tone: var(--line);
+}
+.rh-group {
+  margin: 8px 0 12px;
+}
+.rh-types {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 16px;
+}
+.rh-type {
+  border-top: 6px solid var(--tone);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rh-type__title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font: 700 1.0625rem/1.2 var(--font-body, inherit);
+  margin: 0;
+}
+.rh-type__title a {
+  color: inherit;
+}
+.rh-type__title a[aria-current] {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+.rh-type__n {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+}
+.rh-type__hint {
+  margin: 0;
+  font-size: 0.8125rem;
+}
+.rh-type__heads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  margin-top: auto;
+}
+.rh-type__more {
+  font: 700 0.8125rem/1 var(--font-display);
+  padding: 0 4px;
+}
+.rh-filter {
+  flex-wrap: wrap;
+}
+.rh-hours {
+  display: block;
+  width: 96px;
+  height: 24px;
+}
+.rh-hours__night {
+  fill: color-mix(in srgb, var(--ender) 14%, transparent);
+}
+.rh-hours__bar {
+  fill: var(--grass);
+}
+.rh-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.rh-tbl td {
+  vertical-align: middle;
+}
+.rh-profile {
+  margin: 4px 0 12px;
+  display: grid;
+  gap: 8px;
+}
+.rh-profile__type {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 0.875rem;
+}
+.rh-profile__all {
+  font-size: 0.8125rem;
+}
+.rh-profile__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+.rh-profile__facts dt {
+  opacity: 0.6;
+}
+.rh-profile__facts dd {
+  margin: 0;
+  font-weight: 700;
+}
