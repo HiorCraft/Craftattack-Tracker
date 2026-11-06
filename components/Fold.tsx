@@ -39,6 +39,18 @@ function subscribe(l: () => void) {
   };
 }
 
+const noop = () => () => {};
+
+/**
+ * Vor dem ersten Paint: eingeklappte Abschnitte sofort verbergen. Sonst zeigt die Seite sie beim Laden (der Server
+ * kennt die Wahl nicht) und blendet sie erst nach dem Hydrieren aus, was wie ein Fehler aussieht. Die Regel gilt nur,
+ * solange der Abschnitt noch nicht hydriert ist (`data-live` fehlt); danach entscheidet React.
+ */
+export function FoldScript() {
+  const js = `try{var c=(localStorage.getItem(${JSON.stringify(KEY)})||"").split("|").filter(Boolean);if(c.length){var s=document.createElement("style");s.textContent=c.map(function(i){i=JSON.stringify(i);return".fold__body[data-fold="+i+"]:not([data-live]){display:none}"}).join("");document.head.appendChild(s)}}catch(e){}`;
+  return <script dangerouslySetInnerHTML={{ __html: js }} />;
+}
+
 export function useFolded(id: string): [boolean, (closed: boolean) => void] {
   const raw = useSyncExternalStore(subscribe, readClosed, () => "");
   const closed = raw.split("|").includes(id);
@@ -65,23 +77,24 @@ export function Fold({
   children: ReactNode;
 }) {
   const [closed, setFold] = useFolded(id);
+  const live = useSyncExternalStore(noop, () => true, () => false);
   const body = useId();
   const H = level === 2 ? "h2" : "h3";
   return (
     <>
       <div className="section-head fold__head" data-closed={closed || undefined}>
-        <div className="fold__title">
-          <H className={className} id={titleId}>
-            {title}
-          </H>
-          <button type="button" className="fold__btn" aria-expanded={!closed} aria-controls={body} onClick={() => setFold(!closed)} title={closed ? "Einblenden" : "Ausblenden"}>
+        <H className={className} id={titleId}>
+          {title}
+        </H>
+        <div className="fold__side">
+          {aside}
+          <button type="button" className="fold__btn" aria-expanded={!closed} aria-controls={body} onClick={() => setFold(!closed)} title={closed ? "Abschnitt wieder einblenden" : "Abschnitt ausblenden"}>
+            {closed ? "Einblenden" : <span className="sr-only">Ausblenden</span>}
             <span aria-hidden="true">{closed ? "+" : "−"}</span>
-            <span className="sr-only">{closed ? "einblenden" : "ausblenden"}</span>
           </button>
         </div>
-        {aside}
       </div>
-      <div id={body} hidden={closed}>
+      <div id={body} className="fold__body" data-fold={id} data-live={live || undefined} hidden={closed}>
         {children}
       </div>
     </>
