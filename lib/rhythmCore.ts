@@ -20,7 +20,7 @@ export interface Rhythm {
   parts: { night: number; morning: number; day: number; evening: number };
   /** Anteil Samstag und Sonntag */
   weekend: number;
-  /** Sessions nach Zusammenlegen kurzer Unterbrechungen (unter 15 Min) */
+  /** Sessions; Pausen bis PAUSE_MS zählen zur selben Session */
   sessions: number;
   /** Median der Session-Länge (Minuten) */
   medianSession: number;
@@ -31,6 +31,8 @@ export interface Rhythm {
   activeRatio: number;
   /** Sessions je aktivem Tag */
   perDay: number;
+  /** Online-Minuten je aktivem Tag (Durchschnitt) */
+  minutesPerDay: number;
   /** Streuung der ersten Einlog-Uhrzeit des Tages (Stunden, kreisförmig gerechnet), null bei zu wenigen Tagen */
   startSpread: number | null;
   /** Typische erste Einlog-Uhrzeit (Stunde mit Minuten als Dezimalzahl) */
@@ -83,8 +85,8 @@ export const TRAITS: Record<TraitKey, TraitInfo> = {
   tagschicht: { label: "Tagschicht", hint: "Spielt vor allem am Nachmittag (12–18 Uhr)", tone: "--diamond", group: "zeit" },
   feierabend: { label: "Feierabend-Spieler", hint: "Spielt fast nur abends (18–24 Uhr)", tone: "--redstone", group: "zeit" },
   wochenende: { label: "Wochenend-Spieler", hint: "Ein großer Teil der Spielzeit am Samstag und Sonntag", tone: "--grass", group: "woche" },
-  marathon: { label: "Marathon-Spieler", hint: "Lange Sessions am Stück (Median ab 3 Std)", tone: "--amethyst", group: "laenge" },
-  kurzbesucher: { label: "Kurz-Reinschauer", hint: "Viele kurze Besuche (Median unter 40 Min, oft mehrmals am Tag)", tone: "--diamond", group: "laenge" },
+  marathon: { label: "Marathon-Spieler", hint: "Lange Sessions (Median ab 5 Std, Pausen bis 1 Std eingerechnet)", tone: "--amethyst", group: "laenge" },
+  kurzbesucher: { label: "Kurz-Reinschauer", hint: "Kurze Besuche (Median höchstens 2 Std, Pausen bis 1 Std eingerechnet) und höchstens 3 Std pro Tag", tone: "--diamond", group: "laenge" },
   dauergast: { label: "Dauergast", hint: "Fast jeden Tag online", tone: "--grass", group: "takt" },
   gelegenheit: { label: "Gelegenheitsspieler", hint: "Nur an wenigen Tagen online", tone: "--line", group: "takt" },
   gewohnheit: { label: "Gewohnheitstier", hint: "Loggt sich fast immer zur selben Uhrzeit ein", tone: "--gold", group: "takt" },
@@ -92,6 +94,9 @@ export const TRAITS: Record<TraitKey, TraitInfo> = {
   offstream: { label: "Auch ohne Stream", hint: "Streamt, spielt aber oft auch ohne Kamera", tone: "--twitch", group: "stream" },
   afk: { label: "AFK-Farmer", hint: "Ein großer Teil der Online-Zeit ist AFK", tone: "--line", group: "stream" },
 };
+
+/** Kürzere Pausen (z. B. Essen, kurz offline) gehören noch zur selben Session */
+export const PAUSE_MS = 60 * 60_000;
 
 /** Erst ab so viel Online-Zeit und so vielen Tagen wird eingeordnet */
 export const MIN_MINUTES = 8 * 60;
@@ -179,8 +184,8 @@ export function rhythmOf(id: string, online: SpanLike[], live: SpanLike[], afk: 
       t = next;
     }
   }
-  // Erste Einlog-Uhrzeit je Tag: aus den zusammengelegten Sessions (kurze Unterbrechungen zählen nicht als neuer Start)
-  const sessions = mergeSpans(online, 15 * 60_000);
+  // Sessions und erste Einlog-Uhrzeit je Tag: Pausen bis PAUSE_MS zählen nicht als neuer Besuch
+  const sessions = mergeSpans(online, PAUSE_MS);
   for (const s of sessions) {
     const { day, hour } = berlinSlotFast(s.start);
     if (!firstOnDay.has(day)) firstOnDay.set(day, hour + (s.start % 3_600_000) / 3_600_000);
@@ -212,6 +217,7 @@ export function rhythmOf(id: string, online: SpanLike[], live: SpanLike[], afk: 
     spanDays,
     activeRatio: spanDays ? Math.min(1, active.length / spanDays) : 0,
     perDay: active.length ? lengths.length / active.length : 0,
+    minutesPerDay: active.length ? minutes / active.length : 0,
     startSpread: circ?.spread ?? null,
     typicalStart: circ?.mean ?? null,
     liveShare: liveTotal > 0 && onMs > 0 ? Math.min(1, overlap(on, liveSpans) / onMs) : null,
@@ -227,14 +233,15 @@ export function rhythmOf(id: string, online: SpanLike[], live: SpanLike[], afk: 
  * bleiben die Typen unterscheidend, auch wenn auf dem Server z. B. fast alle lange Sessions haben (Streams).
  */
 const TOP = 0.8;
-const RULES: { key: TraitKey; value: (r: Omit<Rhythm, "traits">) => number | null; at: number; low?: boolean }[] = [
+const RULES: { key: TraitKey; value: (r: Omit<Rhythm, "traits">) => number | null; at: number; low?: boolean; when?: (r: Omit<Rhythm, "traits">) => boolean }[] = [
   { key: "nachteule", value: (r) => r.parts.night, at: 0.18 },
   { key: "fruehaufsteher", value: (r) => r.parts.morning, at: 0.15 },
   { key: "tagschicht", value: (r) => r.parts.day, at: 0.42 },
   { key: "feierabend", value: (r) => r.parts.evening, at: 0.58 },
   { key: "wochenende", value: (r) => r.weekend, at: 0.42 },
   { key: "marathon", value: (r) => r.medianSession, at: 300 },
-  { key: "kurzbesucher", value: (r) => r.medianSession, at: 90, low: true },
+  // Verglichen wird die Session-Länge mit allen; zählt aber nur, wer auch am Tag insgesamt wenig spielt
+  { key: "kurzbesucher", value: (r) => r.medianSession, at: 120, low: true, when: (r) => r.minutesPerDay <= 180 },
   { key: "dauergast", value: (r) => r.activeRatio, at: 0.75 },
   { key: "gelegenheit", value: (r) => r.activeRatio, at: 0.4, low: true },
   { key: "gewohnheit", value: (r) => (r.activeDays >= 7 ? r.startSpread : null), at: 2.5, low: true },
@@ -278,7 +285,7 @@ export function classifyAll(list: Omit<Rhythm, "traits">[]): Rhythm[] {
     RULES.forEach((rule, i) => {
       const v = rule.value(r);
       if (v === null) return;
-      const ok = rule.low ? v <= rule.at : v >= rule.at;
+      const ok = (rule.low ? v <= rule.at : v >= rule.at) && (rule.when?.(r) ?? true);
       const score = pct(i, v);
       if (ok && score >= TOP) hits.push({ key: rule.key, score });
     });
@@ -290,4 +297,73 @@ export function classifyAll(list: Omit<Rhythm, "traits">[]): Rhythm[] {
     }
     return { ...r, traits: [...best.values()].sort((a, b) => b.score - a.score) };
   });
+}
+
+/** Mittelwerte (Median) des Servers für Vergleiche, über alle eingeordneten Spieler */
+export interface RhythmMedians {
+  night: number;
+  morning: number;
+  day: number;
+  evening: number;
+  weekend: number;
+  medianSession: number;
+  minutesPerDay: number;
+  activeRatio: number;
+  liveShare: number;
+  afkShare: number;
+}
+
+export function rhythmMedians(list: Omit<Rhythm, "traits">[]): RhythmMedians {
+  const pool = list.filter(classifiable);
+  const m = (f: (r: Omit<Rhythm, "traits">) => number | null) => median(pool.map(f).filter((v): v is number => v !== null));
+  return {
+    night: m((r) => r.parts.night),
+    morning: m((r) => r.parts.morning),
+    day: m((r) => r.parts.day),
+    evening: m((r) => r.parts.evening),
+    weekend: m((r) => r.weekend),
+    medianSession: m((r) => r.medianSession),
+    minutesPerDay: m((r) => r.minutesPerDay),
+    activeRatio: m((r) => r.activeRatio),
+    liveShare: m((r) => r.liveShare),
+    afkShare: m((r) => r.afkShare),
+  };
+}
+
+const p100 = (v: number) => `${Math.round(v * 100)} %`;
+const hm = (min: number) => (min >= 60 ? `${Math.floor(min / 60)} Std${min % 60 >= 1 ? ` ${Math.round(min % 60)} Min` : ""}` : `${Math.round(min)} Min`);
+const at = (h: number) => {
+  const m = Math.round(h * 60) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+};
+
+/** Warum dieser Typ: der eigene Wert mit dem Server-Mittel zum Vergleich */
+export function traitReason(r: Omit<Rhythm, "traits">, k: TraitKey, med: RhythmMedians): string {
+  switch (k) {
+    case "nachteule":
+      return `${p100(r.parts.night)} der Spielzeit zwischen 0 und 6 Uhr (Server-Mitte ${p100(med.night)})`;
+    case "fruehaufsteher":
+      return `${p100(r.parts.morning)} der Spielzeit zwischen 6 und 12 Uhr (Server-Mitte ${p100(med.morning)})`;
+    case "tagschicht":
+      return `${p100(r.parts.day)} der Spielzeit zwischen 12 und 18 Uhr (Server-Mitte ${p100(med.day)})`;
+    case "feierabend":
+      return `${p100(r.parts.evening)} der Spielzeit zwischen 18 und 24 Uhr (Server-Mitte ${p100(med.evening)})`;
+    case "wochenende":
+      return `${p100(r.weekend)} der Spielzeit am Samstag und Sonntag (Server-Mitte ${p100(med.weekend)}, gleichmäßig wären 29 %)`;
+    case "marathon":
+      return `eine Session dauert meist ${hm(r.medianSession)} (Server-Mitte ${hm(med.medianSession)})`;
+    case "kurzbesucher":
+      return `eine Session dauert meist ${hm(r.medianSession)}, im Schnitt ${hm(r.minutesPerDay)} pro Tag (Server-Mitte ${hm(med.medianSession)} bzw. ${hm(med.minutesPerDay)})`;
+    case "dauergast":
+    case "gelegenheit":
+      return `an ${r.activeDays} von ${r.spanDays} Tagen online (${p100(r.activeRatio)}, Server-Mitte ${p100(med.activeRatio)})`;
+    case "gewohnheit":
+      return r.typicalStart !== null && r.startSpread !== null ? `erster Login fast immer gegen ${at(r.typicalStart)}, meist nur ±${hm(r.startSpread * 60)} daneben` : "loggt sich meist zur selben Zeit ein";
+    case "nurlive":
+      return `${p100(r.liveShare ?? 0)} der Spielzeit live auf Twitch (Server-Mitte ${p100(med.liveShare)})`;
+    case "offstream":
+      return `nur ${p100(r.liveShare ?? 0)} der Spielzeit live, der Rest ohne Stream (Server-Mitte ${p100(med.liveShare)})`;
+    case "afk":
+      return `${p100(r.afkShare)} der Online-Zeit AFK, z. B. an einer Farm (Server-Mitte ${p100(med.afkShare)})`;
+  }
 }

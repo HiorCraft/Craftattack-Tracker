@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { getAllAfkSpans, getLiveSessions } from "./analytics";
 import { getAllSessions } from "./store";
 import { createSwrCache } from "./swrCache";
-import { classifyAll, rhythmOf, type Rhythm, type SpanLike } from "./rhythmCore";
+import { classifyAll, rhythmMedians, rhythmOf, type Rhythm, type RhythmMedians, type SpanLike } from "./rhythmCore";
 
 export type { Rhythm } from "./rhythmCore";
 
@@ -40,4 +40,9 @@ export async function getRhythms(): Promise<Map<string, Rhythm>> {
     );
     return new Map(classifyAll(list).map((r) => [r.id, r]));
   });
+}
+
+/** Server-Mittelwerte zum Vergleich (gleicher Zwischenspeicher wie getRhythms) */
+export async function getRhythmMedians(): Promise<RhythmMedians> {
+  return rhythmMedians([...(await getRhythms()).values()]);
 }
