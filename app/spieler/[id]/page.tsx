@@ -264,6 +264,9 @@ async function HeadSection({ params }: { params: Params }) {
               <span className="tag" data-tone="white">
                 Erfasst seit {dateTime(p.firstSeen)}
               </span>
+              <Link className="tag" data-tone="gold" href={`/spieler/${encodeURIComponent(p.id)}/rueckblick`} title="Die Staffel dieses Spielers in Zahlen">
+                ★ Staffel-Rückblick
+              </Link>
             </div>
           </div>
         </div>

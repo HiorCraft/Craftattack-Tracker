@@ -40,6 +40,8 @@ export interface Rhythm {
   afkShare: number;
   /** Stunde mit der meisten Online-Zeit */
   peakHour: number;
+  /** Tag (Berlin) mit der meisten Online-Zeit */
+  topDay: { day: string; minutes: number } | null;
   /** Einordnung, stärkstes Merkmal zuerst; leer, wenn zu wenig Daten */
   traits: TraitHit[];
 }
@@ -215,6 +217,7 @@ export function rhythmOf(id: string, online: SpanLike[], live: SpanLike[], afk: 
     liveShare: liveTotal > 0 && onMs > 0 ? Math.min(1, overlap(on, liveSpans) / onMs) : null,
     afkShare: onMs > 0 ? Math.min(1, overlap(on, mergeSpans(afk)) / onMs) : 0,
     peakHour: hours.indexOf(Math.max(...hours)),
+    topDay: [...dayMinutes].reduce<{ day: string; minutes: number } | null>((best, [day, m]) => (!best || m > best.minutes ? { day, minutes: m } : best), null),
   };
 }
 
