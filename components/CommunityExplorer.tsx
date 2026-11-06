@@ -2,55 +2,37 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { NetzView, NaeheView, AROUND_NET } from "./CommunityViews";
+import { NetzView, NaeheView } from "./CommunityViews";
 import { recolor } from "./GroupViews";
 import { FigValue } from "./FigValue";
-import { Explain } from "./Explain";
+import { Head } from "./Head";
 import { PlayerSearch } from "./PlayerSearch";
 import type { GraphEdge, GraphNode } from "./ConnectionGraph";
 import type { CommunityCtx } from "./communityCtx";
 import { sumDays, type DailyNetwork } from "@/lib/dailyNetwork";
-import { KIND_INFO, LINK_KINDS, WEIGHT_PRESETS, weigh } from "@/lib/connectionWeights";
+import { DEFAULT_WEIGHTS, KIND_INFO, LINK_KINDS, weigh } from "@/lib/connectionWeights";
 import { analyzeGroups, resolutionForCount } from "@/lib/groups";
 import { isMutual, type Direction } from "@/lib/network";
-import { loadOpen, loadSettings, parseSettings, sameWeights, saveOpen, saveSettings, SETTINGS_DEFAULTS, type CommunitySettings, type Show, type Win } from "@/lib/communitySettings";
+import { loadOpen, loadSettings, parseSettings, sameWeights, saveOpen, saveSettings, SETTINGS_DEFAULTS, type CommunitySettings, type Show } from "@/lib/communitySettings";
 import { num } from "@/lib/format";
 
 export type CommunityView = "netz" | "distanz";
 const VIEWS: { key: CommunityView; label: string; hint: string }[] = [
-  { key: "netz", label: "Verbindungen", hint: "Alle Verbindungen als Netz; mit Spieler sein Umfeld und seine Verbindungen" },
+  { key: "netz", label: "Verbindungen", hint: "Alle Verbindungen als Netz; mit Spieler seine Verbindungen" },
   { key: "distanz", label: "Distanz", hint: "Wer allen am nächsten steht; mit Spieler alle nach ihrer Distanz zu ihm" },
-];
-
-const WINDOWS: { key: Win; label: string; hint: string }[] = [
-  { key: "gesamt", label: "Bis dahin", hint: "Alles vom Staffelstart bis zum gewählten Tag" },
-  { key: "7", label: "7 Tage", hint: "Die sieben Tage bis zum gewählten Tag" },
-  { key: "1", label: "Nur der Tag", hint: "Nur der gewählte Tag" },
 ];
 
 const SHOW: { key: Show; label: string; hint: string }[] = [
   { key: "alle", label: "Alle", hint: "Alle Spieler" },
-  { key: "online", label: "Gerade online", hint: "Nur Spieler, die gerade auf dem Server sind" },
+  { key: "online", label: "Online", hint: "Nur Spieler, die gerade auf dem Server sind" },
   { key: "live", label: "Live", hint: "Nur Spieler, die gerade streamen" },
 ];
 
 const DIRECTIONS: { key: Direction; label: string; hint: string }[] = [
-  { key: "von", label: "Von ihm aus", hint: "Wen er raidet, bei wem er schreibt, und weiter über deren Verbindungen" },
-  { key: "zu", label: "Zu ihm hin", hint: "Wer ihn raidet oder bei ihm schreibt, und wer wiederum zu denen" },
+  { key: "von", label: "Von ihm", hint: "Wen er raidet, bei wem er schreibt, und weiter über deren Verbindungen" },
+  { key: "zu", label: "Zu ihm", hint: "Wer ihn raidet oder bei ihm schreibt, und wer wiederum zu denen" },
   { key: "gegenseitig", label: "Gegenseitig", hint: "Nur Verbindungen, die in beide Richtungen gehen" },
 ];
-
-const AROUND_GROUP: [number, string][] = [
-  [0, "Nur die Gruppe"],
-  [1, "+ Nachbarn"],
-  [2, "+ 2 Schritte"],
-  [99, "Ganzes Netz"],
-];
-
-/** Feinheit als Schieberegler auf einer Log-Skala: Stufe 0–40 ↔ 0,25–16 */
-const RES_STEPS = 40;
-const resOfStep = (s: number) => Math.round(0.25 * Math.pow(64, s / RES_STEPS) * 100) / 100;
-const stepOfRes = (r: number) => Math.round((Math.log(r / 0.25) / Math.log(64)) * RES_STEPS);
 
 /** Mindeststärke in Stufen: fein bei kleinen Werten, bis zu den stärksten Verbindungen */
 const MIN_STEPS = [0, 0.5, 1, 2, 3, 5, 7.5, 10, 15, 20, 30, 40, 50, 75, 100, 150, 200, 300, 500];
@@ -60,13 +42,13 @@ const DAY = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit",
 const dayLabel = (d: string) => DAY.format(Date.parse(`${d}T12:00:00Z`));
 
 /** Abschnitte der Seitenleiste und ob sie anfangs offen sind (breit / schmal) */
-type Section = "zeit" | "gewicht" | "filter" | "ansicht" | "gruppen";
-const OPEN_WIDE: Record<Section, boolean> = { zeit: true, gewicht: true, filter: true, ansicht: true, gruppen: true };
-const OPEN_NARROW: Record<Section, boolean> = { zeit: true, gewicht: false, filter: false, ansicht: false, gruppen: false };
+type Section = "verteilung" | "filter" | "ansicht";
+const OPEN_WIDE: Record<Section, boolean> = { verteilung: true, filter: true, ansicht: true };
+const OPEN_NARROW: Record<Section, boolean> = { verteilung: false, filter: false, ansicht: false };
 
 /**
  * Verbindungen: Netz und Distanz (Gruppen zuschaltbar) sind nur verschiedene Blicke auf dieselben Daten. Alle Einstellungen
- * (Zeitraum, Gewichtung, Filter, Gruppen) gelten für jede Ansicht; ein gewählter Spieler bleibt beim Wechsel
+ * (Zeitraum, Verteilung, Filter, Gruppen) gelten für jede Ansicht; ein gewählter Spieler bleibt beim Wechsel
  * gewählt und macht jede Ansicht spielerspezifisch. Ansicht, Filter und Spieler stehen in der Adresse, die übrigen
  * Einstellungen bleiben im Browser gespeichert.
  */
@@ -124,29 +106,17 @@ export function CommunityExplorer({
     put("server", server ? "1" : "");
     put("spieler", focus);
     if (loaded) put("gruppen", s.groups ? "1" : "");
-    window.history.replaceState(window.history.state, "", u);
+    // Mit null, damit Next.js die Adresse übernimmt (sonst setzt die Minuten-Aktualisierung sie zurück)
+    window.history.replaceState(null, "", u);
   }, [view, server, focus, s.groups, loaded]);
 
+  // Zeitraum: von–bis als Tage; „bis“ leer = immer der neueste Tag
   const data = server ? dailyServer : daily;
   const last = data.days.length - 1;
-  const [toRaw, setTo] = useState<number | null>(null);
-  const to = toRaw === null ? last : Math.min(toRaw, last);
-  const [playing, setPlaying] = useState(false);
-  const from = s.win === "gesamt" ? 0 : Math.max(0, to - (s.win === "7" ? 6 : 0));
-  useEffect(() => {
-    if (!playing) return;
-    const t = setInterval(() => {
-      setTo((d) => {
-        const cur = d === null ? last : d;
-        if (cur >= last) {
-          setPlaying(false);
-          return null;
-        }
-        return cur + 1;
-      });
-    }, 1400);
-    return () => clearInterval(t);
-  }, [playing, last]);
+  const [range, setRange] = useState<{ from: number; to: number | null }>({ from: 0, to: null });
+  const to = range.to === null ? last : Math.min(range.to, last);
+  const from = Math.min(range.from, to);
+  const pickRange = (f: number, t: number) => setRange({ from: f, to: t >= last ? null : t });
 
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const name = useCallback((id: string) => byId.get(id)?.name ?? id, [byId]);
@@ -175,16 +145,17 @@ export function CommunityExplorer({
     return s.min > (steps.at(-1) ?? 0) ? [...steps, s.min] : steps;
   }, [raw, s.weights, s.min]);
   const weighted: GraphEdge[] = useMemo(() => counts.map((e) => ({ ...e, ...weigh(e, s.weights) })), [counts, s.weights]);
-  const resolution = useMemo(() => (s.groupMode === "anzahl" ? resolutionForCount(counts, s.weights, s.count) : s.resolution), [counts, s.weights, s.groupMode, s.count, s.resolution]);
-  // Gruppenfarben aus der ganzen Staffel (gleiche Einstellungen), damit Gruppen beim Durchspielen ihre Farbe behalten
+  // Gruppen nur rechnen, wenn sie gezeigt werden (die Suche nach der Anzahl ist teuer)
+  const resolution = useMemo(() => (s.groups ? resolutionForCount(counts, s.weights, s.count) : 1), [counts, s.weights, s.count, s.groups]);
+  // Gruppenfarben aus der ganzen Staffel (gleiche Einstellungen), damit Gruppen beim Verschieben des Zeitraums ihre Farbe behalten
   const season = useMemo(() => (last < 0 ? [] : filter(sumDays(data, 0, last))), [data, last, filter]);
   const anchorColor = useMemo(() => {
-    if (from === 0 && to === last) return null;
+    if (!s.groups || (from === 0 && to === last)) return null;
     const a = analyzeGroups(season, s.weights, resolution);
     const color = new Map<string, string>();
     for (const g of a.groups) for (const m of g.members) color.set(m.id, g.color);
     return (id: string) => color.get(id) ?? null;
-  }, [season, s.weights, resolution, from, to, last]);
+  }, [season, s.weights, resolution, from, to, last, s.groups]);
   const analysis = useMemo(() => {
     const a = analyzeGroups(counts, s.weights, resolution);
     return anchorColor ? recolor(a, anchorColor) : a;
@@ -202,9 +173,21 @@ export function CommunityExplorer({
   const linked = new Set(counts.flatMap((e) => [e.a, e.b])).size;
   const activeCount = raw.filter((e) => weigh(e, s.weights).weight > 0).length;
   const sizes = analysis.groups.map((g) => g.members.length);
-  const preset = WEIGHT_PRESETS.find((p) => sameWeights(p.w, s.weights))?.label ?? "eigene";
-  const changed = JSON.stringify(s) !== JSON.stringify(parseSettings(null));
-  const fg = focus ? analysis.groupOf.get(focus) : undefined;
+  const changed = JSON.stringify(s) !== JSON.stringify(parseSettings(null)) || from !== 0 || to !== last;
+  const fg = s.groups && focus ? analysis.groupOf.get(focus) : undefined;
+  const linkedFocus = !!focus && counts.some((e) => e.a === focus || e.b === focus);
+
+  // Verteilung: Name anklicken = nur das zählt, nochmal anklicken = wieder ausgewogen
+  const activeKinds = LINK_KINDS.filter((k) => s.weights[k] > 0);
+  const solo = activeKinds.length === 1 ? activeKinds[0] : null;
+  const balanced = sameWeights(s.weights, DEFAULT_WEIGHTS);
+  const soloPick = (k: (typeof LINK_KINDS)[number]) =>
+    set({
+      weights:
+        solo === k
+          ? DEFAULT_WEIGHTS
+          : (Object.fromEntries(LINK_KINDS.map((x) => [x, x === k ? s.weights[k] || DEFAULT_WEIGHTS[k] : 0])) as CommunitySettings["weights"]),
+    });
 
   const sec = (k: Section, title: string, summary: React.ReactNode, body: React.ReactNode) => (
     <details className="cs__sec" open={open[k]} onToggle={(e) => setOpen((o) => ({ ...o, [k]: (e.target as HTMLDetailsElement).open }))}>
@@ -217,55 +200,36 @@ export function CommunityExplorer({
   );
 
   const viewSection =
-    view === "distanz"
-      ? focus
-        ? sec(
-            "ansicht",
-            "Distanz",
-            `${s.scale === "naehe" ? "nach Nähe" : "nach Schritten"} · ${DIRECTIONS.find((d) => d.key === s.dir)!.label}`,
-            <>
-              <Seg label="Richtung" items={DIRECTIONS} value={s.dir} onPick={(dir) => set({ dir })} />
-              <Seg
-                label="Ringe"
-                items={[
-                  { key: "naehe", label: "Nach Nähe", hint: "Abstand zur Mitte = Nähe (stärkere Verbindungen weiter innen)" },
-                  { key: "schritte", label: "Nach Schritten", hint: "Ein Ring je Schritt über andere Spieler" },
-                ]}
-                value={s.scale}
-                onPick={(scale) => set({ scale })}
-              />
-              <label className="conn__weight" title="So viele der Nähesten zeigen">
-                <span className="conn__weight-name">Spieler</span>
-                <input type="range" min={5} max={Math.max(10, linked - 1)} step={1} value={s.maxNodes === 0 ? Math.max(10, linked - 1) : s.maxNodes} onChange={(e) => set({ maxNodes: Number(e.target.value) >= linked - 1 ? 0 : Number(e.target.value) })} />
-                <b className="num conn__weight-val">{s.maxNodes === 0 ? "alle" : s.maxNodes}</b>
-              </label>
-              <label className="conn__row">
-                <input type="checkbox" checked={s.showAll} onChange={(e) => set({ showAll: e.target.checked })} /> Nicht verbundene außen zeigen
-              </label>
-            </>,
-          )
-        : sec(
-            "ansicht",
-            "Zentralität",
-            DIRECTIONS.find((d) => d.key === s.dir)!.label,
-            <>
-              <Seg label="Richtung" items={DIRECTIONS} value={s.dir} onPick={(dir) => set({ dir })} />
-              <p className="muted">Spieler auswählen oder im Bild anklicken für die Distanz aller zu ihm.</p>
-            </>,
-          )
-      : focus
-        ? sec(
-            "ansicht",
-            `Umfeld von ${name(focus)}`,
-            (s.groups ? AROUND_GROUP : AROUND_NET).find(([k]) => k === (s.groups ? s.around : Math.max(1, s.around)))?.[1],
+    view === "distanz" &&
+    sec(
+      "ansicht",
+      focus ? "Distanz" : "Zentralität",
+      focus ? `${s.scale === "naehe" ? "nach Nähe" : "nach Schritten"} · ${DIRECTIONS.find((d) => d.key === s.dir)!.label}` : DIRECTIONS.find((d) => d.key === s.dir)!.label,
+      <>
+        <Seg label="Richtung" items={DIRECTIONS} value={s.dir} onPick={(dir) => set({ dir })} />
+        {focus && (
+          <>
             <Seg
-              label="Umfeld"
-              items={(s.groups ? AROUND_GROUP : AROUND_NET).map(([k, l]) => ({ key: String(k), label: l, hint: "" }))}
-              value={String(s.groups ? s.around : Math.max(1, s.around))}
-              onPick={(k) => set({ around: Number(k) })}
-            />,
-          )
-        : null;
+              label="Ringe"
+              items={[
+                { key: "naehe", label: "Nach Nähe", hint: "Abstand zur Mitte = Nähe (stärkere Verbindungen weiter innen)" },
+                { key: "schritte", label: "Nach Schritten", hint: "Ein Ring je Schritt über andere Spieler" },
+              ]}
+              value={s.scale}
+              onPick={(scale) => set({ scale })}
+            />
+            <label className="cs__row" title="So viele der Nächsten zeigen">
+              <span>Spieler</span>
+              <input type="range" min={5} max={Math.max(10, linked - 1)} step={1} value={s.maxNodes === 0 ? Math.max(10, linked - 1) : s.maxNodes} onChange={(e) => set({ maxNodes: Number(e.target.value) >= linked - 1 ? 0 : Number(e.target.value) })} />
+              <b className="num">{s.maxNodes === 0 ? "alle" : s.maxNodes}</b>
+            </label>
+            <Toggle on={s.showAll} onClick={() => set({ showAll: !s.showAll })} title="Spieler ohne Weg zu ihm am Rand zeigen">
+              Nicht verbundene außen
+            </Toggle>
+          </>
+        )}
+      </>,
+    );
 
   return (
     <div className="stack" style={{ "--stack": "16px" } as React.CSSProperties}>
@@ -287,12 +251,12 @@ export function CommunityExplorer({
           <FigValue>{num(msgs)}</FigValue>
         </div>
         <div className="box st-fig" data-tone="pink">
-          <dt>Verbindungen</dt>
+          <dt title={`${num(counts.length)} von ${num(activeCount)} Verbindungen nach den Filtern`}>Verbindungen</dt>
           <FigValue>{num(counts.length)}</FigValue>
         </div>
         <div className="box st-fig" data-tone="sky">
           <dt>{!s.groups ? "Spieler im Netz" : fg !== undefined ? "Gruppe" : "Gruppen"}</dt>
-          <FigValue unit={s.groups && fg !== undefined ? "Spieler" : undefined}>{!s.groups ? num(linked) : fg !== undefined ? num(analysis.groups[fg].members.length) : num(analysis.groups.length)}</FigValue>
+          <FigValue unit={fg !== undefined ? "Spieler" : undefined}>{!s.groups ? num(linked) : fg !== undefined ? num(analysis.groups[fg].members.length) : num(analysis.groups.length)}</FigValue>
         </div>
       </dl>
 
@@ -313,101 +277,69 @@ export function CommunityExplorer({
             </div>
             <div className="comm__player">
               <PlayerSearch players={nodes} value={focus} onChange={select} label="Spieler auswählen" empty={{ label: "Alle Spieler" }} />
-              {focus && (
-                <Link className="more__all" href={`/spieler/${encodeURIComponent(focus)}`}>
-                  Profil
-                </Link>
-              )}
             </div>
             {focus && (
-              <p className="muted cs__focusline">{fg !== undefined ? `${name(focus)}: Gruppe um ${name(analysis.groups[fg].leader)}` : `${name(focus)}: in diesem Zeitraum ohne Verbindung`}</p>
+              <Link className="cs__profile" href={`/spieler/${encodeURIComponent(focus)}`} title={`Profil von ${name(focus)} öffnen`}>
+                <Head id={focus} uuid={byId.get(focus)?.uuid} name={name(focus)} size={24} decorative />
+                <span>
+                  <b>Profil von {name(focus)}</b>
+                  {(fg !== undefined || !linkedFocus) && <small className="muted">{fg !== undefined ? `Gruppe um ${name(analysis.groups[fg].leader)}` : "in diesem Zeitraum ohne Verbindung"}</small>}
+                </span>
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3l5 5-5 5" fill="none" stroke="currentColor" strokeWidth="2.5" /></svg>
+              </Link>
             )}
-            <Seg
-              label="Welche Verbindungen"
-              items={[
-                { key: "alle", label: "Alle Verbindungen", hint: "Alles, was auf Twitch zwischen Spielern passiert ist" },
-                {
-                  key: "server",
-                  label: "Nur auf dem Server",
-                  hint: "Nur, während mindestens einer der beiden auf dem Server war: Raids und Nachrichten zu dem Zeitpunkt, geteilter Chat und Titel nur für diese Zeit",
-                },
-              ]}
-              value={server ? "server" : "alle"}
-              onPick={(k) => setServer(k === "server")}
-            />
-            <label className="conn__row cs__groups" title="Wer untereinander deutlich enger verbunden ist als mit dem Rest">
-              <input
-                type="checkbox"
-                checked={s.groups}
-                onChange={(e) => {
-                  set({ groups: e.target.checked });
-                  if (e.target.checked) setOpen((o) => ({ ...o, gruppen: true }));
-                }}
-              /> <b>Gruppen anzeigen</b>
-            </label>
-            {last >= 0 &&
-              sec(
-                "zeit",
-                "Zeitraum",
-                from === to ? dayLabel(data.days[to]) : `${dayLabel(data.days[from])} – ${dayLabel(data.days[to])}`,
-                <>
-                  <div className="cs__time">
-                    <button
-                      type="button"
-                      className="btn btn--small"
-                      data-tone="white"
-                      onClick={() => {
-                        if (!playing && to >= last) setTo(0);
-                        setPlaying(!playing);
-                      }}
-                      aria-label={playing ? "Anhalten" : "Abspielen"}
-                      title={playing ? "Anhalten" : "Tag für Tag abspielen"}
-                    >
-                      {playing ? "❚❚" : "▶"}
-                    </button>
-                    <input
-                      type="range"
-                      min={0}
-                      max={last}
-                      step={1}
-                      value={to}
-                      onChange={(e) => {
-                        setPlaying(false);
-                        const v = Number(e.target.value);
-                        setTo(v >= last ? null : v);
-                      }}
-                      aria-label="Tag"
-                      aria-valuetext={dayLabel(data.days[to])}
-                    />
-                    {to !== last && (
-                      <button type="button" className="more__all" onClick={() => (setPlaying(false), setTo(null))}>
-                        Heute
-                      </button>
-                    )}
-                  </div>
-                  <Seg label="Zeitfenster" items={WINDOWS} value={s.win} onPick={(win) => set({ win })} />
-                </>,
-              )}
+            <div className="cs__toggles">
+              <Toggle on={s.groups} onClick={() => set({ groups: !s.groups })} title="Wer untereinander deutlich enger verbunden ist als mit dem Rest (Louvain). Sagt nichts über echte Freundschaften.">
+                Gruppen
+              </Toggle>
+              <Toggle
+                on={server}
+                onClick={() => setServer(!server)}
+                title="Nur, während mindestens einer der beiden auf dem Server war: Raids und Nachrichten zu dem Zeitpunkt, geteilter Chat und Titel nur für diese Zeit"
+              >
+                Verbindungen während online
+              </Toggle>
+            </div>
+            {s.groups && (
+              <div className="cs__groupbar">
+                <label className="cs__row" title={`Gewünschte Zahl, so nah wie möglich. Gefunden: ${num(analysis.groups.length)} Gruppen, größte ${num(sizes[0] ?? 0)} Spieler, ${num(sizes.filter((n) => n === 1).length)} allein`}>
+                  <span>Anzahl</span>
+                  <input type="range" min={2} max={40} step={1} value={s.count} onChange={(e) => set({ count: Number(e.target.value) })} />
+                  <b className="num">{num(s.count)}</b>
+                </label>
+                {view === "netz" && !focus && (
+                  <Toggle on={s.groupMap} onClick={() => set({ groupMap: !s.groupMap })} title="Nur die Anführer, Linien = Verbindungen zwischen den Gruppen">
+                    Ein Kopf je Gruppe
+                  </Toggle>
+                )}
+              </div>
+            )}
+            {last >= 0 && (
+              <div className="cs__time">
+                <span className="eyebrow">Zeitraum</span>
+                <span className="cs__dates">{from === to ? dayLabel(data.days[to]) : `${dayLabel(data.days[from])} – ${dayLabel(data.days[to])}`}</span>
+                <DayRange last={last} from={from} to={to} label={(i) => dayLabel(data.days[i])} onChange={pickRange} />
+              </div>
+            )}
             {viewSection}
             {sec(
-              "gewicht",
-              "Was zählt wie viel",
-              preset,
+              "verteilung",
+              "Verteilung",
+              balanced ? "ausgewogen" : solo ? `nur ${KIND_INFO[solo].label}` : "eigene",
               <>
-                <div className="gb__seg" role="group" aria-label="Voreinstellungen">
-                  {WEIGHT_PRESETS.map((p) => (
-                    <button key={p.label} type="button" aria-pressed={sameWeights(s.weights, p.w)} onClick={() => set({ weights: p.w })}>
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
                 {LINK_KINDS.map((k) => {
                   const w = s.weights[k];
                   return (
-                    <label key={k} className="conn__weight" title={`${KIND_INFO[k].hint} · ${w === 0 ? "zählt nicht" : KIND_INFO[k].unit(w)}`}>
-                      <span className="conn__weight-name">
+                    <div key={k} className="cs__row" data-off={w === 0 || undefined}>
+                      <button
+                        type="button"
+                        className="cs__kind"
+                        aria-pressed={solo === k}
+                        onClick={() => soloPick(k)}
+                        title={`${KIND_INFO[k].hint}. ${solo === k ? "Anklicken: wieder alles ausgewogen" : "Anklicken: nur das zählt"}`}
+                      >
                         <i style={{ background: KIND_INFO[k].color }} aria-hidden="true" /> {KIND_INFO[k].label}
-                      </span>
+                      </button>
                       <input
                         type="range"
                         min={0}
@@ -415,12 +347,19 @@ export function CommunityExplorer({
                         step={0.25}
                         value={w}
                         onChange={(e) => set({ weights: { ...s.weights, [k]: Number(e.target.value) } })}
+                        aria-label={`Gewicht ${KIND_INFO[k].label}`}
                         aria-valuetext={w === 0 ? "aus" : `Faktor ${dec.format(w)}`}
+                        title={w === 0 ? "zählt nicht" : KIND_INFO[k].unit(w)}
                       />
-                      <b className="num conn__weight-val">{w === 0 ? "aus" : `×${dec.format(w)}`}</b>
-                    </label>
+                      <b className="num">{w === 0 ? "aus" : `×${dec.format(w)}`}</b>
+                    </div>
                   );
                 })}
+                {!balanced && (
+                  <button type="button" className="linkbtn cs__balance" onClick={() => set({ weights: DEFAULT_WEIGHTS })}>
+                    Ausgewogen
+                  </button>
+                )}
               </>,
             )}
             {sec(
@@ -428,8 +367,8 @@ export function CommunityExplorer({
               "Filter",
               [s.min ? `ab ${dec.format(s.min)} P.` : null, s.mutual ? "gegenseitig" : null, s.show !== "alle" ? SHOW.find((x) => x.key === s.show)!.label : null].filter(Boolean).join(" · ") || "keine",
               <>
-                <label className="conn__weight" title="Schwächere Verbindungen ausblenden (auch für Distanz und Gruppen)">
-                  <span className="conn__weight-name">Mindeststärke</span>
+                <label className="cs__row" title="Schwächere Verbindungen ausblenden (gilt auch für Distanz und Gruppen)">
+                  <span>Mindeststärke</span>
                   <input
                     type="range"
                     min={0}
@@ -439,70 +378,26 @@ export function CommunityExplorer({
                     onChange={(e) => set({ min: minSteps[Number(e.target.value)] })}
                     aria-valuetext={s.min === 0 ? "alle" : `ab ${dec.format(s.min)} Punkten`}
                   />
-                  <b className="num conn__weight-val">{s.min === 0 ? "alle" : `ab ${dec.format(s.min)} P.`}</b>
+                  <b className="num">{s.min === 0 ? "alle" : `${dec.format(s.min)} P.`}</b>
                 </label>
-                <Seg
-                  label="Richtung der Verbindungen"
-                  items={[
-                    { key: "alle", label: "Alle", hint: "Auch einseitige Verbindungen" },
-                    { key: "gegenseitig", label: "Nur gegenseitige", hint: "Nur, wenn beide etwas für den anderen tun: raiden sich, schreiben beieinander, nennen sich im Titel oder teilen einen Chat" },
-                  ]}
-                  value={s.mutual ? "gegenseitig" : "alle"}
-                  onPick={(k) => set({ mutual: k === "gegenseitig" })}
-                />
-                <Seg label="Spieler" items={SHOW} value={s.show} onPick={(show) => set({ show })} />
-                <p className="muted">
-                  {num(counts.length)} von {num(activeCount)} Verbindungen · {num(linked)} Spieler
-                </p>
-              </>,
-            )}
-            {s.groups &&
-              sec(
-              "gruppen",
-              "Gruppen",
-              `${num(analysis.groups.length)} Gruppen`,
-              <>
-                <div className="gb__seg" role="group" aria-label="Einteilung">
-                  <button type="button" aria-pressed={s.groupMode === "feinheit"} onClick={() => set({ groupMode: "feinheit", resolution })}>
-                    Feinheit
-                  </button>
-                  <button type="button" aria-pressed={s.groupMode === "anzahl"} onClick={() => set({ groupMode: "anzahl", count: analysis.groups.length })}>
-                    Anzahl
-                  </button>
+                <div className="cs__toggles">
+                  <Seg label="Spieler" items={SHOW} value={s.show} onPick={(show) => set({ show })} />
+                  <Toggle on={s.mutual} onClick={() => set({ mutual: !s.mutual })} title="Nur, wenn beide etwas für den anderen tun: raiden sich, schreiben beieinander, nennen sich im Titel oder teilen einen Chat">
+                    Nur gegenseitige
+                  </Toggle>
                 </div>
-                {s.groupMode === "feinheit" ? (
-                  <label className="conn__weight" title="Höher = mehr, kleinere Gruppen">
-                    <span className="conn__weight-name">Feinheit</span>
-                    <input type="range" min={0} max={RES_STEPS} step={1} value={stepOfRes(s.resolution)} onChange={(e) => set({ resolution: resOfStep(Number(e.target.value)) })} aria-valuetext={dec.format(s.resolution)} />
-                    <b className="num conn__weight-val">{dec.format(s.resolution)}</b>
-                  </label>
-                ) : (
-                  <label className="conn__weight" title={`Gewünschte Zahl, so nah wie möglich (Feinheit ${dec.format(resolution)})`}>
-                    <span className="conn__weight-name">Gruppen</span>
-                    <input type="range" min={2} max={40} step={1} value={s.count} onChange={(e) => set({ count: Number(e.target.value) })} />
-                    <b className="num conn__weight-val">{num(s.count)}</b>
-                  </label>
-                )}
-                <p className="muted">
-                  {num(analysis.groups.length)} Gruppen · größte {num(sizes[0] ?? 0)} Spieler · {num(sizes.filter((n) => n === 1).length)} allein{" "}
-                  <Explain>Louvain: die Aufteilung, bei der möglichst viel Verbindungsstärke innerhalb der Gruppen liegt, benannt nach dem Mitglied mit der meisten Aufmerksamkeit. Sagt nichts über echte Freundschaften.</Explain>
-                </p>
-                {view === "netz" && !focus && (
-                  <Seg
-                    label="Darstellung"
-                    items={[
-                      { key: "alle", label: "Alle Spieler", hint: "Jeder Spieler auf der Fläche seiner Gruppe" },
-                      { key: "karte", label: "Ein Kopf je Gruppe", hint: "Nur die Anführer, Linien = Verbindungen zwischen den Gruppen" },
-                    ]}
-                    value={s.groupMap ? "karte" : "alle"}
-                    onPick={(k) => set({ groupMap: k === "karte" })}
-                  />
-                )}
               </>,
             )}
             {changed && (
-              <button type="button" className="tag conn__reset" onClick={() => setS({ ...SETTINGS_DEFAULTS })}>
-                Alle Einstellungen zurücksetzen
+              <button
+                type="button"
+                className="linkbtn cs__reset"
+                onClick={() => {
+                  setS({ ...SETTINGS_DEFAULTS });
+                  setRange({ from: 0, to: null });
+                }}
+              >
+                Alles zurücksetzen
               </button>
             )}
           </aside>
@@ -523,6 +418,51 @@ export function CommunityExplorer({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Schalter: an = dunkel, aus = ausgegraut */
+function Toggle({ on, onClick, title, children }: { on: boolean; onClick: () => void; title?: string; children: React.ReactNode }) {
+  return (
+    <button type="button" className="cs__toggle" aria-pressed={on} onClick={onClick} title={title}>
+      {children}
+    </button>
+  );
+}
+
+/** Zeitraum als ein Regler mit zwei Griffen (von, bis); die Griffe schieben sich gegenseitig */
+function DayRange({ last, from, to, label, onChange }: { last: number; from: number; to: number; label: (i: number) => string; onChange: (from: number, to: number) => void }) {
+  const f = last > 0 ? from / last : 0;
+  const t = last > 0 ? to / last : 1;
+  return (
+    <div className="cs__range" style={{ "--a": f, "--b": t } as React.CSSProperties}>
+      <input
+        type="range"
+        min={0}
+        max={Math.max(0, last)}
+        step={1}
+        value={from}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          onChange(v, Math.max(v, to));
+        }}
+        aria-label="Von"
+        aria-valuetext={label(from)}
+      />
+      <input
+        type="range"
+        min={0}
+        max={Math.max(0, last)}
+        step={1}
+        value={to}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          onChange(Math.min(v, from), v);
+        }}
+        aria-label="Bis"
+        aria-valuetext={label(to)}
+      />
     </div>
   );
 }

@@ -59,7 +59,7 @@ async function cached<T>(key: string, ttlMs: number, load: () => Promise<T>): Pr
 /* ============================================================ Streams als Sessions */
 
 /** Live-Phasen aller Spieler aus Stream-an/aus-Ereignissen (laufende Streams: end = null). */
-async function getLiveSessions(): Promise<StoredSession[]> {
+export async function getLiveSessions(): Promise<StoredSession[]> {
   await ensureLoaded();
   const db = await getDb();
   const rows = (
@@ -139,6 +139,9 @@ export interface DayNav {
   day: string;
   prev: string | null;
   next: string | null;
+  /** Erster Tag mit Daten und heute (für die Tagesauswahl) */
+  firstDay: string;
+  today: string;
   from: number;
   to: number;
   /** Ab wann an diesem Tag Daten vorliegen (null = ganzer Tag) */
@@ -156,6 +159,8 @@ async function dayNav(day: string | undefined, now: number): Promise<DayNav> {
     day: d,
     prev: d > firstDay ? shiftDay(d, -1) : null,
     next: d < today ? shiftDay(d, 1) : null,
+    firstDay,
+    today,
     from,
     to,
     dataFrom: first !== null && first > from && first < to ? first : null,
@@ -550,7 +555,7 @@ export function computeAllAfkSpans(): Promise<Map<string, Span[]>> {
   return loadAfkSpans(0, now, now);
 }
 
-async function getAllAfkSpans(): Promise<Map<string, Span[]>> {
+export async function getAllAfkSpans(): Promise<Map<string, Span[]>> {
   return cached("afk:all", 60_000, async () => (await snapshot(AFK_SNAPSHOT, computeAllAfkSpans, AFK_SNAPSHOT_MS)).value);
 }
 

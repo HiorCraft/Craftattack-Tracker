@@ -34,6 +34,7 @@ import { STAT_GROUPS } from "@/lib/playerStats";
 import { PlayerMulti } from "./PlayerSearch";
 import { GraphExplain, type ExplainTarget } from "./GraphExplain";
 import { ItemPicker } from "./ItemPicker";
+import { openTab, vodUrl, type ViewVod } from "./ViewerCharts";
 
 /** Reiter der Kennzahl-Auswahl: Server, die Spieler-Rubriken, Ränge und einzelne Blöcke/Mobs */
 const PICKER_TABS = [{ key: "server", label: "Server" }, ...STAT_GROUPS, { key: "rang", label: "Ränge" }, { key: "einzeln", label: "Einzeln" }] as const;
@@ -149,6 +150,8 @@ interface Line extends ApiLine {
   delta?: boolean;
   color: string;
   format: (v: number) => string;
+  /** Spieler der Linie (für VODs), leer bei Server-/Summenlinien */
+  player?: string;
 }
 
 /* ---------- Chart ---------- */
@@ -248,6 +251,14 @@ function niceStep(max: number, ticks: number) {
  * Y-Achse in dieser Einheit; Ränge stehen dabei umgedreht (Platz 1 oben). Bei verschiedenen Einheiten oder auf
  * Wunsch (`percent`) wird jede Kennzahl auf ihr eigenes Maximum skaliert (0–100 %). Echte Werte zeigen Tooltip und Legende.
  */
+function TwitchIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" className="gb-twitch">
+      <path d="M2 1L1 4v10h4v2h2l2-2h3l3-3V1zm12 9l-2 2H9l-2 2v-2H4V2.5h10zM11 5h-1.5v4H11zM7.5 5H6v4h1.5z" fill="currentColor" />
+    </svg>
+  );
+}
+
 function MultiChart({
   lines,
   hidden,
@@ -258,6 +269,7 @@ function MultiChart({
   selected = null,
   onSelect,
   step = 60_000,
+  vods = {},
 }: {
   lines: Line[];
   hidden: Set<string>;
@@ -273,6 +285,8 @@ function MultiChart({
   onSelect?: (from: number, to: number) => void;
   /** Raster der Griffe (ein Bündel des Graphen, ms) */
   step?: number;
+  /** Twitch-VODs je Spieler: Klick in den Graphen öffnet das VOD an dieser Stelle */
+  vods?: Record<string, ViewVod[]>;
 }) {
   const W = 1000;
   const H = 300;
@@ -289,6 +303,22 @@ function MultiChart({
   /** Touch: lange drücken erklärt (kein Rechtsklick auf dem Handy) */
   const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; fired: boolean } | null>(null);
   const zones = useEstimateGaps();
+  /** Angeheftete VOD-Auswahl (mehrere Spieler mit VOD an der Stelle, oder Touch) */
+  const [vodPick, setVodPick] = useState<{ at: number; left: number } | null>(null);
+  const plotRef = useRef<HTMLDivElement>(null);
+  const clickRef = useRef<{ pointerType: string } | null>(null);
+  useEffect(() => {
+    if (!vodPick) return;
+    const close = (e: Event) => {
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !(e.target as Element).closest?.(".gb-chart__vodpop")) setVodPick(null);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [vodPick]);
 
   const visible = lines.filter((l) => !hidden.has(l.id) && l.points.length > 0);
   const all = visible.flatMap((l) => l.points);
@@ -340,6 +370,18 @@ function MultiChart({
     if (!rect || rect.width === 0) return null;
     return t0 + (Math.min(rect.width, Math.max(0, clientX - rect.left)) / rect.width) * span;
   };
+  // Spieler mit VOD (je Spieler einmal, in der Farbe seiner ersten sichtbaren Linie)
+  const vodRows: { player: string; name: string; color: string; spans: ViewVod[] }[] = [];
+  for (const l of visible) {
+    if (!l.player || !vods[l.player]?.length || vodRows.some((r) => r.player === l.player)) continue;
+    const spans = vods[l.player].filter((v) => v.to >= t0 && v.from <= t1);
+    if (spans.length) vodRows.push({ player: l.player, name: l.name.split(" · ").at(-1) ?? l.player, color: l.color, spans });
+  }
+  const vodsAt = (t: number) =>
+    vodRows.flatMap((r) => {
+      const v = r.spans.filter((x) => t >= x.from && t <= x.to).sort((p, q) => q.to - q.from - (p.to - p.from))[0];
+      return v ? [{ ...r, vod: v }] : [];
+    });
   const cancelPress = () => {
     if (press.current) clearTimeout(press.current.timer);
     press.current = null;
@@ -387,9 +429,25 @@ function MultiChart({
     }
     const fired = press.current?.fired;
     cancelPress();
-    // Ziehen vergrößert; ein einfacher Klick tut nichts (Erklären per Rechtsklick)
+    // Ziehen vergrößert; ein einfacher Klick öffnet das VOD an der Stelle (mehrere: Auswahl), Erklären per Rechtsklick
     if (!fired && drag && onZoom && Math.abs(x(drag.b) - x(drag.a)) > 12) onZoom(Math.min(drag.a, drag.b), Math.max(drag.a, drag.b));
+    // Ein einfacher Klick wird erst im echten click-Ereignis ausgewertet: Nur dort lassen alle Browser einen neuen Tab zu
+    else if (!fired && e.button === 0) clickRef.current = { pointerType: e.pointerType };
     setDrag(null);
+  };
+  /** Einfacher Klick: VOD an der Stelle öffnen (ein Spieler, Maus) bzw. Auswahl zeigen (mehrere, Touch) */
+  const onClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    const c = clickRef.current;
+    clickRef.current = null;
+    if (!c) return;
+    const t = timeAt(e.clientX);
+    const hits = t === null ? [] : vodsAt(t);
+    if (t === null || !hits.length) return;
+    if (hits.length === 1 && c.pointerType === "mouse") openTab(vodUrl(hits[0].vod, t, 0));
+    else {
+      const rect = plotRef.current?.getBoundingClientRect();
+      setVodPick({ at: t, left: rect ? (e.clientX - rect.left) / rect.width : 0.5 });
+    }
   };
   const onContext = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!onPick) return;
@@ -455,7 +513,7 @@ function MultiChart({
           </span>
         ))}
       </div>
-      <div className="gb-chart__plot">
+      <div className="gb-chart__plot" ref={plotRef} data-vod={vodRows.length > 0 || undefined}>
         <svg
           ref={ref}
           viewBox={`0 0 ${W} ${H}`}
@@ -469,6 +527,7 @@ function MultiChart({
           onPointerCancel={() => (cancelPress(), setDrag(null), setRdrag(null))}
           onPointerLeave={() => !drag && setHover(null)}
           onContextMenu={onContext}
+          onClick={onClick}
         >
           <EstimateRects zones={zones} x={x} t0={t0} t1={t1} height={H} />
           {drag && Math.abs(x(drag.b) - x(drag.a)) > 2 && (
@@ -537,7 +596,7 @@ function MultiChart({
               />
             );
           })}
-        {tip && tipT !== null && !resize && !rdrag && (
+        {tip && tipT !== null && !resize && !rdrag && !vodPick && (
           <div className="gb-chart__tip" style={{ left: `${tipLeft * 100}%`, transform: `translateX(${tipLeft > 0.7 ? "-100%" : tipLeft < 0.3 ? "0" : "-50%"})` }} role="status">
             <span className="gb-chart__tip-time">{dtf.format(tipT)} Uhr</span>
             <EstimateTip zones={zones} t={tipT} />
@@ -548,6 +607,33 @@ function MultiChart({
                 <span className="num">{t.p ? t.line.format(t.p.v) : "–"}</span>
               </span>
             ))}
+            {hover !== null && vodsAt(hover).length > 0 && (
+              <span className="gb-chart__tip-vod">
+                <TwitchIcon /> Klick: {vodsAt(hover).length === 1 ? `VOD von ${vodsAt(hover)[0].name} ab ${tf.format(hover)}` : `VOD wählen (${vodsAt(hover).length})`}
+              </span>
+            )}
+          </div>
+        )}
+        {vodPick && (
+          <div className="gb-chart__vodpop box" data-tone="white" style={{ left: `${vodPick.left * 100}%`, transform: `translateX(${vodPick.left > 0.7 ? "-100%" : vodPick.left < 0.3 ? "0" : "-50%"})` }} role="dialog" aria-label="VOD öffnen">
+            <span className="gb-chart__tip-time">
+              VOD ab {tf.format(vodPick.at)} Uhr
+              <button type="button" className="pick__x" onClick={() => setVodPick(null)} aria-label="Schließen">
+                ×
+              </button>
+            </span>
+            {vodsAt(vodPick.at).map((r) => (
+              <span key={r.player} className="gb-chart__vodrow">
+                <i style={{ background: r.color }} />
+                <span className="gb-chart__tip-name">{r.name}</span>
+                <a className="tag" data-tone="twitch" href={vodUrl(r.vod, vodPick.at, 0)} target="_blank" rel="noopener noreferrer" onClick={() => setVodPick(null)}>
+                  <TwitchIcon /> VOD
+                </a>
+                <a className="tag" data-tone="white" href={`${BASE_PATH}/spieler/${encodeURIComponent(r.player)}`}>
+                  Profil
+                </a>
+              </span>
+            ))}
           </div>
         )}
         <div className="chart__axis gb-chart__x">
@@ -555,6 +641,47 @@ function MultiChart({
             <span key={i}>{xLabel(t0 + (span * i) / xTicks)}</span>
           ))}
         </div>
+        {vodRows.length > 0 && (
+          <div className="gb-chart__vods" aria-label="Twitch-VODs">
+            {vodRows.map((r) => (
+              <div
+                key={r.player}
+                className="gb-chart__vodlane"
+                // Der Streifen folgt dem Zeiger wie der Graph: Linie und Tooltip zeigen die Stelle, die ein Klick öffnet
+                onPointerMove={(e) => {
+                  const t = timeAt(e.clientX);
+                  if (t !== null) setHover(t);
+                }}
+                onPointerLeave={() => setHover(null)}
+              >
+                {r.spans.map((v) => {
+                  const a = Math.max(t0, v.from);
+                  const b = Math.min(t1, v.to);
+                  return (
+                    <a
+                      key={v.vodId}
+                      // Echter Link, dessen Ziel dem Zeiger folgt: öffnet genau an der Stelle, auch mit Mittelklick (Tastatur: Anfang)
+                      href={vodUrl(v, hover !== null && hover >= v.from && hover <= v.to ? hover : a, 0)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={hover !== null && hover >= v.from && hover <= v.to ? `VOD von ${r.name} ab ${dtf.format(hover)} Uhr öffnen` : `VOD von ${r.name}`}
+                      onPointerDown={(e) => {
+                        // Touch hat kein Überfahren: Stelle beim Antippen setzen, bevor der Link auslöst
+                        const t = timeAt(e.clientX);
+                        if (t !== null) setHover(t);
+                      }}
+                      style={{ left: `${(x(a) / W) * 100}%`, width: `${Math.max(0.4, ((x(b) - x(a)) / W) * 100)}%`, background: r.color }}
+                      aria-label={`VOD von ${r.name} ab ${dtf.format(a)}`}
+                    />
+                  );
+                })}
+              </div>
+            ))}
+            <span className="gb-chart__vodkey">
+              <TwitchIcon /> VODs
+            </span>
+          </div>
+        )}
         {normalized && (
           <p className="muted gb-chart__note">
             {units.size > 1 ? "Verschiedene Einheiten: " : ""}jede Kennzahl ist auf ihr eigenes Maximum skaliert (100 %). Echte Werte zeigen Tooltip und Legende.
@@ -579,6 +706,7 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
   // Zuletzt vollständig gezeigte Auswahl: bleibt sichtbar, bis die neue komplett geladen ist
   const [shownQ, setShownQ] = useState<GraphQuery | null>(null);
   const inflight = useRef(new Set<string>());
+  const playerIds = useMemo(() => new Set(players.map((p) => p.id)), [players]);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const itemNames = useMemo(() => {
     const m = new Map<string, string>();
@@ -699,6 +827,7 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
           delta,
           color: metric === "twitchSubs" && series.length === 1 ? "var(--twitch)" : COLORS[lines.length % COLORS.length],
           format: m.format,
+          player: playerIds.has(s.id) ? s.id : undefined,
         });
       }
     }
@@ -710,8 +839,24 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
     const rangeFrom =
       vq.zeit === "eigen" && Number.isFinite(localMs(vq.von)) ? localMs(vq.von) : r?.ms ? loadedAt - r.ms : Number.isFinite(firstPoint) ? firstPoint : loadedAt;
     return { q: vq, lines, bucketMinutes, key: toSearch(vq).toString(), rangeFrom, rangeTo };
-  }, [viewQ, q.achse, q.modus, q.ansicht, cache, meta]);
+  }, [viewQ, q.achse, q.modus, q.ansicht, cache, meta, playerIds]);
   const lines = view?.lines ?? [];
+
+  // Twitch-VODs der gezeigten Spieler im Zeitraum (nur Zeitverlauf; der Tagesverlauf hat keine echten Zeitpunkte)
+  const vodKey = view && q.ansicht === "zeit" ? [...new Set(lines.flatMap((l) => (l.player ? [l.player] : [])))].sort().join(",") : "";
+  const vodFrom = view?.rangeFrom ?? 0;
+  const vodTo = view?.rangeTo ?? 0;
+  const [vods, setVods] = useState<{ key: string; vods: Record<string, ViewVod[]> }>({ key: "", vods: {} });
+  const vodReq = vodKey ? `${vodKey}|${Math.floor(vodFrom / 600_000)}|${Math.ceil(vodTo / 600_000)}` : "";
+  useEffect(() => {
+    if (!vodReq || vods.key === vodReq) return;
+    const ctrl = new AbortController();
+    fetch(`${BASE_PATH}/api/vods?spieler=${encodeURIComponent(vodKey)}&von=${Math.floor(vodFrom)}&bis=${Math.ceil(vodTo)}`, { signal: ctrl.signal })
+      .then((r) => (r.ok ? (r.json() as Promise<{ vods: Record<string, ViewVod[]> }>) : { vods: {} }))
+      .then((d) => setVods({ key: vodReq, vods: d.vods }))
+      .catch(() => {});
+    return () => ctrl.abort();
+  }, [vodReq]); // eslint-disable-line react-hooks/exhaustive-deps
   /** „später →“ geht bis jetzt (nicht nur bis zum letzten geladenen Punkt, der liegt immer am Ende des Zeitraums) */
   const renderNow = useNow();
   const laterDisabled = q.zeit !== "eigen" || !Number.isFinite(localMs(q.bis)) || (renderNow !== null && localMs(q.bis) >= renderNow - 2 * 60_000);
@@ -877,6 +1022,7 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
             <PlayerMulti
               players={players}
               selected={q.spieler}
+              profileHref={(id) => `/spieler/${encodeURIComponent(id)}`}
               max={12}
               onAdd={togglePlayer}
               onRemove={togglePlayer}
@@ -1117,6 +1263,7 @@ export function GraphBuilder({ players, initial, items }: { players: PlayerOptio
               selected={explain}
               onSelect={(from, to) => setExplain({ from, to })}
               step={Math.max(1, view?.bucketMinutes || 5) * 60_000}
+              vods={vods.key === vodReq ? vods.vods : {}}
             />
             {explain && <GraphExplain target={explain} metrics={explainMetrics} players={q.spieler} onClose={() => setExplain(null)} />}
           </>

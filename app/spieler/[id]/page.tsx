@@ -30,6 +30,7 @@ import { TwitchEmbed } from "@/components/TwitchEmbed";
 import { PlayerInsights } from "@/components/PlayerInsights";
 import { getPlayerAfkSpans, getPlayerRates, getRankHistory, spanSeconds } from "@/lib/analytics";
 import { PlayerActivity } from "@/components/PlayerActivity";
+import { getRhythms } from "@/lib/rhythm";
 import { PlayerDetails } from "@/components/PlayerDetails";
 import { playtimeOf, trackedSecondsOf } from "@/lib/playtime";
 import { getPlayerEventTimeState } from "@/lib/playerEventStatus";
@@ -263,6 +264,9 @@ async function HeadSection({ params }: { params: Params }) {
               <span className="tag" data-tone="white">
                 Erfasst seit {dateTime(p.firstSeen)}
               </span>
+              <Link className="tag" data-tone="gold" href={`/spieler/${encodeURIComponent(p.id)}/rueckblick`} title="Die Staffel dieses Spielers in Zahlen">
+                ★ Staffel-Rückblick
+              </Link>
             </div>
           </div>
         </div>
@@ -527,7 +531,7 @@ async function InsightsSection({ params }: { params: Params }) {
 async function ActivitySection({ params }: { params: Params }) {
   const { id, now, p } = await ctxFor(params);
   if (!p) return null;
-  const [allSessions, afkSpans, rankHistory] = await Promise.all([getAllSessions(), getPlayerAfkSpans(id), getRankHistory()]);
+  const [allSessions, afkSpans, rankHistory, rhythms] = await Promise.all([getAllSessions(), getPlayerAfkSpans(id), getRankHistory(), getRhythms()]);
   const playtime = playtimeOf(p, now);
   return (
     <PlayerActivity
@@ -537,6 +541,7 @@ async function ActivitySection({ params }: { params: Params }) {
       ranks={rankHistory}
       values={{ ...p.stats, ...(playtime.seconds > 0 ? { playtimeSeconds: playtime.seconds } : {}) }}
       apiRanks={p.ranks ?? {}}
+      rhythm={rhythms.get(id) ?? null}
       now={now}
     />
   );
