@@ -24,16 +24,20 @@ export function SiteFooter() {
           </p>
         </div>
         <ul className="site-foot__nav">
-          {HUBS.flatMap((h) => h.tabs).map((t) => (
-            <li key={t.href}>
-              <Link href={t.href}>{t.href === "/verbindungen" ? "Verbindungen" : t.label}</Link>
+          {/* Nur die Bereiche, nicht jeder Reiter – die stehen schon in der Kopfnavigation */}
+          {HUBS.map((h) => (
+            <li key={h.key}>
+              <Link href={h.tabs[0].href}>{h.label}</Link>
             </li>
           ))}
           <li>
             <Link href="/so-funktionierts">So funktioniert’s</Link>
           </li>
           <li>
-            <a href="/api/tracker">JSON-API</a>
+            <Link href="/impressum">Impressum</Link>
+          </li>
+          <li>
+            <Link href="/datenschutz">Datenschutz</Link>
           </li>
           {/* Die Schätzung (/schaetzung) ist abgeschaltet; nur ihr eigener Build verlinkt zurück */}
           {ESTIMATE && (
@@ -42,11 +46,6 @@ export function SiteFooter() {
               <a href="/">Echte Daten</a>
             </li>
           )}
-          <li>
-            <a href="https://craftattack.one/" target="_blank" rel="noopener">
-              Offizielle Seite
-            </a>
-          </li>
         </ul>
         <div className="site-foot__legal">
           {SOCIALS.some((s) => s.href) && (
