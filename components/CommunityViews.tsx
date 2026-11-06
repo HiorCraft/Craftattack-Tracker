@@ -237,7 +237,7 @@ export function NaeheView({ c }: { c: CommunityCtx }) {
     return (
       <>
         <div className="box conn__box" data-tone="white">
-          {central.length ? <CentralRings nodes={netNodes} central={central} groupOf={analysis.groupOf} colorOf={colorOf} onSelect={c.select} /> : <p className="muted conn__empty">Mit diesen Einstellungen gibt es keine Verbindungen.</p>}
+          {central.length ? <CentralRings nodes={netNodes} central={central} edges={c.weighted} groupOf={analysis.groupOf} colorOf={colorOf} onSelect={c.select} /> : <p className="muted conn__empty">Mit diesen Einstellungen gibt es keine Verbindungen.</p>}
         </div>
         <div className="section-head" style={{ marginTop: 32 }}>
           <h2 className="t-2">
