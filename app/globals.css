@@ -4827,22 +4827,78 @@ i.mig__mk-own { fill: var(--mig-mk-own); background: var(--mig-mk-own); }
 }
 
 /* ---------- Netz-Versuch (/intern/netz) ---------- */
+.radial {
+  position: relative;
+}
 .radial__svg {
   width: 100%;
   height: auto;
   max-height: 86vh;
   display: block;
   color: var(--ink);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.radial__svg[data-dragging] {
+  cursor: grabbing;
+}
+.radial__svg[data-dragging] .radial__node {
+  transition: opacity 0.2s;
+}
+.radial__zoom {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+  display: flex;
+  gap: 2px;
+}
+.radial__zoom button {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--ink);
+  font: 700 1.125rem/1 var(--font-display);
+  cursor: pointer;
+}
+.radial__zoom button:hover:not(:disabled),
+.radial__zoom button:focus-visible {
+  background: var(--ink);
+  color: var(--paper);
+}
+.radial__zoom button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.radial__links line,
+.radial__link-on {
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.radial__links {
+  transition: opacity 0.2s;
+}
+.radial__links[data-dim] {
+  opacity: 0.15;
+}
+.radial__link-on {
+  opacity: 0.9;
 }
 .radial__ring circle {
   fill: none;
   stroke: color-mix(in srgb, var(--ink) 18%, transparent);
   stroke-width: 2;
   stroke-dasharray: 6 8;
+  vector-effect: non-scaling-stroke;
 }
 .radial__ring text {
   fill: color-mix(in srgb, var(--ink) 55%, transparent);
-  font-size: 15px;
+  font-size: calc(15px * var(--pz, 1));
   text-anchor: middle;
 }
 .radial__edge {
