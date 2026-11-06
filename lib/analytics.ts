@@ -59,7 +59,7 @@ async function cached<T>(key: string, ttlMs: number, load: () => Promise<T>): Pr
 /* ============================================================ Streams als Sessions */
 
 /** Live-Phasen aller Spieler aus Stream-an/aus-Ereignissen (laufende Streams: end = null). */
-async function getLiveSessions(): Promise<StoredSession[]> {
+export async function getLiveSessions(): Promise<StoredSession[]> {
   await ensureLoaded();
   const db = await getDb();
   const rows = (
@@ -555,7 +555,7 @@ export function computeAllAfkSpans(): Promise<Map<string, Span[]>> {
   return loadAfkSpans(0, now, now);
 }
 
-async function getAllAfkSpans(): Promise<Map<string, Span[]>> {
+export async function getAllAfkSpans(): Promise<Map<string, Span[]>> {
   return cached("afk:all", 60_000, async () => (await snapshot(AFK_SNAPSHOT, computeAllAfkSpans, AFK_SNAPSHOT_MS)).value);
 }
 

@@ -13,6 +13,8 @@ import { EXTRA_HISTORY_KEYS, EXTRA_STATS, STAT_GROUPS } from "@/lib/playerStats"
 import { LEADERBOARDS, boardHref } from "@/lib/leaderboards";
 import { graphHref, rankMetric } from "@/lib/graphQuery";
 import { GROUP_TONE } from "@/lib/statTone";
+import { classifiable, type Rhythm } from "@/lib/rhythmCore";
+import { TraitBadges, clock } from "./Rhythm";
 
 const DAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 
@@ -48,6 +50,7 @@ export function PlayerActivity({
   ranks,
   values,
   apiRanks,
+  rhythm,
   now,
 }: {
   id: string;
@@ -60,6 +63,8 @@ export function PlayerActivity({
   values: Partial<Record<BoardKey, number>>;
   /** Offizieller Rang laut API (für die Überschrift jeder Karte) */
   apiRanks: Partial<Record<BoardKey, PlayerRank>>;
+  /** Spielrhythmus und Spielertyp (lib/rhythm.ts) */
+  rhythm?: Rhythm | null;
   now: number;
 }) {
   const afkGrid = heat(afk.map(([a, b]) => ({ start: a, end: b })), now);
@@ -227,6 +232,49 @@ export function PlayerActivity({
               <p className="eyebrow" style={{ marginBottom: 4 }}>
                 Wann online
               </p>
+              {rhythm && rhythm.activeDays > 0 && (
+                <div className="rh-profile">
+                  <p className="rh-profile__type">
+                    <span className="muted">Spielertyp</span>{" "}
+                    {classifiable(rhythm) ? (
+                      <TraitBadges traits={rhythm.traits} max={4} hrefOf={(k) => `/spielertypen?typ=${k}#liste`} />
+                    ) : (
+                      <span className="muted">noch zu wenig Daten</span>
+                    )}{" "}
+                    <Link className="rh-profile__all" href="/spielertypen">
+                      Alle Typen
+                    </Link>
+                  </p>
+                  <dl className="rh-profile__facts">
+                    <div>
+                      <dt>Session (Median)</dt>
+                      <dd>{duration(rhythm.medianSession * 60)}</dd>
+                    </div>
+                    <div>
+                      <dt>Aktive Tage</dt>
+                      <dd>
+                        {num(rhythm.activeDays)} von {num(rhythm.spanDays)}
+                      </dd>
+                    </div>
+                    {rhythm.typicalStart !== null && (
+                      <div>
+                        <dt>Erster Login meist</dt>
+                        <dd>um {clock(rhythm.typicalStart)}</dd>
+                      </div>
+                    )}
+                    <div>
+                      <dt>Wochenende</dt>
+                      <dd>{Math.round(rhythm.weekend * 100)} %</dd>
+                    </div>
+                    {rhythm.liveShare !== null && (
+                      <div>
+                        <dt>Davon live</dt>
+                        <dd>{Math.round(rhythm.liveShare * 100)} %</dd>
+                      </div>
+                    )}
+                  </dl>
+                </div>
+              )}
               {total === 0 ? (
                 <p className="muted" style={{ fontSize: ".875rem" }}>
                   Noch keine Online-Zeit gemessen.
