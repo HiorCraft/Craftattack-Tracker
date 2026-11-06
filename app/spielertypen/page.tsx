@@ -70,7 +70,7 @@ async function Types({ searchParams }: { searchParams: PageProps<"/spielertypen"
               Grundlage sind die vom Tracker gemessenen Sessions (Ein- und Ausloggen), Live-Phasen und AFK-Phasen, Zeiten in deutscher Ortszeit. Eingeordnet
               wird, wer mindestens {MIN_MINUTES / 60} Std an {MIN_DAYS} Tagen online war. Ein Typ gilt, wenn jemand damit zum auffälligsten Fünftel aller
               Spieler gehört und eine Mindestgrenze erreicht (z. B. Nachteule: mindestens 18 % der Zeit zwischen 0 und 6 Uhr). Je Bereich zählt nur das
-              deutlichste Merkmal; das stärkste insgesamt steht vorn. Kurze Unterbrechungen unter 15 Min zählen nicht als neue Session.
+              deutlichste Merkmal; das stärkste insgesamt steht vorn. Pausen bis 1 Std zählen zur selben Session (kurz offline, Essen, Neustart).
             </Explain>
           </p>
         </div>
